@@ -1,6 +1,11 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.models import SnowflakeStep
+from app.agents import AgentNotConfiguredError, UnconfiguredWritingAgent, WritingAgent
+from app.models import (
+    SnowflakeGenerationRequest,
+    SnowflakeGenerationResponse,
+    SnowflakeStep,
+)
 
 
 router = APIRouter(tags=["snowflake"])
@@ -74,3 +79,23 @@ SNOWFLAKE_STEPS = [
 def list_snowflake_steps() -> list[SnowflakeStep]:
     return SNOWFLAKE_STEPS
 
+
+def get_writing_agent() -> WritingAgent:
+    return UnconfiguredWritingAgent()
+
+
+@router.post(
+    "/snowflake/generate",
+    response_model=SnowflakeGenerationResponse,
+)
+def generate_snowflake_artifact(
+    request: SnowflakeGenerationRequest,
+    agent: WritingAgent = Depends(get_writing_agent),
+) -> SnowflakeGenerationResponse:
+    try:
+        return agent.generate_snowflake_artifact(request)
+    except AgentNotConfiguredError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=str(exc),
+        ) from exc
