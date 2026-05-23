@@ -1,6 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.agents import AgentNotConfiguredError, UnconfiguredWritingAgent, WritingAgent
+from app.agents import (
+    InterfaceOnlyWritingWorkflow,
+    WorkflowNotConfiguredError,
+    WritingWorkflow,
+)
 from app.models import (
     SnowflakeGenerationRequest,
     SnowflakeGenerationResponse,
@@ -80,8 +84,8 @@ def list_snowflake_steps() -> list[SnowflakeStep]:
     return SNOWFLAKE_STEPS
 
 
-def get_writing_agent() -> WritingAgent:
-    return UnconfiguredWritingAgent()
+def get_writing_workflow() -> WritingWorkflow:
+    return InterfaceOnlyWritingWorkflow()
 
 
 @router.post(
@@ -90,12 +94,15 @@ def get_writing_agent() -> WritingAgent:
 )
 def generate_snowflake_artifact(
     request: SnowflakeGenerationRequest,
-    agent: WritingAgent = Depends(get_writing_agent),
+    workflow: WritingWorkflow = Depends(get_writing_workflow),
 ) -> SnowflakeGenerationResponse:
     try:
-        return agent.generate_snowflake_artifact(request)
-    except AgentNotConfiguredError as exc:
+        return workflow.run_snowflake_generation(request)
+    except WorkflowNotConfiguredError as exc:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail=str(exc),
+            detail={
+                "message": str(exc),
+                "workflow_trace": [trace.model_dump() for trace in exc.trace],
+            },
         ) from exc

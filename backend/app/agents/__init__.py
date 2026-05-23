@@ -1,11 +1,13 @@
-from app.agents.writing_agent import (
-    AgentNotConfiguredError,
-    UnconfiguredWritingAgent,
-    WritingAgent,
+from app.agents.writing_workflow import (
+    InterfaceOnlyWritingWorkflow,
+    WorkflowAgent,
+    WorkflowNotConfiguredError,
+    WritingWorkflow,
 )
 
 __all__ = [
-    "AgentNotConfiguredError",
-    "UnconfiguredWritingAgent",
-    "WritingAgent",
+    "InterfaceOnlyWritingWorkflow",
+    "WorkflowAgent",
+    "WorkflowNotConfiguredError",
+    "WritingWorkflow",
 ]

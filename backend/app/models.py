@@ -47,8 +47,15 @@ class SnowflakeGenerationRequest(BaseModel):
         return normalized
 
 
+class WorkflowAgentTrace(BaseModel):
+    stage: str
+    agent_name: str
+    status: str
+
+
 class SnowflakeGenerationResponse(BaseModel):
     project_id: str
     step_number: int = Field(ge=1, le=10)
     artifact: str
     content: str
+    workflow_trace: list[WorkflowAgentTrace] = Field(default_factory=list)
