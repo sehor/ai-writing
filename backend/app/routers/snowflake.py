@@ -6,13 +6,18 @@ from app.agents import (
     WritingWorkflow,
 )
 from app.models import (
+    SnowflakeArtifact,
+    SnowflakeArtifactUpdate,
     SnowflakeGenerationRequest,
     SnowflakeGenerationResponse,
     SnowflakeStep,
 )
+from app.routers.projects import project_exists
 
 
 router = APIRouter(tags=["snowflake"])
+
+SNOWFLAKE_ARTIFACTS: dict[tuple[str, int], SnowflakeArtifact] = {}
 
 
 SNOWFLAKE_STEPS = [
@@ -82,6 +87,75 @@ SNOWFLAKE_STEPS = [
 @router.get("/snowflake/steps", response_model=list[SnowflakeStep])
 def list_snowflake_steps() -> list[SnowflakeStep]:
     return SNOWFLAKE_STEPS
+
+
+def get_snowflake_step(step_number: int) -> SnowflakeStep:
+    for step in SNOWFLAKE_STEPS:
+        if step.number == step_number:
+            return step
+    raise HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Snowflake step not found.",
+    )
+
+
+def require_project(project_id: str) -> None:
+    if not project_exists(project_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Project not found.",
+        )
+
+
+@router.get(
+    "/projects/{project_id}/snowflake/artifacts",
+    response_model=list[SnowflakeArtifact],
+)
+def list_snowflake_artifacts(project_id: str) -> list[SnowflakeArtifact]:
+    require_project(project_id)
+    artifacts = [
+        artifact
+        for (stored_project_id, _), artifact in SNOWFLAKE_ARTIFACTS.items()
+        if stored_project_id == project_id
+    ]
+    return sorted(artifacts, key=lambda artifact: artifact.step_number)
+
+
+@router.get(
+    "/projects/{project_id}/snowflake/artifacts/{step_number}",
+    response_model=SnowflakeArtifact,
+)
+def get_snowflake_artifact(project_id: str, step_number: int) -> SnowflakeArtifact:
+    require_project(project_id)
+    get_snowflake_step(step_number)
+    artifact = SNOWFLAKE_ARTIFACTS.get((project_id, step_number))
+    if artifact is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Snowflake artifact not found.",
+        )
+    return artifact
+
+
+@router.put(
+    "/projects/{project_id}/snowflake/artifacts/{step_number}",
+    response_model=SnowflakeArtifact,
+)
+def save_snowflake_artifact(
+    project_id: str,
+    step_number: int,
+    update: SnowflakeArtifactUpdate,
+) -> SnowflakeArtifact:
+    require_project(project_id)
+    step = get_snowflake_step(step_number)
+    artifact = SnowflakeArtifact(
+        project_id=project_id,
+        step_number=step_number,
+        artifact=step.artifact,
+        content=update.content,
+    )
+    SNOWFLAKE_ARTIFACTS[(project_id, step_number)] = artifact
+    return artifact
 
 
 def get_writing_workflow() -> WritingWorkflow:

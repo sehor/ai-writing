@@ -33,6 +33,10 @@ def list_projects() -> list[ProjectSummary]:
     return PROJECTS
 
 
+def project_exists(project_id: str) -> bool:
+    return any(project.id == project_id for project in PROJECTS)
+
+
 @router.post(
     "/projects",
     response_model=ProjectSummary,

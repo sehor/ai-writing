@@ -47,6 +47,25 @@ class SnowflakeGenerationRequest(BaseModel):
         return normalized
 
 
+class SnowflakeArtifactUpdate(BaseModel):
+    content: str = Field(min_length=1, max_length=20000)
+
+    @field_validator("content")
+    @classmethod
+    def normalize_content(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Value cannot be blank.")
+        return normalized
+
+
+class SnowflakeArtifact(BaseModel):
+    project_id: str
+    step_number: int = Field(ge=1, le=10)
+    artifact: str
+    content: str
+
+
 class WorkflowAgentTrace(BaseModel):
     stage: str
     agent_name: str
