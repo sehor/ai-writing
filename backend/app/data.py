@@ -1,0 +1,1707 @@
+from pathlib import Path
+from re import sub
+from contextlib import contextmanager
+from datetime import UTC, datetime
+import json
+import sqlite3
+from typing import Iterator, Protocol
+
+from app.models import (
+    CanonEntity,
+    CanonEntityCreate,
+    CanonEntityUpdate,
+    MemoryRecord,
+    MemoryRecordCreate,
+    MemoryRecordUpdate,
+    ManuscriptProposal,
+    ManuscriptProposalCreate,
+    ManuscriptProposalStatus,
+    ManuscriptRevision,
+    ManuscriptScene,
+    ManuscriptSceneUpdate,
+    ProjectCreate,
+    ProjectSummary,
+    ReferenceSuggestion,
+    ReferenceSuggestionCreate,
+    ReferenceSuggestionStatus,
+    SceneContract,
+    SceneContractCreate,
+    SceneContractUpdate,
+    SnowflakeArtifact,
+    WorkflowAgentTrace,
+    WritebackProposal,
+    WritebackProposalCreate,
+    WritebackProposalStatus,
+)
+
+
+class WritingDataStore(Protocol):
+    def init(self) -> None:
+        pass
+
+    def list_projects(self) -> list[ProjectSummary]:
+        pass
+
+    def create_project(self, project: ProjectCreate) -> ProjectSummary:
+        pass
+
+    def get_project(self, project_id: str) -> ProjectSummary | None:
+        pass
+
+    def project_exists(self, project_id: str) -> bool:
+        pass
+
+    def advance_project_current_step(
+        self, project_id: str, completed_step: int
+    ) -> ProjectSummary | None:
+        pass
+
+    def list_snowflake_artifacts(self, project_id: str) -> list[SnowflakeArtifact]:
+        pass
+
+    def get_snowflake_artifact(
+        self, project_id: str, step_number: int
+    ) -> SnowflakeArtifact | None:
+        pass
+
+    def save_snowflake_artifact(self, artifact: SnowflakeArtifact) -> SnowflakeArtifact:
+        pass
+
+    def list_canon_entities(self, project_id: str) -> list[CanonEntity]:
+        pass
+
+    def create_canon_entity(
+        self, project_id: str, entity: CanonEntityCreate
+    ) -> CanonEntity:
+        pass
+
+    def update_canon_entity(
+        self, project_id: str, entity_id: str, entity: CanonEntityUpdate
+    ) -> CanonEntity | None:
+        pass
+
+    def delete_canon_entity(self, project_id: str, entity_id: str) -> bool:
+        pass
+
+    def list_scene_contracts(self, project_id: str) -> list[SceneContract]:
+        pass
+
+    def get_scene_contract(
+        self, project_id: str, scene_id: str
+    ) -> SceneContract | None:
+        pass
+
+    def create_scene_contract(
+        self, project_id: str, scene: SceneContractCreate
+    ) -> SceneContract:
+        pass
+
+    def update_scene_contract(
+        self, project_id: str, scene_id: str, scene: SceneContractUpdate
+    ) -> SceneContract | None:
+        pass
+
+    def delete_scene_contract(self, project_id: str, scene_id: str) -> bool:
+        pass
+
+    def list_memory_records(self, project_id: str) -> list[MemoryRecord]:
+        pass
+
+    def create_memory_record(
+        self, project_id: str, record: MemoryRecordCreate
+    ) -> MemoryRecord:
+        pass
+
+    def update_memory_record(
+        self, project_id: str, record_id: str, record: MemoryRecordUpdate
+    ) -> MemoryRecord | None:
+        pass
+
+    def delete_memory_record(self, project_id: str, record_id: str) -> bool:
+        pass
+
+    def list_manuscript_proposals(self, project_id: str) -> list[ManuscriptProposal]:
+        pass
+
+    def create_manuscript_proposal(
+        self, project_id: str, proposal: ManuscriptProposalCreate
+    ) -> ManuscriptProposal:
+        pass
+
+    def update_manuscript_proposal_status(
+        self,
+        project_id: str,
+        proposal_id: str,
+        proposal_status: ManuscriptProposalStatus,
+    ) -> ManuscriptProposal | None:
+        pass
+
+    def get_manuscript_proposal(
+        self, project_id: str, proposal_id: str
+    ) -> ManuscriptProposal | None:
+        pass
+
+    def list_manuscript_scenes(self, project_id: str) -> list[ManuscriptScene]:
+        pass
+
+    def list_manuscript_revisions(self, project_id: str) -> list[ManuscriptRevision]:
+        pass
+
+    def get_manuscript_revision(
+        self, project_id: str, revision_id: str
+    ) -> ManuscriptRevision | None:
+        pass
+
+    def accept_manuscript_proposal(
+        self, project_id: str, proposal_id: str
+    ) -> ManuscriptScene | None:
+        pass
+
+    def restore_manuscript_revision(
+        self, project_id: str, revision_id: str
+    ) -> ManuscriptScene | None:
+        pass
+
+    def update_manuscript_scene(
+        self, project_id: str, scene_id: str, update: ManuscriptSceneUpdate
+    ) -> ManuscriptScene | None:
+        pass
+
+    def list_writeback_proposals(self, project_id: str) -> list[WritebackProposal]:
+        pass
+
+    def create_writeback_proposal(
+        self, project_id: str, proposal: WritebackProposalCreate
+    ) -> WritebackProposal:
+        pass
+
+    def update_writeback_proposal_status(
+        self,
+        project_id: str,
+        proposal_id: str,
+        proposal_status: WritebackProposalStatus,
+    ) -> WritebackProposal | None:
+        pass
+
+    def list_reference_suggestions(self, project_id: str) -> list[ReferenceSuggestion]:
+        pass
+
+    def create_reference_suggestion(
+        self, project_id: str, suggestion: ReferenceSuggestionCreate
+    ) -> ReferenceSuggestion:
+        pass
+
+    def update_reference_suggestion_status(
+        self,
+        project_id: str,
+        suggestion_id: str,
+        suggestion_status: ReferenceSuggestionStatus,
+    ) -> ReferenceSuggestion | None:
+        pass
+
+
+class SQLiteWritingDataStore:
+    def __init__(self, database_path: Path):
+        self.database_path = database_path
+
+    def init(self) -> None:
+        self.database_path.parent.mkdir(parents=True, exist_ok=True)
+        with self.connect() as connection:
+            connection.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS projects (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    premise TEXT NOT NULL,
+                    current_step INTEGER NOT NULL
+                );
+
+                CREATE TABLE IF NOT EXISTS snowflake_artifacts (
+                    project_id TEXT NOT NULL,
+                    step_number INTEGER NOT NULL,
+                    artifact TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    PRIMARY KEY (project_id, step_number),
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS canon_entities (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    entity_type TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    summary TEXT NOT NULL,
+                    current_state TEXT NOT NULL,
+                    constraints TEXT NOT NULL,
+                    last_seen TEXT NOT NULL,
+                    timeline_notes TEXT NOT NULL,
+                    UNIQUE (project_id, entity_type, name),
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS scene_contracts (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    pov TEXT NOT NULL,
+                    goal TEXT NOT NULL,
+                    conflict TEXT NOT NULL,
+                    turning_point TEXT NOT NULL,
+                    required_canon TEXT NOT NULL,
+                    forbidden_facts TEXT NOT NULL,
+                    open_threads TEXT NOT NULL,
+                    source_artifact_step INTEGER NOT NULL,
+                    UNIQUE (project_id, sequence),
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS memory_records (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    record_type TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    scope TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    tags TEXT NOT NULL,
+                    source_ref TEXT NOT NULL,
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS manuscript_proposals (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    scene_id TEXT NOT NULL,
+                    source TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    context TEXT NOT NULL,
+                    checklist_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    reviewed_at TEXT NOT NULL,
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS manuscript_scenes (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    scene_id TEXT NOT NULL,
+                    proposal_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    version INTEGER NOT NULL,
+                    accepted_at TEXT NOT NULL,
+                    UNIQUE (project_id, scene_id),
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                    FOREIGN KEY (proposal_id) REFERENCES manuscript_proposals(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS manuscript_revisions (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    scene_id TEXT NOT NULL,
+                    proposal_id TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    version INTEGER NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE (project_id, scene_id, version),
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+                    FOREIGN KEY (proposal_id) REFERENCES manuscript_proposals(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS writeback_proposals (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    target TEXT NOT NULL,
+                    action TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    rationale TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    source_ref TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    reviewed_at TEXT NOT NULL,
+                    applied_record_id TEXT NOT NULL,
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS reference_suggestions (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    suggestion_type TEXT NOT NULL,
+                    scope_type TEXT NOT NULL,
+                    scope_ref TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    content TEXT NOT NULL,
+                    rationale TEXT NOT NULL,
+                    used_context TEXT NOT NULL,
+                    canon_warnings_json TEXT NOT NULL,
+                    style_notes_json TEXT NOT NULL,
+                    graph_warnings_json TEXT NOT NULL,
+                    proposed_writebacks_json TEXT NOT NULL,
+                    workflow_trace_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    reviewed_at TEXT NOT NULL,
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+                """
+            )
+            if not connection.execute("SELECT 1 FROM projects LIMIT 1").fetchone():
+                connection.execute(
+                    """
+                    INSERT INTO projects (id, title, premise, current_step)
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (
+                        "demo-novel",
+                        "Demo Novel",
+                        "A prototype project for Snowflake-driven AI long-form writing.",
+                        1,
+                    ),
+                )
+
+    @contextmanager
+    def connect(self) -> Iterator[sqlite3.Connection]:
+        connection = sqlite3.connect(self.database_path)
+        connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys = ON")
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
+
+    def list_projects(self) -> list[ProjectSummary]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, title, premise, current_step
+                FROM projects
+                ORDER BY rowid
+                """
+            ).fetchall()
+        return [project_from_row(row) for row in rows]
+
+    def create_project(self, project: ProjectCreate) -> ProjectSummary:
+        with self.connect() as connection:
+            existing_ids = {
+                row["id"] for row in connection.execute("SELECT id FROM projects").fetchall()
+            }
+            created = ProjectSummary(
+                id=make_project_id(project.title, existing_ids),
+                title=project.title,
+                premise=project.premise,
+                current_step=1,
+            )
+            connection.execute(
+                """
+                INSERT INTO projects (id, title, premise, current_step)
+                VALUES (?, ?, ?, ?)
+                """,
+                (
+                    created.id,
+                    created.title,
+                    created.premise,
+                    created.current_step,
+                ),
+            )
+        return created
+
+    def get_project(self, project_id: str) -> ProjectSummary | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, title, premise, current_step
+                FROM projects
+                WHERE id = ?
+                """,
+                (project_id,),
+            ).fetchone()
+        return project_from_row(row) if row else None
+
+    def project_exists(self, project_id: str) -> bool:
+        with self.connect() as connection:
+            row = connection.execute(
+                "SELECT 1 FROM projects WHERE id = ? LIMIT 1",
+                (project_id,),
+            ).fetchone()
+        return row is not None
+
+    def advance_project_current_step(
+        self, project_id: str, completed_step: int
+    ) -> ProjectSummary | None:
+        next_step = min(completed_step + 1, 10)
+        with self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE projects
+                SET current_step = MAX(current_step, ?)
+                WHERE id = ?
+                """,
+                (next_step, project_id),
+            )
+        return self.get_project(project_id)
+
+    def list_snowflake_artifacts(self, project_id: str) -> list[SnowflakeArtifact]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT project_id, step_number, artifact, content
+                FROM snowflake_artifacts
+                WHERE project_id = ?
+                ORDER BY step_number
+                """,
+                (project_id,),
+            ).fetchall()
+        return [artifact_from_row(row) for row in rows]
+
+    def get_snowflake_artifact(
+        self, project_id: str, step_number: int
+    ) -> SnowflakeArtifact | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT project_id, step_number, artifact, content
+                FROM snowflake_artifacts
+                WHERE project_id = ? AND step_number = ?
+                """,
+                (project_id, step_number),
+            ).fetchone()
+        return artifact_from_row(row) if row else None
+
+    def save_snowflake_artifact(self, artifact: SnowflakeArtifact) -> SnowflakeArtifact:
+        with self.connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO snowflake_artifacts (project_id, step_number, artifact, content)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(project_id, step_number) DO UPDATE SET
+                    artifact = excluded.artifact,
+                    content = excluded.content
+                """,
+                (
+                    artifact.project_id,
+                    artifact.step_number,
+                    artifact.artifact,
+                    artifact.content,
+                ),
+            )
+        return artifact
+
+    def list_canon_entities(self, project_id: str) -> list[CanonEntity]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, entity_type, name, summary, current_state,
+                       constraints, last_seen, timeline_notes
+                FROM canon_entities
+                WHERE project_id = ?
+                ORDER BY entity_type, name
+                """,
+                (project_id,),
+            ).fetchall()
+        return [canon_entity_from_row(row) for row in rows]
+
+    def create_canon_entity(
+        self, project_id: str, entity: CanonEntityCreate
+    ) -> CanonEntity:
+        with self.connect() as connection:
+            existing_ids = {
+                row["id"]
+                for row in connection.execute(
+                    "SELECT id FROM canon_entities WHERE project_id = ?",
+                    (project_id,),
+                ).fetchall()
+            }
+            created = CanonEntity(
+                id=make_record_id(f"{entity.entity_type}-{entity.name}", existing_ids),
+                project_id=project_id,
+                **entity.model_dump(),
+            )
+            connection.execute(
+                """
+                INSERT INTO canon_entities (
+                    id, project_id, entity_type, name, summary, current_state,
+                    constraints, last_seen, timeline_notes
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                canon_entity_to_params(created),
+            )
+        return created
+
+    def update_canon_entity(
+        self, project_id: str, entity_id: str, entity: CanonEntityUpdate
+    ) -> CanonEntity | None:
+        updated = CanonEntity(
+            id=entity_id,
+            project_id=project_id,
+            **entity.model_dump(),
+        )
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE canon_entities
+                SET entity_type = ?,
+                    name = ?,
+                    summary = ?,
+                    current_state = ?,
+                    constraints = ?,
+                    last_seen = ?,
+                    timeline_notes = ?
+                WHERE project_id = ? AND id = ?
+                """,
+                (
+                    updated.entity_type,
+                    updated.name,
+                    updated.summary,
+                    updated.current_state,
+                    updated.constraints,
+                    updated.last_seen,
+                    updated.timeline_notes,
+                    project_id,
+                    entity_id,
+                ),
+            )
+        return updated if cursor.rowcount else None
+
+    def delete_canon_entity(self, project_id: str, entity_id: str) -> bool:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM canon_entities WHERE project_id = ? AND id = ?",
+                (project_id, entity_id),
+            )
+        return cursor.rowcount > 0
+
+    def list_scene_contracts(self, project_id: str) -> list[SceneContract]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, sequence, title, pov, goal, conflict,
+                       turning_point, required_canon, forbidden_facts, open_threads,
+                       source_artifact_step
+                FROM scene_contracts
+                WHERE project_id = ?
+                ORDER BY sequence
+                """,
+                (project_id,),
+            ).fetchall()
+        return [scene_contract_from_row(row) for row in rows]
+
+    def get_scene_contract(
+        self, project_id: str, scene_id: str
+    ) -> SceneContract | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, sequence, title, pov, goal, conflict,
+                       turning_point, required_canon, forbidden_facts, open_threads,
+                       source_artifact_step
+                FROM scene_contracts
+                WHERE project_id = ? AND id = ?
+                """,
+                (project_id, scene_id),
+            ).fetchone()
+        return scene_contract_from_row(row) if row else None
+
+    def create_scene_contract(
+        self, project_id: str, scene: SceneContractCreate
+    ) -> SceneContract:
+        with self.connect() as connection:
+            existing_ids = {
+                row["id"]
+                for row in connection.execute(
+                    "SELECT id FROM scene_contracts WHERE project_id = ?",
+                    (project_id,),
+                ).fetchall()
+            }
+            created = SceneContract(
+                id=make_record_id(f"s{scene.sequence}-{scene.title}", existing_ids),
+                project_id=project_id,
+                **scene.model_dump(),
+            )
+            connection.execute(
+                """
+                INSERT INTO scene_contracts (
+                    id, project_id, sequence, title, pov, goal, conflict,
+                    turning_point, required_canon, forbidden_facts, open_threads,
+                    source_artifact_step
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                scene_contract_to_params(created),
+            )
+        return created
+
+    def update_scene_contract(
+        self, project_id: str, scene_id: str, scene: SceneContractUpdate
+    ) -> SceneContract | None:
+        updated = SceneContract(
+            id=scene_id,
+            project_id=project_id,
+            **scene.model_dump(),
+        )
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE scene_contracts
+                SET sequence = ?,
+                    title = ?,
+                    pov = ?,
+                    goal = ?,
+                    conflict = ?,
+                    turning_point = ?,
+                    required_canon = ?,
+                    forbidden_facts = ?,
+                    open_threads = ?,
+                    source_artifact_step = ?
+                WHERE project_id = ? AND id = ?
+                """,
+                (
+                    updated.sequence,
+                    updated.title,
+                    updated.pov,
+                    updated.goal,
+                    updated.conflict,
+                    updated.turning_point,
+                    updated.required_canon,
+                    updated.forbidden_facts,
+                    updated.open_threads,
+                    updated.source_artifact_step,
+                    project_id,
+                    scene_id,
+                ),
+            )
+        return updated if cursor.rowcount else None
+
+    def delete_scene_contract(self, project_id: str, scene_id: str) -> bool:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM scene_contracts WHERE project_id = ? AND id = ?",
+                (project_id, scene_id),
+            )
+        return cursor.rowcount > 0
+
+    def list_memory_records(self, project_id: str) -> list[MemoryRecord]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, record_type, title, scope, content, tags, source_ref
+                FROM memory_records
+                WHERE project_id = ?
+                ORDER BY record_type, title
+                """,
+                (project_id,),
+            ).fetchall()
+        return [memory_record_from_row(row) for row in rows]
+
+    def create_memory_record(
+        self, project_id: str, record: MemoryRecordCreate
+    ) -> MemoryRecord:
+        with self.connect() as connection:
+            existing_ids = {
+                row["id"]
+                for row in connection.execute(
+                    "SELECT id FROM memory_records WHERE project_id = ?",
+                    (project_id,),
+                ).fetchall()
+            }
+            created = MemoryRecord(
+                id=make_record_id(f"{record.record_type}-{record.title}", existing_ids),
+                project_id=project_id,
+                **record.model_dump(),
+            )
+            connection.execute(
+                """
+                INSERT INTO memory_records (
+                    id, project_id, record_type, title, scope, content, tags, source_ref
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                memory_record_to_params(created),
+            )
+        return created
+
+    def update_memory_record(
+        self, project_id: str, record_id: str, record: MemoryRecordUpdate
+    ) -> MemoryRecord | None:
+        updated = MemoryRecord(
+            id=record_id,
+            project_id=project_id,
+            **record.model_dump(),
+        )
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE memory_records
+                SET record_type = ?,
+                    title = ?,
+                    scope = ?,
+                    content = ?,
+                    tags = ?,
+                    source_ref = ?
+                WHERE project_id = ? AND id = ?
+                """,
+                (
+                    updated.record_type,
+                    updated.title,
+                    updated.scope,
+                    updated.content,
+                    updated.tags,
+                    updated.source_ref,
+                    project_id,
+                    record_id,
+                ),
+            )
+        return updated if cursor.rowcount else None
+
+    def delete_memory_record(self, project_id: str, record_id: str) -> bool:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM memory_records WHERE project_id = ? AND id = ?",
+                (project_id, record_id),
+            )
+        return cursor.rowcount > 0
+
+    def list_manuscript_proposals(self, project_id: str) -> list[ManuscriptProposal]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, scene_id, source, title, content, context,
+                       checklist_json, status, created_at, reviewed_at
+                FROM manuscript_proposals
+                WHERE project_id = ?
+                ORDER BY created_at DESC, id DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [manuscript_proposal_from_row(row) for row in rows]
+
+    def create_manuscript_proposal(
+        self, project_id: str, proposal: ManuscriptProposalCreate
+    ) -> ManuscriptProposal:
+        now = utc_now()
+        with self.connect() as connection:
+            existing_ids = {
+                row["id"]
+                for row in connection.execute(
+                    "SELECT id FROM manuscript_proposals WHERE project_id = ?",
+                    (project_id,),
+                ).fetchall()
+            }
+            created = ManuscriptProposal(
+                id=make_record_id(f"proposal-{proposal.title}", existing_ids),
+                project_id=project_id,
+                status="pending_review",
+                created_at=now,
+                reviewed_at="",
+                **proposal.model_dump(),
+            )
+            connection.execute(
+                """
+                INSERT INTO manuscript_proposals (
+                    id, project_id, scene_id, source, title, content, context,
+                    checklist_json, status, created_at, reviewed_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                manuscript_proposal_to_params(created),
+            )
+        return created
+
+    def update_manuscript_proposal_status(
+        self,
+        project_id: str,
+        proposal_id: str,
+        proposal_status: ManuscriptProposalStatus,
+    ) -> ManuscriptProposal | None:
+        reviewed_at = utc_now() if proposal_status != "pending_review" else ""
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE manuscript_proposals
+                SET status = ?,
+                    reviewed_at = ?
+                WHERE project_id = ? AND id = ?
+                """,
+                (proposal_status, reviewed_at, project_id, proposal_id),
+            )
+        if cursor.rowcount == 0:
+            return None
+        return self.get_manuscript_proposal(project_id, proposal_id)
+
+    def get_manuscript_proposal(
+        self, project_id: str, proposal_id: str
+    ) -> ManuscriptProposal | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, scene_id, source, title, content, context,
+                       checklist_json, status, created_at, reviewed_at
+                FROM manuscript_proposals
+                WHERE project_id = ? AND id = ?
+                """,
+                (project_id, proposal_id),
+            ).fetchone()
+        return manuscript_proposal_from_row(row) if row else None
+
+    def list_manuscript_scenes(self, project_id: str) -> list[ManuscriptScene]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, scene_id, proposal_id, title, content,
+                       version, accepted_at
+                FROM manuscript_scenes
+                WHERE project_id = ?
+                ORDER BY accepted_at DESC, id DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [manuscript_scene_from_row(row) for row in rows]
+
+    def list_manuscript_revisions(self, project_id: str) -> list[ManuscriptRevision]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, scene_id, proposal_id, title, content,
+                       version, created_at
+                FROM manuscript_revisions
+                WHERE project_id = ?
+                ORDER BY created_at DESC, id DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [manuscript_revision_from_row(row) for row in rows]
+
+    def get_manuscript_revision(
+        self, project_id: str, revision_id: str
+    ) -> ManuscriptRevision | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, scene_id, proposal_id, title, content,
+                       version, created_at
+                FROM manuscript_revisions
+                WHERE project_id = ? AND id = ?
+                """,
+                (project_id, revision_id),
+            ).fetchone()
+        return manuscript_revision_from_row(row) if row else None
+
+    def accept_manuscript_proposal(
+        self, project_id: str, proposal_id: str
+    ) -> ManuscriptScene | None:
+        now = utc_now()
+        with self.connect() as connection:
+            proposal_row = connection.execute(
+                """
+                SELECT id, project_id, scene_id, source, title, content, context,
+                       checklist_json, status, created_at, reviewed_at
+                FROM manuscript_proposals
+                WHERE project_id = ? AND id = ?
+                """,
+                (project_id, proposal_id),
+            ).fetchone()
+            if proposal_row is None:
+                return None
+            proposal = manuscript_proposal_from_row(proposal_row)
+            current_row = connection.execute(
+                """
+                SELECT version
+                FROM manuscript_scenes
+                WHERE project_id = ? AND scene_id = ?
+                """,
+                (project_id, proposal.scene_id),
+            ).fetchone()
+            version = current_row["version"] + 1 if current_row else 1
+            scene = ManuscriptScene(
+                id=make_record_id(
+                    f"manuscript-{proposal.scene_id}",
+                    {
+                        row["id"]
+                        for row in connection.execute(
+                            "SELECT id FROM manuscript_scenes WHERE project_id = ?",
+                            (project_id,),
+                        ).fetchall()
+                    },
+                )
+                if current_row is None
+                else f"manuscript-{proposal.scene_id}",
+                project_id=project_id,
+                scene_id=proposal.scene_id,
+                proposal_id=proposal.id,
+                title=proposal.title,
+                content=proposal.content,
+                version=version,
+                accepted_at=now,
+            )
+            revision = ManuscriptRevision(
+                id=make_record_id(
+                    f"revision-{proposal.scene_id}-v{version}",
+                    {
+                        row["id"]
+                        for row in connection.execute(
+                            "SELECT id FROM manuscript_revisions WHERE project_id = ?",
+                            (project_id,),
+                        ).fetchall()
+                    },
+                ),
+                project_id=project_id,
+                scene_id=proposal.scene_id,
+                proposal_id=proposal.id,
+                title=proposal.title,
+                content=proposal.content,
+                version=version,
+                created_at=now,
+            )
+            connection.execute(
+                """
+                INSERT INTO manuscript_scenes (
+                    id, project_id, scene_id, proposal_id, title, content,
+                    version, accepted_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(project_id, scene_id) DO UPDATE SET
+                    proposal_id = excluded.proposal_id,
+                    title = excluded.title,
+                    content = excluded.content,
+                    version = excluded.version,
+                    accepted_at = excluded.accepted_at
+                """,
+                manuscript_scene_to_params(scene),
+            )
+            connection.execute(
+                """
+                INSERT INTO manuscript_revisions (
+                    id, project_id, scene_id, proposal_id, title, content,
+                    version, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                manuscript_revision_to_params(revision),
+            )
+            connection.execute(
+                """
+                UPDATE manuscript_proposals
+                SET status = ?,
+                    reviewed_at = ?
+                WHERE project_id = ? AND id = ?
+                """,
+                ("accepted", now, project_id, proposal_id),
+            )
+        return self.get_manuscript_scene(project_id, proposal.scene_id)
+
+    def get_manuscript_scene(
+        self, project_id: str, scene_id: str
+    ) -> ManuscriptScene | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, scene_id, proposal_id, title, content,
+                       version, accepted_at
+                FROM manuscript_scenes
+                WHERE project_id = ? AND scene_id = ?
+                """,
+                (project_id, scene_id),
+            ).fetchone()
+        return manuscript_scene_from_row(row) if row else None
+
+    def restore_manuscript_revision(
+        self, project_id: str, revision_id: str
+    ) -> ManuscriptScene | None:
+        now = utc_now()
+        with self.connect() as connection:
+            revision_row = connection.execute(
+                """
+                SELECT id, project_id, scene_id, proposal_id, title, content,
+                       version, created_at
+                FROM manuscript_revisions
+                WHERE project_id = ? AND id = ?
+                """,
+                (project_id, revision_id),
+            ).fetchone()
+            if revision_row is None:
+                return None
+            source_revision = manuscript_revision_from_row(revision_row)
+            current_row = connection.execute(
+                """
+                SELECT version
+                FROM manuscript_scenes
+                WHERE project_id = ? AND scene_id = ?
+                """,
+                (project_id, source_revision.scene_id),
+            ).fetchone()
+            version = current_row["version"] + 1 if current_row else 1
+            scene = ManuscriptScene(
+                id=make_record_id(
+                    f"manuscript-{source_revision.scene_id}",
+                    {
+                        row["id"]
+                        for row in connection.execute(
+                            "SELECT id FROM manuscript_scenes WHERE project_id = ?",
+                            (project_id,),
+                        ).fetchall()
+                    },
+                )
+                if current_row is None
+                else f"manuscript-{source_revision.scene_id}",
+                project_id=project_id,
+                scene_id=source_revision.scene_id,
+                proposal_id=source_revision.proposal_id,
+                title=source_revision.title,
+                content=source_revision.content,
+                version=version,
+                accepted_at=now,
+            )
+            restored_revision = ManuscriptRevision(
+                id=make_record_id(
+                    f"revision-{source_revision.scene_id}-v{version}",
+                    {
+                        row["id"]
+                        for row in connection.execute(
+                            "SELECT id FROM manuscript_revisions WHERE project_id = ?",
+                            (project_id,),
+                        ).fetchall()
+                    },
+                ),
+                project_id=project_id,
+                scene_id=source_revision.scene_id,
+                proposal_id=source_revision.proposal_id,
+                title=source_revision.title,
+                content=source_revision.content,
+                version=version,
+                created_at=now,
+            )
+            connection.execute(
+                """
+                INSERT INTO manuscript_scenes (
+                    id, project_id, scene_id, proposal_id, title, content,
+                    version, accepted_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(project_id, scene_id) DO UPDATE SET
+                    proposal_id = excluded.proposal_id,
+                    title = excluded.title,
+                    content = excluded.content,
+                    version = excluded.version,
+                    accepted_at = excluded.accepted_at
+                """,
+                manuscript_scene_to_params(scene),
+            )
+            connection.execute(
+                """
+                INSERT INTO manuscript_revisions (
+                    id, project_id, scene_id, proposal_id, title, content,
+                    version, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                manuscript_revision_to_params(restored_revision),
+            )
+        return self.get_manuscript_scene(project_id, source_revision.scene_id)
+
+    def update_manuscript_scene(
+        self, project_id: str, scene_id: str, update: ManuscriptSceneUpdate
+    ) -> ManuscriptScene | None:
+        now = utc_now()
+        with self.connect() as connection:
+            current_row = connection.execute(
+                """
+                SELECT id, project_id, scene_id, proposal_id, title, content,
+                       version, accepted_at
+                FROM manuscript_scenes
+                WHERE project_id = ? AND scene_id = ?
+                """,
+                (project_id, scene_id),
+            ).fetchone()
+            if current_row is None:
+                return None
+            current_scene = manuscript_scene_from_row(current_row)
+            version = current_scene.version + 1
+            updated_scene = ManuscriptScene(
+                id=current_scene.id,
+                project_id=project_id,
+                scene_id=scene_id,
+                proposal_id=current_scene.proposal_id,
+                title=update.title,
+                content=update.content,
+                version=version,
+                accepted_at=now,
+            )
+            revision = ManuscriptRevision(
+                id=make_record_id(
+                    f"revision-{scene_id}-v{version}",
+                    {
+                        row["id"]
+                        for row in connection.execute(
+                            "SELECT id FROM manuscript_revisions WHERE project_id = ?",
+                            (project_id,),
+                        ).fetchall()
+                    },
+                ),
+                project_id=project_id,
+                scene_id=scene_id,
+                proposal_id=current_scene.proposal_id,
+                title=update.title,
+                content=update.content,
+                version=version,
+                created_at=now,
+            )
+            connection.execute(
+                """
+                UPDATE manuscript_scenes
+                SET title = ?,
+                    content = ?,
+                    version = ?,
+                    accepted_at = ?
+                WHERE project_id = ? AND scene_id = ?
+                """,
+                (
+                    updated_scene.title,
+                    updated_scene.content,
+                    updated_scene.version,
+                    updated_scene.accepted_at,
+                    project_id,
+                    scene_id,
+                ),
+            )
+            connection.execute(
+                """
+                INSERT INTO manuscript_revisions (
+                    id, project_id, scene_id, proposal_id, title, content,
+                    version, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                manuscript_revision_to_params(revision),
+            )
+        return self.get_manuscript_scene(project_id, scene_id)
+
+    def list_writeback_proposals(self, project_id: str) -> list[WritebackProposal]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, target, action, title, rationale, payload_json,
+                       source_ref, status, created_at, reviewed_at, applied_record_id
+                FROM writeback_proposals
+                WHERE project_id = ?
+                ORDER BY created_at DESC, id DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [writeback_proposal_from_row(row) for row in rows]
+
+    def create_writeback_proposal(
+        self, project_id: str, proposal: WritebackProposalCreate
+    ) -> WritebackProposal:
+        now = utc_now()
+        with self.connect() as connection:
+            existing_ids = {
+                row["id"]
+                for row in connection.execute(
+                    "SELECT id FROM writeback_proposals WHERE project_id = ?",
+                    (project_id,),
+                ).fetchall()
+            }
+            created = WritebackProposal(
+                id=make_record_id(f"writeback-{proposal.target}-{proposal.title}", existing_ids),
+                project_id=project_id,
+                status="pending_review",
+                created_at=now,
+                reviewed_at="",
+                applied_record_id="",
+                **proposal.model_dump(),
+            )
+            connection.execute(
+                """
+                INSERT INTO writeback_proposals (
+                    id, project_id, target, action, title, rationale, payload_json,
+                    source_ref, status, created_at, reviewed_at, applied_record_id
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                writeback_proposal_to_params(created),
+            )
+        return created
+
+    def update_writeback_proposal_status(
+        self,
+        project_id: str,
+        proposal_id: str,
+        proposal_status: WritebackProposalStatus,
+    ) -> WritebackProposal | None:
+        if proposal_status == "accepted":
+            return self.accept_writeback_proposal(project_id, proposal_id)
+
+        reviewed_at = utc_now() if proposal_status != "pending_review" else ""
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE writeback_proposals
+                SET status = ?,
+                    reviewed_at = ?
+                WHERE project_id = ? AND id = ?
+                """,
+                (proposal_status, reviewed_at, project_id, proposal_id),
+            )
+        if cursor.rowcount == 0:
+            return None
+        return self.get_writeback_proposal(project_id, proposal_id)
+
+    def accept_writeback_proposal(
+        self, project_id: str, proposal_id: str
+    ) -> WritebackProposal | None:
+        proposal = self.get_writeback_proposal(project_id, proposal_id)
+        if proposal is None:
+            return None
+        if proposal.status == "accepted":
+            return proposal
+
+        if proposal.target == "canon_entity":
+            applied = self.create_canon_entity(
+                project_id,
+                CanonEntityCreate.model_validate(proposal.payload),
+            )
+            applied_record_id = applied.id
+        else:
+            applied = self.create_memory_record(
+                project_id,
+                MemoryRecordCreate.model_validate(proposal.payload),
+            )
+            applied_record_id = applied.id
+
+        reviewed_at = utc_now()
+        with self.connect() as connection:
+            connection.execute(
+                """
+                UPDATE writeback_proposals
+                SET status = ?,
+                    reviewed_at = ?,
+                    applied_record_id = ?
+                WHERE project_id = ? AND id = ?
+                """,
+                ("accepted", reviewed_at, applied_record_id, project_id, proposal_id),
+            )
+        return self.get_writeback_proposal(project_id, proposal_id)
+
+    def get_writeback_proposal(
+        self, project_id: str, proposal_id: str
+    ) -> WritebackProposal | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, target, action, title, rationale, payload_json,
+                       source_ref, status, created_at, reviewed_at, applied_record_id
+                FROM writeback_proposals
+                WHERE project_id = ? AND id = ?
+                """,
+                (project_id, proposal_id),
+            ).fetchone()
+        return writeback_proposal_from_row(row) if row else None
+
+    def list_reference_suggestions(self, project_id: str) -> list[ReferenceSuggestion]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, suggestion_type, scope_type, scope_ref,
+                       title, content, rationale, used_context,
+                       canon_warnings_json, style_notes_json, graph_warnings_json,
+                       proposed_writebacks_json, workflow_trace_json,
+                       status, created_at, reviewed_at
+                FROM reference_suggestions
+                WHERE project_id = ?
+                ORDER BY created_at DESC, id DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [reference_suggestion_from_row(row) for row in rows]
+
+    def create_reference_suggestion(
+        self, project_id: str, suggestion: ReferenceSuggestionCreate
+    ) -> ReferenceSuggestion:
+        now = utc_now()
+        with self.connect() as connection:
+            existing_ids = {
+                row["id"]
+                for row in connection.execute(
+                    "SELECT id FROM reference_suggestions WHERE project_id = ?",
+                    (project_id,),
+                ).fetchall()
+            }
+            created = ReferenceSuggestion(
+                id=make_record_id(f"reference-{suggestion.suggestion_type}-{suggestion.title}", existing_ids),
+                project_id=project_id,
+                status="pending_review",
+                created_at=now,
+                reviewed_at="",
+                **suggestion.model_dump(),
+            )
+            connection.execute(
+                """
+                INSERT INTO reference_suggestions (
+                    id, project_id, suggestion_type, scope_type, scope_ref,
+                    title, content, rationale, used_context,
+                    canon_warnings_json, style_notes_json, graph_warnings_json,
+                    proposed_writebacks_json, workflow_trace_json,
+                    status, created_at, reviewed_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                reference_suggestion_to_params(created),
+            )
+        return created
+
+    def update_reference_suggestion_status(
+        self,
+        project_id: str,
+        suggestion_id: str,
+        suggestion_status: ReferenceSuggestionStatus,
+    ) -> ReferenceSuggestion | None:
+        reviewed_at = utc_now() if suggestion_status != "pending_review" else ""
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE reference_suggestions
+                SET status = ?,
+                    reviewed_at = ?
+                WHERE project_id = ? AND id = ?
+                """,
+                (suggestion_status, reviewed_at, project_id, suggestion_id),
+            )
+        if cursor.rowcount == 0:
+            return None
+        return self.get_reference_suggestion(project_id, suggestion_id)
+
+    def get_reference_suggestion(
+        self, project_id: str, suggestion_id: str
+    ) -> ReferenceSuggestion | None:
+        with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, suggestion_type, scope_type, scope_ref,
+                       title, content, rationale, used_context,
+                       canon_warnings_json, style_notes_json, graph_warnings_json,
+                       proposed_writebacks_json, workflow_trace_json,
+                       status, created_at, reviewed_at
+                FROM reference_suggestions
+                WHERE project_id = ? AND id = ?
+                """,
+                (project_id, suggestion_id),
+            ).fetchone()
+        return reference_suggestion_from_row(row) if row else None
+
+
+def make_project_id(title: str, existing_ids: set[str]) -> str:
+    return make_record_id(title, existing_ids)
+
+
+def make_record_id(title: str, existing_ids: set[str]) -> str:
+    base = sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "project"
+    candidate = base
+    suffix = 2
+    while candidate in existing_ids:
+        candidate = f"{base}-{suffix}"
+        suffix += 1
+    return candidate
+
+
+def project_from_row(row: sqlite3.Row) -> ProjectSummary:
+    return ProjectSummary(
+        id=row["id"],
+        title=row["title"],
+        premise=row["premise"],
+        current_step=row["current_step"],
+    )
+
+
+def artifact_from_row(row: sqlite3.Row) -> SnowflakeArtifact:
+    return SnowflakeArtifact(
+        project_id=row["project_id"],
+        step_number=row["step_number"],
+        artifact=row["artifact"],
+        content=row["content"],
+    )
+
+
+def canon_entity_from_row(row: sqlite3.Row) -> CanonEntity:
+    return CanonEntity(
+        id=row["id"],
+        project_id=row["project_id"],
+        entity_type=row["entity_type"],
+        name=row["name"],
+        summary=row["summary"],
+        current_state=row["current_state"],
+        constraints=row["constraints"],
+        last_seen=row["last_seen"],
+        timeline_notes=row["timeline_notes"],
+    )
+
+
+def canon_entity_to_params(entity: CanonEntity) -> tuple[str, str, str, str, str, str, str, str, str]:
+    return (
+        entity.id,
+        entity.project_id,
+        entity.entity_type,
+        entity.name,
+        entity.summary,
+        entity.current_state,
+        entity.constraints,
+        entity.last_seen,
+        entity.timeline_notes,
+    )
+
+
+def scene_contract_from_row(row: sqlite3.Row) -> SceneContract:
+    return SceneContract(
+        id=row["id"],
+        project_id=row["project_id"],
+        sequence=row["sequence"],
+        title=row["title"],
+        pov=row["pov"],
+        goal=row["goal"],
+        conflict=row["conflict"],
+        turning_point=row["turning_point"],
+        required_canon=row["required_canon"],
+        forbidden_facts=row["forbidden_facts"],
+        open_threads=row["open_threads"],
+        source_artifact_step=row["source_artifact_step"],
+    )
+
+
+def scene_contract_to_params(
+    scene: SceneContract,
+) -> tuple[str, str, int, str, str, str, str, str, str, str, str, int]:
+    return (
+        scene.id,
+        scene.project_id,
+        scene.sequence,
+        scene.title,
+        scene.pov,
+        scene.goal,
+        scene.conflict,
+        scene.turning_point,
+        scene.required_canon,
+        scene.forbidden_facts,
+        scene.open_threads,
+        scene.source_artifact_step,
+    )
+
+
+def memory_record_from_row(row: sqlite3.Row) -> MemoryRecord:
+    return MemoryRecord(
+        id=row["id"],
+        project_id=row["project_id"],
+        record_type=row["record_type"],
+        title=row["title"],
+        scope=row["scope"],
+        content=row["content"],
+        tags=row["tags"],
+        source_ref=row["source_ref"],
+    )
+
+
+def memory_record_to_params(
+    record: MemoryRecord,
+) -> tuple[str, str, str, str, str, str, str, str]:
+    return (
+        record.id,
+        record.project_id,
+        record.record_type,
+        record.title,
+        record.scope,
+        record.content,
+        record.tags,
+        record.source_ref,
+    )
+
+
+def manuscript_proposal_from_row(row: sqlite3.Row) -> ManuscriptProposal:
+    return ManuscriptProposal(
+        id=row["id"],
+        project_id=row["project_id"],
+        scene_id=row["scene_id"],
+        source=row["source"],
+        title=row["title"],
+        content=row["content"],
+        context=row["context"],
+        checklist=json.loads(row["checklist_json"]),
+        status=row["status"],
+        created_at=row["created_at"],
+        reviewed_at=row["reviewed_at"],
+    )
+
+
+def manuscript_proposal_to_params(
+    proposal: ManuscriptProposal,
+) -> tuple[str, str, str, str, str, str, str, str, str, str, str]:
+    return (
+        proposal.id,
+        proposal.project_id,
+        proposal.scene_id,
+        proposal.source,
+        proposal.title,
+        proposal.content,
+        proposal.context,
+        json.dumps(proposal.checklist),
+        proposal.status,
+        proposal.created_at,
+        proposal.reviewed_at,
+    )
+
+
+def manuscript_scene_from_row(row: sqlite3.Row) -> ManuscriptScene:
+    return ManuscriptScene(
+        id=row["id"],
+        project_id=row["project_id"],
+        scene_id=row["scene_id"],
+        proposal_id=row["proposal_id"],
+        title=row["title"],
+        content=row["content"],
+        version=row["version"],
+        accepted_at=row["accepted_at"],
+    )
+
+
+def manuscript_scene_to_params(
+    scene: ManuscriptScene,
+) -> tuple[str, str, str, str, str, str, int, str]:
+    return (
+        scene.id,
+        scene.project_id,
+        scene.scene_id,
+        scene.proposal_id,
+        scene.title,
+        scene.content,
+        scene.version,
+        scene.accepted_at,
+    )
+
+
+def manuscript_revision_from_row(row: sqlite3.Row) -> ManuscriptRevision:
+    return ManuscriptRevision(
+        id=row["id"],
+        project_id=row["project_id"],
+        scene_id=row["scene_id"],
+        proposal_id=row["proposal_id"],
+        title=row["title"],
+        content=row["content"],
+        version=row["version"],
+        created_at=row["created_at"],
+    )
+
+
+def manuscript_revision_to_params(
+    revision: ManuscriptRevision,
+) -> tuple[str, str, str, str, str, str, int, str]:
+    return (
+        revision.id,
+        revision.project_id,
+        revision.scene_id,
+        revision.proposal_id,
+        revision.title,
+        revision.content,
+        revision.version,
+        revision.created_at,
+    )
+
+
+def writeback_proposal_from_row(row: sqlite3.Row) -> WritebackProposal:
+    return WritebackProposal(
+        id=row["id"],
+        project_id=row["project_id"],
+        target=row["target"],
+        action=row["action"],
+        title=row["title"],
+        rationale=row["rationale"],
+        payload=json.loads(row["payload_json"]),
+        source_ref=row["source_ref"],
+        status=row["status"],
+        created_at=row["created_at"],
+        reviewed_at=row["reviewed_at"],
+        applied_record_id=row["applied_record_id"],
+    )
+
+
+def writeback_proposal_to_params(
+    proposal: WritebackProposal,
+) -> tuple[str, str, str, str, str, str, str, str, str, str, str, str]:
+    return (
+        proposal.id,
+        proposal.project_id,
+        proposal.target,
+        proposal.action,
+        proposal.title,
+        proposal.rationale,
+        json.dumps(proposal.payload),
+        proposal.source_ref,
+        proposal.status,
+        proposal.created_at,
+        proposal.reviewed_at,
+        proposal.applied_record_id,
+    )
+
+
+def reference_suggestion_from_row(row: sqlite3.Row) -> ReferenceSuggestion:
+    return ReferenceSuggestion(
+        id=row["id"],
+        project_id=row["project_id"],
+        suggestion_type=row["suggestion_type"],
+        scope_type=row["scope_type"],
+        scope_ref=row["scope_ref"],
+        title=row["title"],
+        content=row["content"],
+        rationale=row["rationale"],
+        used_context=row["used_context"],
+        canon_warnings=json.loads(row["canon_warnings_json"]),
+        style_notes=json.loads(row["style_notes_json"]),
+        graph_warnings=json.loads(row["graph_warnings_json"]),
+        proposed_writebacks=[
+            WritebackProposalCreate.model_validate(item)
+            for item in json.loads(row["proposed_writebacks_json"])
+        ],
+        workflow_trace=[
+            WorkflowAgentTrace.model_validate(item)
+            for item in json.loads(row["workflow_trace_json"])
+        ],
+        status=row["status"],
+        created_at=row["created_at"],
+        reviewed_at=row["reviewed_at"],
+    )
+
+
+def reference_suggestion_to_params(
+    suggestion: ReferenceSuggestion,
+) -> tuple[str, str, str, str, str, str, str, str, str, str, str, str, str, str, str, str, str]:
+    return (
+        suggestion.id,
+        suggestion.project_id,
+        suggestion.suggestion_type,
+        suggestion.scope_type,
+        suggestion.scope_ref,
+        suggestion.title,
+        suggestion.content,
+        suggestion.rationale,
+        suggestion.used_context,
+        json.dumps(suggestion.canon_warnings),
+        json.dumps(suggestion.style_notes),
+        json.dumps(suggestion.graph_warnings),
+        json.dumps([proposal.model_dump() for proposal in suggestion.proposed_writebacks]),
+        json.dumps([trace.model_dump() for trace in suggestion.workflow_trace]),
+        suggestion.status,
+        suggestion.created_at,
+        suggestion.reviewed_at,
+    )
+
+
+def utc_now() -> str:
+    return datetime.now(UTC).isoformat(timespec="seconds")
+
+
+data_store = SQLiteWritingDataStore(Path(__file__).resolve().parent.parent / "data" / "app.db")
+
+
+def get_data_store() -> WritingDataStore:
+    return data_store

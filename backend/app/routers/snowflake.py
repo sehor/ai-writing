@@ -1,24 +1,25 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.agents import (
-    InterfaceOnlyWritingWorkflow,
+    DeepSeekSettings,
+    LocalDraftWritingWorkflow,
     WorkflowNotConfiguredError,
+    WorkflowProviderError,
     WritingWorkflow,
+    create_deepseek_workflow,
 )
+from app.data import WritingDataStore, get_data_store
 from app.models import (
     SnowflakeArtifact,
     SnowflakeArtifactUpdate,
     SnowflakeGenerationRequest,
     SnowflakeGenerationResponse,
     SnowflakeStep,
+    WorkflowRuntimeStatus,
 )
-from app.routers.projects import project_exists
 
 
 router = APIRouter(tags=["snowflake"])
-
-SNOWFLAKE_ARTIFACTS: dict[tuple[str, int], SnowflakeArtifact] = {}
-
 
 SNOWFLAKE_STEPS = [
     SnowflakeStep(
@@ -89,6 +90,34 @@ def list_snowflake_steps() -> list[SnowflakeStep]:
     return SNOWFLAKE_STEPS
 
 
+@router.get("/snowflake/workflow/status", response_model=WorkflowRuntimeStatus)
+def get_workflow_runtime_status() -> WorkflowRuntimeStatus:
+    try:
+        settings = DeepSeekSettings.from_env()
+    except ValueError as exc:
+        return WorkflowRuntimeStatus(
+            runtime="local_deterministic",
+            provider="local",
+            provider_configured=False,
+            details=f"DeepSeek environment is invalid: {exc}",
+        )
+    if settings is None:
+        return WorkflowRuntimeStatus(
+            runtime="local_deterministic",
+            provider="local",
+            provider_configured=False,
+            details="DEEPSEEK_API_KEY is not configured; using deterministic local drafts.",
+        )
+    return WorkflowRuntimeStatus(
+        runtime="provider_deepseek",
+        provider="deepseek",
+        provider_configured=True,
+        model=settings.model,
+        base_url=settings.base_url,
+        details="DeepSeek provider runtime is configured for Snowflake draft generation.",
+    )
+
+
 def get_snowflake_step(step_number: int) -> SnowflakeStep:
     for step in SNOWFLAKE_STEPS:
         if step.number == step_number:
@@ -99,8 +128,8 @@ def get_snowflake_step(step_number: int) -> SnowflakeStep:
     )
 
 
-def require_project(project_id: str) -> None:
-    if not project_exists(project_id):
+def require_project(project_id: str, data_store: WritingDataStore) -> None:
+    if not data_store.project_exists(project_id):
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Project not found.",
@@ -111,24 +140,26 @@ def require_project(project_id: str) -> None:
     "/projects/{project_id}/snowflake/artifacts",
     response_model=list[SnowflakeArtifact],
 )
-def list_snowflake_artifacts(project_id: str) -> list[SnowflakeArtifact]:
-    require_project(project_id)
-    artifacts = [
-        artifact
-        for (stored_project_id, _), artifact in SNOWFLAKE_ARTIFACTS.items()
-        if stored_project_id == project_id
-    ]
-    return sorted(artifacts, key=lambda artifact: artifact.step_number)
+def list_snowflake_artifacts(
+    project_id: str,
+    data_store: WritingDataStore = Depends(get_data_store),
+) -> list[SnowflakeArtifact]:
+    require_project(project_id, data_store)
+    return data_store.list_snowflake_artifacts(project_id)
 
 
 @router.get(
     "/projects/{project_id}/snowflake/artifacts/{step_number}",
     response_model=SnowflakeArtifact,
 )
-def get_snowflake_artifact(project_id: str, step_number: int) -> SnowflakeArtifact:
-    require_project(project_id)
+def get_snowflake_artifact(
+    project_id: str,
+    step_number: int,
+    data_store: WritingDataStore = Depends(get_data_store),
+) -> SnowflakeArtifact:
+    require_project(project_id, data_store)
     get_snowflake_step(step_number)
-    artifact = SNOWFLAKE_ARTIFACTS.get((project_id, step_number))
+    artifact = data_store.get_snowflake_artifact(project_id, step_number)
     if artifact is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -145,8 +176,9 @@ def save_snowflake_artifact(
     project_id: str,
     step_number: int,
     update: SnowflakeArtifactUpdate,
+    data_store: WritingDataStore = Depends(get_data_store),
 ) -> SnowflakeArtifact:
-    require_project(project_id)
+    require_project(project_id, data_store)
     step = get_snowflake_step(step_number)
     artifact = SnowflakeArtifact(
         project_id=project_id,
@@ -154,12 +186,21 @@ def save_snowflake_artifact(
         artifact=step.artifact,
         content=update.content,
     )
-    SNOWFLAKE_ARTIFACTS[(project_id, step_number)] = artifact
-    return artifact
+    saved = data_store.save_snowflake_artifact(artifact)
+    data_store.advance_project_current_step(project_id, step_number)
+    return saved
 
 
-def get_writing_workflow() -> WritingWorkflow:
-    return InterfaceOnlyWritingWorkflow()
+def get_writing_workflow(
+    data_store: WritingDataStore = Depends(get_data_store),
+) -> WritingWorkflow:
+    try:
+        deepseek_workflow = create_deepseek_workflow(data_store, SNOWFLAKE_STEPS)
+    except ValueError:
+        deepseek_workflow = None
+    if deepseek_workflow is not None:
+        return deepseek_workflow
+    return LocalDraftWritingWorkflow(data_store, SNOWFLAKE_STEPS)
 
 
 @router.post(
@@ -168,10 +209,13 @@ def get_writing_workflow() -> WritingWorkflow:
 )
 def generate_snowflake_artifact(
     request: SnowflakeGenerationRequest,
+    data_store: WritingDataStore = Depends(get_data_store),
     workflow: WritingWorkflow = Depends(get_writing_workflow),
 ) -> SnowflakeGenerationResponse:
+    require_project(request.project_id, data_store)
+    get_snowflake_step(request.step_number)
     try:
-        return workflow.run_snowflake_generation(request)
+        generated = workflow.run_snowflake_generation(request)
     except WorkflowNotConfiguredError as exc:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
@@ -180,3 +224,21 @@ def generate_snowflake_artifact(
                 "workflow_trace": [trace.model_dump() for trace in exc.trace],
             },
         ) from exc
+    except WorkflowProviderError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "message": str(exc),
+                "workflow_trace": [trace.model_dump() for trace in exc.trace],
+            },
+        ) from exc
+    data_store.save_snowflake_artifact(
+        SnowflakeArtifact(
+            project_id=generated.project_id,
+            step_number=generated.step_number,
+            artifact=generated.artifact,
+            content=generated.content,
+        )
+    )
+    data_store.advance_project_current_step(request.project_id, request.step_number)
+    return generated

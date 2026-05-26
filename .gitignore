@@ -8,3 +8,6 @@ __pycache__/
 *.pyc
 .env
 .env.local
+backend/data/*.db
+backend/data/*.db-*
+backend/data/projects/
