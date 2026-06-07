@@ -521,6 +521,7 @@ code {
 
 .canon-grid,
 .memory-grid,
+.chapter-grid,
 .scene-grid {
   display: grid;
   grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
@@ -531,6 +532,8 @@ code {
 .canon-editor,
 .memory-list,
 .memory-editor,
+.chapter-list,
+.chapter-editor,
 .scene-list,
 .scene-editor {
   display: grid;
@@ -539,12 +542,14 @@ code {
 
 .canon-list,
 .memory-list,
+.chapter-list,
 .scene-list {
   align-content: start;
 }
 
 .canon-list button,
 .memory-list button,
+.chapter-list button,
 .scene-list button {
   display: grid;
   gap: 4px;
@@ -561,6 +566,8 @@ code {
 .canon-list button:hover,
 .memory-list button.active,
 .memory-list button:hover,
+.chapter-list button.active,
+.chapter-list button:hover,
 .scene-list button.active,
 .scene-list button:hover {
   border-color: #5a9d80;
@@ -569,6 +576,7 @@ code {
 
 .canon-list small,
 .memory-list small,
+.chapter-list small,
 .scene-list small {
   color: #687681;
   text-transform: capitalize;
@@ -576,10 +584,20 @@ code {
 
 .canon-fields,
 .memory-fields,
+.chapter-fields,
 .scene-fields {
   display: grid;
   grid-template-columns: minmax(140px, 220px) minmax(0, 1fr);
   gap: 12px;
+}
+
+.list-heading {
+  margin: 8px 0 0;
+  color: #687681;
+  font-size: 0.76rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .empty-state {
@@ -814,6 +832,8 @@ code {
   .create-project,
   .canon-grid,
   .canon-fields,
+  .chapter-grid,
+  .chapter-fields,
   .memory-grid,
   .memory-fields,
   .graph-summary,

@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite",
     "build": "vue-tsc -b && vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --test tests/*.test.mjs",
+    "test:browser": "node tests/browser-review-loop.mjs"
   },
   "dependencies": {
     "@vitejs/plugin-vue": "^5.2.1",
@@ -14,8 +16,8 @@
     "vue": "^3.5.13"
   },
   "devDependencies": {
+    "playwright": "^1.60.0",
     "typescript": "~5.7.2",
     "vue-tsc": "^2.2.0"
   }
 }
-

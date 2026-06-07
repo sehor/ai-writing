@@ -6,6 +6,8 @@ from app.cognition.interfaces import ContextPacket, WritingScope
 from app.cognition.registry import CognitionRegistry, get_cognition_registry
 from app.cognition.snapshots import build_project_snapshot
 from app.data import WritingDataStore, get_data_store
+from app.llm_wiki.dependencies import get_llm_wiki
+from app.llm_wiki.interfaces import LlmWiki, WikiContextQuery, WikiContextResult
 from app.models import (
     ChapterCompileResponse,
     SceneContract,
@@ -111,6 +113,7 @@ def compile_scene_contract(
     scene_id: str,
     data_store: WritingDataStore = Depends(get_data_store),
     cognition: CognitionRegistry = Depends(get_cognition_registry),
+    llm_wiki: LlmWiki = Depends(get_llm_wiki),
 ) -> ChapterCompileResponse:
     require_project(project_id, data_store)
     scene = data_store.get_scene_contract(project_id, scene_id)
@@ -128,6 +131,16 @@ def compile_scene_contract(
         build_project_snapshot(project_id, data_store),
         WritingScope(kind="scene", ref=scene_id, instruction=scene.title),
     )
+    llm_wiki_context = llm_wiki.retrieve_context(
+        WikiContextQuery(
+            project_id=project_id,
+            snowflake_step=10,
+            instruction=scene.title,
+            scope=scene.id,
+            story_position=scene.sequence,
+            spoiler_horizon=scene.sequence,
+        )
+    )
     context = build_compile_context(
         project.title if project else project_id,
         scene,
@@ -135,6 +148,7 @@ def compile_scene_contract(
         memory_records,
         artifacts,
         cognition_context,
+        llm_wiki_context,
     )
     return ChapterCompileResponse(
         project_id=project_id,
@@ -152,6 +166,7 @@ def build_compile_context(
     memory_records: list,
     artifacts: list,
     cognition_context: list[ContextPacket] | None = None,
+    llm_wiki_context: WikiContextResult | None = None,
 ) -> str:
     source_artifact = next(
         (artifact for artifact in artifacts if artifact.step_number == scene.source_artifact_step),
@@ -190,6 +205,14 @@ def build_compile_context(
         sections.extend(["", "Memory / Style:", "\n".join(memory_lines)])
     if cognition_context:
         sections.extend(["", "Cognition Module Context:", format_context_packets(cognition_context)])
+    if llm_wiki_context and llm_wiki_context.evidence:
+        sections.extend(
+            [
+                "",
+                "LLM Wiki Context:",
+                format_llm_wiki_evidence(llm_wiki_context),
+            ]
+        )
     return "\n".join(sections)
 
 
@@ -229,6 +252,19 @@ def format_context_packets(packets: list[ContextPacket]) -> str:
             ]
         )
         for packet in packets
+    )
+
+
+def format_llm_wiki_evidence(context: WikiContextResult) -> str:
+    return "\n\n".join(
+        "\n".join(
+            [
+                f"## {evidence.title}",
+                f"Source: {evidence.source_ref}",
+                truncate_context(evidence.excerpt, 2600),
+            ]
+        )
+        for evidence in context.evidence
     )
 
 

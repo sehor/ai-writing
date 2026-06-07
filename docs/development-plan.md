@@ -4,7 +4,7 @@
 
 Build a local-first long-form writing studio around the Snowflake Method. The backend should expose stable business APIs first, while AI generation remains behind project-owned interfaces so the implementation can later use direct model SDKs, LangGraph, or another workflow runtime without changing the API contract.
 
-The next implementation focus is **chapter-level manuscript organization and frontend interaction tests**. Canon DB v0, Memory / Style v0, structured Scene Contracts, Chapter Compiler v0, Graph / Structure v0, project-scoped cognition modules, deterministic local workflow, DeepSeek-backed Snowflake runtime, provider-backed manuscript proposals, Manuscript Proposal review v0, accepted manuscript scene state, direct scene editing, manuscript revision history, Markdown export, Canon / Memory write-back proposals, deterministic revision-based write-back suggestions, provider-backed write-back suggestions, manuscript diff / restore, frontend review tools, and backend edit-versioning tests now exist.
+The next implementation focus is **live-backend browser interaction tests and edge-case coverage**. Canon DB v0, Memory / Style v0, structured Scene Contracts, Chapter Compiler v0, Graph / Structure v0, project-scoped cognition modules, deterministic local workflow, DeepSeek-backed Snowflake runtime, provider-backed manuscript proposals, Manuscript Proposal review v0, accepted manuscript scene state, chapter-level manuscript organization, direct scene editing, manuscript revision history, Markdown export, Canon / Memory write-back proposals, deterministic revision-based write-back suggestions, provider-backed write-back suggestions, structured References / Copilot UI, frontend review tools, frontend contract tests, browser smoke tests, backend route tests, and backend edit-versioning tests now exist.
 
 ## Near-Term Milestones
 
@@ -57,12 +57,15 @@ The next implementation focus is **chapter-level manuscript organization and fro
    - Done in v0: keep graph output advisory until the author commits changes.
    - Done in v0: move structure analysis behind the `infra_graph` cognition module boundary.
 
-11. Cognition module boundary
+11. Knowledge and cognition module boundaries
    - Done in v0: add `backend/app/cognition/` interfaces for `ContextPacket`, `CommittedContentEvent`, `ModuleReport`, and project snapshots.
-   - Done in v0: isolate LLM Wiki export/ingest logic in a project-scoped `llm_wiki` module.
+   - Done: separate LLM Wiki from project snapshots behind `backend/app/llm_wiki/interfaces.py`.
+   - Done: tag ingested sources by Snowflake step, artifact type, `planned` / `observed`, version, scope, and story position.
+   - Done: provide stage-aware context retrieval and evidence-backed advisory insight interfaces.
+   - Done: keep the local file adapter replaceable through FastAPI dependency injection.
    - Done in v0: isolate style sample ingestion in a project-scoped `memplace` module.
-   - Done in v0: route scene compilation, manuscript proposal generation, Snowflake generation, and revision ingestion through cognition module interfaces.
-   - Next: replace local module implementations with CLI/MCP/agent adapters without changing core app routes.
+   - Done: route Snowflake generation, scene compilation, and manuscript revision ingestion through the LLM Wiki interface rather than the local adapter.
+   - Next: add an external Agent adapter without changing core app routes or workflow signatures.
 
 12. Provider-backed Snowflake workflow runtime
    - Done in v0: call DeepSeek through the app-owned `WritingWorkflow` interface when configured.
@@ -85,8 +88,12 @@ The next implementation focus is **chapter-level manuscript organization and fro
    - Done in v0: export accepted manuscript scenes as Markdown.
    - Done in v0: edit accepted manuscript scene drafts directly while preserving revision history.
    - Done in v0: add backend unit tests for manuscript edit versioning.
-   - Next: add chapter-level manuscript organization.
-   - Next: add frontend interaction tests for proposal acceptance, editing, export, and write-back review.
+   - Done in v0: add chapter-level manuscript organization for Scene Contracts and exports.
+   - Done in v0: add structured References / Copilot UI for reviewable suggestions.
+   - Done in v0: add zero-dependency frontend contract test coverage for References UI wiring.
+   - Done in v0: add backend route test coverage for proposal acceptance, export, and write-back review.
+   - Done in v0: add browser-level smoke test for chapter, scene, proposal, export, and References UI flow.
+   - Next: add browser interaction tests against a live backend and broaden edge-case coverage.
 
 ## Interface Direction
 
@@ -98,7 +105,7 @@ The backend API should call a `WritingWorkflow` interface. A concrete workflow m
 
 The FastAPI router should not depend directly on LangChain, LangGraph, OpenAI SDK, or any other runtime-specific type.
 
-The backend API should also call cognition modules through `backend/app/cognition/` interfaces. LLM Wiki, Memplace, and Infra Graph modules may be local implementations today and external agent/MCP/CLI adapters later. Core app code should exchange only context packets, committed-content events, reports, and reviewable proposals with these modules.
+The backend calls LLM Wiki only through `backend/app/llm_wiki/interfaces.py`. It exchanges staged source documents, sourced context results, and advisory insights; it never sends project snapshots, Canon records, Memory records, cognition registries, or provider configuration. Memplace and Infra Graph remain separate cognition/analysis modules.
 
 ## Product Modules
 
@@ -106,7 +113,8 @@ The backend API should also call cognition modules through `backend/app/cognitio
 - **Canon**: confirmed story facts and constraints.
 - **Memory / Style**: prose memory, summaries, voice and rhythm samples.
 - **Graph**: relationship and structure analysis.
-- **Cognition Modules**: project-scoped LLM Wiki, Memplace, and Infra Graph adapters used for context preparation and confirmed-content ingestion.
+- **LLM Wiki**: replaceable knowledge backend for staged content ingestion, sourced constraint retrieval, and advisory insights.
+- **Cognition Modules**: project-scoped Memplace and Infra Graph helpers.
 - **Manuscript**: chapters, scenes, drafts, revisions, and review.
 - **Agent Orchestration**: workflow agents with traceable outputs and app-owned commits.
 

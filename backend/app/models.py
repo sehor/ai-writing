@@ -163,6 +163,7 @@ class CanonEntity(CanonEntityCreate):
 
 
 class SceneContractCreate(BaseModel):
+    chapter_id: str = Field(default="", max_length=160)
     sequence: int = Field(ge=1, le=999)
     title: str = Field(min_length=1, max_length=160)
     pov: str = Field(default="", max_length=120)
@@ -175,6 +176,7 @@ class SceneContractCreate(BaseModel):
     source_artifact_step: int = Field(default=8, ge=1, le=10)
 
     @field_validator(
+        "chapter_id",
         "title",
         "pov",
         "goal",
@@ -194,6 +196,26 @@ class SceneContractUpdate(SceneContractCreate):
 
 
 class SceneContract(SceneContractCreate):
+    id: str
+    project_id: str
+
+
+class ManuscriptChapterCreate(BaseModel):
+    sequence: int = Field(ge=1, le=999)
+    title: str = Field(min_length=1, max_length=160)
+    summary: str = Field(default="", max_length=2000)
+
+    @field_validator("title", "summary")
+    @classmethod
+    def normalize_chapter_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class ManuscriptChapterUpdate(ManuscriptChapterCreate):
+    pass
+
+
+class ManuscriptChapter(ManuscriptChapterCreate):
     id: str
     project_id: str
 

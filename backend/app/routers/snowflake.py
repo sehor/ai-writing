@@ -9,6 +9,8 @@ from app.agents import (
     create_deepseek_workflow,
 )
 from app.data import WritingDataStore, get_data_store
+from app.llm_wiki.dependencies import get_llm_wiki
+from app.llm_wiki.interfaces import LlmWiki, WikiSourceDocument
 from app.models import (
     SnowflakeArtifact,
     SnowflakeArtifactUpdate,
@@ -177,6 +179,7 @@ def save_snowflake_artifact(
     step_number: int,
     update: SnowflakeArtifactUpdate,
     data_store: WritingDataStore = Depends(get_data_store),
+    llm_wiki: LlmWiki = Depends(get_llm_wiki),
 ) -> SnowflakeArtifact:
     require_project(project_id, data_store)
     step = get_snowflake_step(step_number)
@@ -188,19 +191,25 @@ def save_snowflake_artifact(
     )
     saved = data_store.save_snowflake_artifact(artifact)
     data_store.advance_project_current_step(project_id, step_number)
+    llm_wiki.ingest(snowflake_wiki_document(saved))
     return saved
 
 
 def get_writing_workflow(
     data_store: WritingDataStore = Depends(get_data_store),
+    llm_wiki: LlmWiki = Depends(get_llm_wiki),
 ) -> WritingWorkflow:
     try:
-        deepseek_workflow = create_deepseek_workflow(data_store, SNOWFLAKE_STEPS)
+        deepseek_workflow = create_deepseek_workflow(
+            data_store,
+            SNOWFLAKE_STEPS,
+            llm_wiki,
+        )
     except ValueError:
         deepseek_workflow = None
     if deepseek_workflow is not None:
         return deepseek_workflow
-    return LocalDraftWritingWorkflow(data_store, SNOWFLAKE_STEPS)
+    return LocalDraftWritingWorkflow(data_store, SNOWFLAKE_STEPS, llm_wiki)
 
 
 @router.post(
@@ -211,6 +220,7 @@ def generate_snowflake_artifact(
     request: SnowflakeGenerationRequest,
     data_store: WritingDataStore = Depends(get_data_store),
     workflow: WritingWorkflow = Depends(get_writing_workflow),
+    llm_wiki: LlmWiki = Depends(get_llm_wiki),
 ) -> SnowflakeGenerationResponse:
     require_project(request.project_id, data_store)
     get_snowflake_step(request.step_number)
@@ -232,7 +242,7 @@ def generate_snowflake_artifact(
                 "workflow_trace": [trace.model_dump() for trace in exc.trace],
             },
         ) from exc
-    data_store.save_snowflake_artifact(
+    saved = data_store.save_snowflake_artifact(
         SnowflakeArtifact(
             project_id=generated.project_id,
             step_number=generated.step_number,
@@ -241,4 +251,20 @@ def generate_snowflake_artifact(
         )
     )
     data_store.advance_project_current_step(request.project_id, request.step_number)
+    llm_wiki.ingest(snowflake_wiki_document(saved))
     return generated
+
+
+def snowflake_wiki_document(artifact: SnowflakeArtifact) -> WikiSourceDocument:
+    is_manuscript_draft = artifact.step_number == 10
+    return WikiSourceDocument(
+        project_id=artifact.project_id,
+        source_kind="snowflake_artifact",
+        source_ref=f"snowflake:{artifact.step_number}",
+        title=f"Snowflake step {artifact.step_number}: {artifact.artifact}",
+        content=artifact.content,
+        snowflake_step=artifact.step_number,
+        artifact_type=artifact.artifact,
+        knowledge_class="observed" if is_manuscript_draft else "planned",
+        status="draft" if is_manuscript_draft else "approved",
+    )

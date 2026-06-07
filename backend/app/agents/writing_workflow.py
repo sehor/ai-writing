@@ -1,9 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Protocol
 
-from app.cognition.interfaces import ContextPacket, ProjectCognitionSnapshot, WritingScope
-from app.cognition.registry import get_cognition_registry
 from app.data import WritingDataStore
+from app.llm_wiki.interfaces import LlmWiki, WikiContextQuery, WikiContextResult
 from app.models import (
     CanonEntity,
     MemoryRecord,
@@ -36,7 +35,7 @@ class WritingWorkflowState:
     previous_artifacts: list[SnowflakeArtifact] = field(default_factory=list)
     canon_entities: list[CanonEntity] = field(default_factory=list)
     memory_records: list[MemoryRecord] = field(default_factory=list)
-    cognition_context: list[ContextPacket] = field(default_factory=list)
+    llm_wiki_context: WikiContextResult | None = None
     artifact: str = ""
     content: str = ""
     trace: list[WorkflowAgentTrace] = field(default_factory=list)
@@ -167,35 +166,28 @@ class PromptPlanner:
         return state
 
 
-class CognitionContextCollector:
-    name = "cognition_context_collector"
+class LlmWikiContextCollector:
+    name = "llm_wiki_context_collector"
     stage = "pre_generation"
 
-    def __init__(self, data_store: WritingDataStore):
-        self.data_store = data_store
+    def __init__(self, llm_wiki: LlmWiki):
+        self.llm_wiki = llm_wiki
 
     def run(self, state: WritingWorkflowState) -> WritingWorkflowState:
-        if state.project is None:
-            state.record(self.stage, self.name, "skipped: project not loaded")
-            return state
-        snapshot = ProjectCognitionSnapshot(
-            project=state.project,
-            artifacts=self.data_store.list_snowflake_artifacts(state.request.project_id),
-            canon_entities=state.canon_entities,
-            scenes=self.data_store.list_scene_contracts(state.request.project_id),
-            memory_records=state.memory_records,
-            manuscript_scenes=self.data_store.list_manuscript_scenes(state.request.project_id),
+        state.llm_wiki_context = self.llm_wiki.retrieve_context(
+            WikiContextQuery(
+                project_id=state.request.project_id,
+                snowflake_step=state.request.step_number,
+                instruction=state.request.user_input,
+            )
         )
-        scope = WritingScope(
-            kind="snowflake_step",
-            ref=str(state.request.step_number),
-            instruction=state.request.user_input,
-        )
-        state.cognition_context = get_cognition_registry().prepare_context(snapshot, scope)
         state.record(
             self.stage,
             self.name,
-            f"loaded {len(state.cognition_context)} context packets",
+            (
+                f"loaded {len(state.llm_wiki_context.evidence)} "
+                "stage-aware evidence records"
+            ),
         )
         return state
 
@@ -230,12 +222,17 @@ class LocalArtifactNormalizer:
 
 
 class LocalDraftWritingWorkflow:
-    def __init__(self, data_store: WritingDataStore, steps: list[SnowflakeStep]):
+    def __init__(
+        self,
+        data_store: WritingDataStore,
+        steps: list[SnowflakeStep],
+        llm_wiki: LlmWiki,
+    ):
         self.agents: list[WorkflowAgent] = [
             ProjectContextLoader(data_store, steps),
             CanonConstraintChecker(data_store),
             MemoryRetriever(data_store),
-            CognitionContextCollector(data_store),
+            LlmWikiContextCollector(llm_wiki),
             PromptPlanner(),
             LocalDraftGenerator(),
             LocalConsistencyReviewer(),
@@ -293,12 +290,12 @@ def build_local_draft(state: WritingWorkflowState) -> str:
         sections.extend(["", "## Canon Constraints", canon_context])
     if memory_context:
         sections.extend(["", "## Memory / Style Context", memory_context])
-    if state.cognition_context:
+    if state.llm_wiki_context and state.llm_wiki_context.evidence:
         sections.extend(
             [
                 "",
-                "## Cognition Module Context",
-                format_cognition_context(state.cognition_context),
+                "## LLM Wiki Context",
+                format_llm_wiki_context(state.llm_wiki_context),
             ]
         )
     sections.extend(
@@ -349,13 +346,14 @@ def single_line(value: str) -> str:
     return text if text.endswith((".", "!", "?")) else f"{text}."
 
 
-def format_cognition_context(packets: list[ContextPacket]) -> str:
+def format_llm_wiki_context(context: WikiContextResult) -> str:
     return "\n\n".join(
         "\n".join(
             [
-                f"### {packet.module}: {packet.title}",
-                summarize(packet.content, 1600),
+                f"### {evidence.title}",
+                f"Source: {evidence.source_ref}",
+                summarize(evidence.excerpt, 1600),
             ]
         )
-        for packet in packets
+        for evidence in context.evidence
     )

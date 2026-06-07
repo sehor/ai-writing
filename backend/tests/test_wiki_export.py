@@ -125,7 +125,7 @@ class WikiExportTests(unittest.TestCase):
         self.assertEqual(snapshot["memory_records"][0]["id"], memory.id)
         self.assertEqual(export.file_count, len(export.files))
 
-    def test_cognition_modules_ingest_confirmed_revision_by_project(self) -> None:
+    def test_cognition_registry_does_not_manage_llm_wiki_state(self) -> None:
         with TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             store = SQLiteWritingDataStore(root / "app.db")
@@ -176,17 +176,16 @@ class WikiExportTests(unittest.TestCase):
                 ),
             )
 
-            llm_wiki_path = root / "projects" / project.id / "modules" / "llm_wiki"
             memplace_path = root / "projects" / project.id / "modules" / "memplace"
-            self.assertTrue((llm_wiki_path / "SCHEMA.md").is_file())
-            self.assertTrue((llm_wiki_path / "raw" / "confirmed").is_dir())
+            llm_wiki_path = root / "projects" / project.id / "modules" / "llm_wiki"
+            self.assertFalse(llm_wiki_path.exists())
             self.assertTrue((memplace_path / "prose_samples").is_dir())
             proposals = [
                 proposal
                 for report in reports
                 for proposal in report.writeback_proposals
             ]
-            self.assertEqual({proposal.target for proposal in proposals}, {"canon_entity", "memory_record"})
+            self.assertEqual({proposal.target for proposal in proposals}, {"memory_record"})
 
 
 if __name__ == "__main__":

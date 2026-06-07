@@ -9,7 +9,7 @@ from app.models import (
     ProjectCreate,
     SceneContractCreate,
 )
-from app.routers.manuscript import build_export_markdown
+from app.manuscript_export import build_export_markdown
 
 
 class ManuscriptChapterTests(unittest.TestCase):

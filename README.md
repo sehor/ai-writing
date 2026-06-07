@@ -14,7 +14,8 @@ Long-form AI writing breaks down when the system treats each prompt as an isolat
 - **Memory / Style**: original prose excerpts, chapter summaries, character voice samples, scene style, and narrative rhythm.
 - **Graph / Structure**: relationships between characters, events, themes, locations, foreshadowing, and unresolved threads.
 - **Chapter Compiler**: a repeatable pipeline that turns scene contracts into prose, checks the result, and proposes state updates.
-- **Cognition Modules**: project-scoped LLM Wiki, Memplace, and structure modules that prepare context and ingest confirmed writing through app-owned interfaces.
+- **LLM Wiki**: an independent, replaceable knowledge backend that ingests staged planning/prose documents and returns sourced context or advisory insights.
+- **Cognition Modules**: project-scoped style and structure helpers such as Memplace and Infra Graph.
 - **Agent Orchestration**: multiple narrow AI agents coordinated by the app, with the app retaining final write/commit authority.
 
 The moat is not a model call. The moat is **state management + creative workflow + AI write-back review**.
@@ -60,29 +61,29 @@ docs/       Development plan and architecture notes
 
 The backend owns workflow state and persistence. The frontend owns author-facing review and editing. AI agents should never write final project state directly; they propose changes that the app validates and commits.
 
-## Cognition Module Boundary
+## Independent Knowledge Module Boundary
 
-LLM Wiki, Memplace, and Infra Graph can be built into the app, but they are isolated modules rather than main workflow logic. The core writing app exchanges structured data with them:
+LLM Wiki is not a mirror of application state. It owns knowledge derived from approved Snowflake artifacts and manuscript revisions, and the core app depends only on `backend/app/llm_wiki/interfaces.py`:
 
 ```text
-Writing starts:
-Core App -> cognition.prepare_context(project_id, writing_scope)
-Cognition Modules -> ContextPacket[]
-Writing Agent -> draft/proposal
+Approved planning or prose:
+Core App -> llm_wiki.ingest(WikiSourceDocument)
+LLM Wiki -> WikiIngestionResult
 
-Writing is confirmed:
-Core App -> cognition.ingest_committed_content(project_id, content_event)
-Cognition Modules -> ModuleReport[] + WritebackProposal[]
-Core App -> validation + human review + commit
+Writing starts:
+Core App -> llm_wiki.retrieve_context(WikiContextQuery)
+LLM Wiki -> WikiContextResult with source evidence
+
+Author asks for analysis:
+Core App -> llm_wiki.analyze(WikiInsightQuery)
+LLM Wiki -> advisory, evidence-backed insights
 ```
 
-Each module owns its project-scoped data under `backend/data/projects/{project_id}/modules/`:
+The local adapter owns its project-scoped data under `backend/data/projects/{project_id}/modules/llm_wiki/`. It keeps `planned` Snowflake knowledge separate from `observed` manuscript knowledge and filters observed facts by story position.
 
-- `llm_wiki/`: `SCHEMA.md`, `index.md`, `log.md`, raw confirmed text, entities, concepts, comparisons, queries, and exported project pages.
-- `memplace/`: prose samples and style/continuity material used to stabilize later generation.
-- `infra_graph/`: structure analysis logic and future graph-derived reports.
+The application still owns Snowflake records, Canon, Memory / Style, Scene Contracts, Manuscript versions, review state, and provider configuration. Those objects are never passed into the LLM Wiki interface. Replacing the local adapter with an external Agent should require changing the dependency provider, not writing workflows or API routes.
 
-Canon remains the app-owned database of confirmed story facts. LLM Wiki entities and Memplace samples can suggest updates, but only reviewed write-back proposals can mutate Canon or app Memory records.
+Memplace and Infra Graph remain under the separate cognition/analysis boundaries.
 
 ## Current State
 
@@ -100,22 +101,26 @@ Implemented:
 - DeepSeek-backed Snowflake generation through the workflow interface when configured.
 - Workflow runtime status API and frontend runtime indicator.
 - Graph / Structure v0 with nodes, edges, unresolved threads, and structural risk review.
-- Cognition module boundary for LLM Wiki, Memplace, and Infra Graph context exchange.
+- Stage-aware LLM Wiki interface with replaceable local/external implementations.
+- Cognition module boundary for Memplace and Infra Graph context exchange.
 - Provider-backed manuscript proposal generation from Scene Contracts when configured.
 - Manuscript proposal review UI with accepted scene drafts and revision history.
+- Chapter-level manuscript organization for grouping Scene Contracts and accepted drafts.
 - Direct editing for accepted manuscript scene drafts with revision preservation.
 - Manuscript revision diff and restore UI.
 - Markdown export for accepted manuscript scenes.
 - Canon / Memory write-back proposal generation and review UI.
+- Structured References / Copilot UI for reviewable writing suggestions.
 - Backend unit coverage for manuscript edit versioning.
+- Backend route test coverage for the manuscript/write-back review loop.
+- Frontend contract test coverage for the References UI.
+- Browser-level frontend smoke coverage for the chapter / scene / proposal / export / reference flow.
 - Frontend Snowflake workbench.
 - Workflow interface boundary with declared pre-generation, generation, and post-generation agents.
 
 Not yet implemented:
 
-- Full chapter/manuscript organization beyond scene-level editing.
-- Frontend interaction test coverage.
-- Automated backend route tests and frontend interaction tests.
+- Browser interaction tests against a live backend.
 - Advanced graph visualization beyond tabular structure analysis.
 
 ## Near-Term Build Order
@@ -160,7 +165,12 @@ Not yet implemented:
    - Implemented v0: Markdown export for accepted manuscript scenes.
    - Implemented v0: direct accepted manuscript scene editing with revision history.
    - Implemented v0: backend unit tests for manuscript edit versioning.
-   - Next: add chapter-level manuscript organization and frontend interaction tests.
+   - Implemented v0: chapter-level manuscript organization for Scene Contracts and exports.
+   - Implemented v0: structured References / Copilot UI for reviewable suggestions.
+   - Implemented v0: zero-dependency frontend contract test for References UI wiring.
+   - Implemented v0: backend route test for manuscript proposal acceptance, export, and Canon write-back.
+   - Implemented v0: browser-level smoke test for the frontend review flow with mocked API routes.
+   - Next: add browser interaction tests against a live backend and broaden edge-case coverage.
 
 ## Development
 

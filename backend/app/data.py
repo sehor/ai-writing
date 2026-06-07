@@ -13,6 +13,9 @@ from app.models import (
     MemoryRecord,
     MemoryRecordCreate,
     MemoryRecordUpdate,
+    ManuscriptChapter,
+    ManuscriptChapterCreate,
+    ManuscriptChapterUpdate,
     ManuscriptProposal,
     ManuscriptProposalCreate,
     ManuscriptProposalStatus,
@@ -102,6 +105,22 @@ class WritingDataStore(Protocol):
         pass
 
     def delete_scene_contract(self, project_id: str, scene_id: str) -> bool:
+        pass
+
+    def list_manuscript_chapters(self, project_id: str) -> list[ManuscriptChapter]:
+        pass
+
+    def create_manuscript_chapter(
+        self, project_id: str, chapter: ManuscriptChapterCreate
+    ) -> ManuscriptChapter:
+        pass
+
+    def update_manuscript_chapter(
+        self, project_id: str, chapter_id: str, chapter: ManuscriptChapterUpdate
+    ) -> ManuscriptChapter | None:
+        pass
+
+    def delete_manuscript_chapter(self, project_id: str, chapter_id: str) -> bool:
         pass
 
     def list_memory_records(self, project_id: str) -> list[MemoryRecord]:
@@ -242,6 +261,7 @@ class SQLiteWritingDataStore:
                 CREATE TABLE IF NOT EXISTS scene_contracts (
                     id TEXT PRIMARY KEY,
                     project_id TEXT NOT NULL,
+                    chapter_id TEXT NOT NULL DEFAULT '',
                     sequence INTEGER NOT NULL,
                     title TEXT NOT NULL,
                     pov TEXT NOT NULL,
@@ -252,6 +272,16 @@ class SQLiteWritingDataStore:
                     forbidden_facts TEXT NOT NULL,
                     open_threads TEXT NOT NULL,
                     source_artifact_step INTEGER NOT NULL,
+                    UNIQUE (project_id, sequence),
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+
+                CREATE TABLE IF NOT EXISTS manuscript_chapters (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    title TEXT NOT NULL,
+                    summary TEXT NOT NULL,
                     UNIQUE (project_id, sequence),
                     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
                 );
@@ -348,6 +378,12 @@ class SQLiteWritingDataStore:
                     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
                 );
                 """
+            )
+            ensure_column(
+                connection,
+                "scene_contracts",
+                "chapter_id",
+                "TEXT NOT NULL DEFAULT ''",
             )
             if not connection.execute("SELECT 1 FROM projects LIMIT 1").fetchone():
                 connection.execute(
@@ -580,7 +616,7 @@ class SQLiteWritingDataStore:
         with self.connect() as connection:
             rows = connection.execute(
                 """
-                SELECT id, project_id, sequence, title, pov, goal, conflict,
+                SELECT id, project_id, chapter_id, sequence, title, pov, goal, conflict,
                        turning_point, required_canon, forbidden_facts, open_threads,
                        source_artifact_step
                 FROM scene_contracts
@@ -597,7 +633,7 @@ class SQLiteWritingDataStore:
         with self.connect() as connection:
             row = connection.execute(
                 """
-                SELECT id, project_id, sequence, title, pov, goal, conflict,
+                SELECT id, project_id, chapter_id, sequence, title, pov, goal, conflict,
                        turning_point, required_canon, forbidden_facts, open_threads,
                        source_artifact_step
                 FROM scene_contracts
@@ -626,11 +662,11 @@ class SQLiteWritingDataStore:
             connection.execute(
                 """
                 INSERT INTO scene_contracts (
-                    id, project_id, sequence, title, pov, goal, conflict,
+                    id, project_id, chapter_id, sequence, title, pov, goal, conflict,
                     turning_point, required_canon, forbidden_facts, open_threads,
                     source_artifact_step
                 )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 scene_contract_to_params(created),
             )
@@ -649,6 +685,7 @@ class SQLiteWritingDataStore:
                 """
                 UPDATE scene_contracts
                 SET sequence = ?,
+                    chapter_id = ?,
                     title = ?,
                     pov = ?,
                     goal = ?,
@@ -662,6 +699,7 @@ class SQLiteWritingDataStore:
                 """,
                 (
                     updated.sequence,
+                    updated.chapter_id,
                     updated.title,
                     updated.pov,
                     updated.goal,
@@ -683,6 +721,90 @@ class SQLiteWritingDataStore:
                 "DELETE FROM scene_contracts WHERE project_id = ? AND id = ?",
                 (project_id, scene_id),
             )
+        return cursor.rowcount > 0
+
+    def list_manuscript_chapters(self, project_id: str) -> list[ManuscriptChapter]:
+        with self.connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, sequence, title, summary
+                FROM manuscript_chapters
+                WHERE project_id = ?
+                ORDER BY sequence
+                """,
+                (project_id,),
+            ).fetchall()
+        return [manuscript_chapter_from_row(row) for row in rows]
+
+    def create_manuscript_chapter(
+        self, project_id: str, chapter: ManuscriptChapterCreate
+    ) -> ManuscriptChapter:
+        with self.connect() as connection:
+            existing_ids = {
+                row["id"]
+                for row in connection.execute(
+                    "SELECT id FROM manuscript_chapters WHERE project_id = ?",
+                    (project_id,),
+                ).fetchall()
+            }
+            created = ManuscriptChapter(
+                id=make_record_id(f"chapter-{chapter.sequence}-{chapter.title}", existing_ids),
+                project_id=project_id,
+                **chapter.model_dump(),
+            )
+            connection.execute(
+                """
+                INSERT INTO manuscript_chapters (
+                    id, project_id, sequence, title, summary
+                )
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                manuscript_chapter_to_params(created),
+            )
+        return created
+
+    def update_manuscript_chapter(
+        self, project_id: str, chapter_id: str, chapter: ManuscriptChapterUpdate
+    ) -> ManuscriptChapter | None:
+        updated = ManuscriptChapter(
+            id=chapter_id,
+            project_id=project_id,
+            **chapter.model_dump(),
+        )
+        with self.connect() as connection:
+            cursor = connection.execute(
+                """
+                UPDATE manuscript_chapters
+                SET sequence = ?,
+                    title = ?,
+                    summary = ?
+                WHERE project_id = ? AND id = ?
+                """,
+                (
+                    updated.sequence,
+                    updated.title,
+                    updated.summary,
+                    project_id,
+                    chapter_id,
+                ),
+            )
+        return updated if cursor.rowcount else None
+
+    def delete_manuscript_chapter(self, project_id: str, chapter_id: str) -> bool:
+        with self.connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM manuscript_chapters WHERE project_id = ? AND id = ?",
+                (project_id, chapter_id),
+            )
+            if cursor.rowcount:
+                connection.execute(
+                    """
+                    UPDATE scene_contracts
+                    SET chapter_id = ''
+                    WHERE project_id = ? AND chapter_id = ?
+                    """,
+                    (project_id, chapter_id),
+                )
         return cursor.rowcount > 0
 
     def list_memory_records(self, project_id: str) -> list[MemoryRecord]:
@@ -1398,6 +1520,22 @@ def make_project_id(title: str, existing_ids: set[str]) -> str:
     return make_record_id(title, existing_ids)
 
 
+def ensure_column(
+    connection: sqlite3.Connection,
+    table_name: str,
+    column_name: str,
+    definition: str,
+) -> None:
+    columns = {
+        row["name"]
+        for row in connection.execute(f"PRAGMA table_info({table_name})").fetchall()
+    }
+    if column_name not in columns:
+        connection.execute(
+            f"ALTER TABLE {table_name} ADD COLUMN {column_name} {definition}"
+        )
+
+
 def make_record_id(title: str, existing_ids: set[str]) -> str:
     base = sub(r"[^a-z0-9]+", "-", title.lower()).strip("-") or "project"
     candidate = base
@@ -1458,6 +1596,7 @@ def scene_contract_from_row(row: sqlite3.Row) -> SceneContract:
     return SceneContract(
         id=row["id"],
         project_id=row["project_id"],
+        chapter_id=row["chapter_id"],
         sequence=row["sequence"],
         title=row["title"],
         pov=row["pov"],
@@ -1473,10 +1612,11 @@ def scene_contract_from_row(row: sqlite3.Row) -> SceneContract:
 
 def scene_contract_to_params(
     scene: SceneContract,
-) -> tuple[str, str, int, str, str, str, str, str, str, str, str, int]:
+) -> tuple[str, str, str, int, str, str, str, str, str, str, str, str, int]:
     return (
         scene.id,
         scene.project_id,
+        scene.chapter_id,
         scene.sequence,
         scene.title,
         scene.pov,
@@ -1487,6 +1627,28 @@ def scene_contract_to_params(
         scene.forbidden_facts,
         scene.open_threads,
         scene.source_artifact_step,
+    )
+
+
+def manuscript_chapter_from_row(row: sqlite3.Row) -> ManuscriptChapter:
+    return ManuscriptChapter(
+        id=row["id"],
+        project_id=row["project_id"],
+        sequence=row["sequence"],
+        title=row["title"],
+        summary=row["summary"],
+    )
+
+
+def manuscript_chapter_to_params(
+    chapter: ManuscriptChapter,
+) -> tuple[str, str, int, str, str]:
+    return (
+        chapter.id,
+        chapter.project_id,
+        chapter.sequence,
+        chapter.title,
+        chapter.summary,
     )
 
 

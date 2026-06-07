@@ -5,7 +5,7 @@ from typing import Any
 
 from app.agents.writing_workflow import (
     CanonConstraintChecker,
-    CognitionContextCollector,
+    LlmWikiContextCollector,
     LocalArtifactNormalizer,
     LocalConsistencyReviewer,
     MemoryRetriever,
@@ -16,6 +16,7 @@ from app.agents.writing_workflow import (
     WritingWorkflowState,
 )
 from app.data import WritingDataStore
+from app.llm_wiki.interfaces import LlmWiki
 from app.models import (
     CanonEntity,
     MemoryRecord,
@@ -133,12 +134,13 @@ class DeepSeekWritingWorkflow:
         data_store: WritingDataStore,
         steps: list[SnowflakeStep],
         settings: DeepSeekSettings,
+        llm_wiki: LlmWiki,
     ):
         self.agents: list[WorkflowAgent] = [
             ProjectContextLoader(data_store, steps),
             CanonConstraintChecker(data_store),
             MemoryRetriever(data_store),
-            CognitionContextCollector(data_store),
+            LlmWikiContextCollector(llm_wiki),
             DeepSeekPromptPlanner(),
             DeepSeekDraftGenerator(settings),
             LocalConsistencyReviewer(),
@@ -164,11 +166,12 @@ class DeepSeekWritingWorkflow:
 def create_deepseek_workflow(
     data_store: WritingDataStore,
     steps: list[SnowflakeStep],
+    llm_wiki: LlmWiki,
 ) -> DeepSeekWritingWorkflow | None:
     settings = DeepSeekSettings.from_env()
     if settings is None:
         return None
-    return DeepSeekWritingWorkflow(data_store, steps, settings)
+    return DeepSeekWritingWorkflow(data_store, steps, settings, llm_wiki)
 
 
 def build_deepseek_messages(state: WritingWorkflowState) -> list[dict[str, str]]:
@@ -223,8 +226,8 @@ def build_stable_context_prefix(state: WritingWorkflowState) -> str:
         "## Memory / Style Context",
         format_memory_records(state.memory_records),
         "",
-        "## Cognition Module Context",
-        format_cognition_context(state),
+        "## LLM Wiki Context",
+        format_llm_wiki_context(state),
     ]
     return "\n".join(sections)
 
@@ -303,17 +306,18 @@ def format_memory_records(records: list[MemoryRecord]) -> str:
     )
 
 
-def format_cognition_context(state: WritingWorkflowState) -> str:
-    if not state.cognition_context:
-        return "No cognition module context available."
+def format_llm_wiki_context(state: WritingWorkflowState) -> str:
+    if not state.llm_wiki_context or not state.llm_wiki_context.evidence:
+        return "No LLM Wiki evidence available."
     return "\n\n".join(
         "\n".join(
             [
-                f"### {packet.module}: {packet.title}",
-                truncate_context(packet.content, 2400),
+                f"### {evidence.title}",
+                f"Source: {evidence.source_ref}",
+                truncate_context(evidence.excerpt, 2400),
             ]
         )
-        for packet in state.cognition_context
+        for evidence in state.llm_wiki_context.evidence
     )
 
 

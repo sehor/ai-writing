@@ -8,17 +8,14 @@ from app.cognition.interfaces import (
     WritingScope,
 )
 from app.cognition.infra_graph import LocalInfraGraphModule
-from app.cognition.llm_wiki import LocalLlmWikiModule
 from app.cognition.memplace import LocalMemplaceModule
 
 
 class CognitionRegistry:
     def __init__(self, modules_root: Path):
         self.graph_module = LocalInfraGraphModule(modules_root)
-        self.wiki_module = LocalLlmWikiModule(modules_root)
         self.memplace_module = LocalMemplaceModule(modules_root)
         self.modules = [
-            self.wiki_module,
             self.memplace_module,
         ]
 
