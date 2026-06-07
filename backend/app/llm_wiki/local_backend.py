@@ -14,6 +14,7 @@ from app.llm_wiki.interfaces import (
     WikiSourceDocument,
 )
 from app.llm_wiki.stage_protocol import get_stage_policy
+from app.text_utils import truncate as excerpt
 
 
 class LocalFileLlmWiki:
@@ -208,10 +209,3 @@ class LocalFileLlmWiki:
         ):
             return False
         return True
-
-
-def excerpt(value: str, limit: int = 800) -> str:
-    compact = " ".join(value.split())
-    if len(compact) <= limit:
-        return compact
-    return f"{compact[: limit - 3].rstrip()}..."

@@ -9,6 +9,7 @@ from app.models import (
     SceneContract,
     WorkflowAgentTrace,
 )
+from app.text_utils import truncate
 
 
 def build_reference_context(
@@ -103,14 +104,8 @@ def build_provider_reference_suggestion(
     snapshot: ProjectCognitionSnapshot,
     cognition_context: list[ContextPacket],
 ) -> ReferenceSuggestionCreate:
-    try:
-        from openai import OpenAI
-    except ImportError as exc:
-        raise WorkflowNotConfiguredError(
-            "The OpenAI-compatible SDK is not installed. Run `pip install -r backend/requirements.txt`."
-        ) from exc
-
-    client = OpenAI(api_key=settings.api_key, base_url=settings.base_url)
+    from app.agents.client_factory import get_openai_client
+    client = get_openai_client(api_key=settings.api_key, base_url=settings.base_url)
     response = client.chat.completions.create(
         model=settings.model,
         messages=[
@@ -323,8 +318,8 @@ def reference_type_title(suggestion_type: str) -> str:
     return suggestion_type.replace("_", " ").title()
 
 
-def truncate(value: str, limit: int) -> str:
-    compact = value.strip()
-    if len(compact) <= limit:
-        return compact or "None."
-    return f"{compact[: limit - 3].rstrip()}..."
+def parse_proposals(content: str) -> list[str]:
+    lines = content.splitlines()
+    proposals = []
+    current: list[str] = []
+    return []

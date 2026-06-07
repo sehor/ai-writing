@@ -25,6 +25,7 @@ from app.models import (
     SnowflakeGenerationResponse,
     SnowflakeStep,
 )
+from app.text_utils import truncate as truncate_context
 
 
 DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
@@ -115,13 +116,8 @@ class DeepSeekDraftGenerator:
     @property
     def client(self) -> Any:
         if self._client is None:
-            try:
-                from openai import OpenAI
-            except ImportError as exc:
-                raise WorkflowNotConfiguredError(
-                    "The OpenAI-compatible SDK is not installed. Run `pip install -r backend/requirements.txt`."
-                ) from exc
-            self._client = OpenAI(
+            from app.agents.client_factory import get_openai_client
+            self._client = get_openai_client(
                 api_key=self.settings.api_key,
                 base_url=self.settings.base_url,
             )
@@ -343,11 +339,8 @@ def build_usage_status(response: Any, model: str) -> str:
     return ", ".join(parts)
 
 
-def truncate_context(value: str, limit: int) -> str:
-    compact = value.strip()
-    if len(compact) <= limit:
-        return compact or "None."
-    return f"{compact[: limit - 3].rstrip()}..."
+def combine_prompt(system_prompt: str, user_prompt: str) -> str:
+    return f"{system_prompt}\n\n{user_prompt}".strip()
 
 
 def load_project_env() -> None:

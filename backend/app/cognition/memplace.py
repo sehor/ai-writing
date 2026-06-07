@@ -8,6 +8,7 @@ from app.cognition.interfaces import (
     WritingScope,
 )
 from app.models import WritebackProposalCreate
+from app.text_utils import safe_slug
 
 
 class LocalMemplaceModule:
@@ -78,7 +79,7 @@ class LocalMemplaceModule:
 def persist_sample(project_path: Path, event: CommittedContentEvent) -> None:
     sample_dir = project_path / "prose_samples"
     sample_dir.mkdir(parents=True, exist_ok=True)
-    sample_path = sample_dir / f"{safe_slug(event.source_ref)}.md"
+    sample_path = sample_dir / f"{safe_slug(event.source_ref, fallback='sample')}.md"
     sample_path.write_text(
         "\n".join(
             [
@@ -94,8 +95,3 @@ def persist_sample(project_path: Path, event: CommittedContentEvent) -> None:
         ),
         encoding="utf-8",
     )
-
-
-def safe_slug(value: str) -> str:
-    cleaned = "".join(char.lower() if char.isalnum() else "-" for char in value)
-    return "-".join(part for part in cleaned.split("-") if part) or "sample"

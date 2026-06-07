@@ -1,38 +1,20 @@
-from difflib import unified_diff
-
 from fastapi import APIRouter, Depends, HTTPException, status
 import sqlite3
 
-from app.agents import DeepSeekSettings, WorkflowNotConfiguredError, build_provider_scene_draft
-from app.cognition.interfaces import WritingScope
-from app.cognition.registry import CognitionRegistry, get_cognition_registry
-from app.cognition.snapshots import build_project_snapshot
-from app.data import WritingDataStore, get_data_store, utc_now
-from app.llm_wiki.dependencies import get_llm_wiki
-from app.llm_wiki.interfaces import (
-    LlmWiki,
-    WikiContextQuery,
-    WikiSourceDocument,
-)
-from app.manuscript_export import build_export_markdown
+from app.data import WritingDataStore, get_data_store
 from app.models import (
     ManuscriptExportResponse,
     ManuscriptChapter,
     ManuscriptChapterCreate,
     ManuscriptChapterUpdate,
     ManuscriptProposal,
-    ManuscriptProposalCreate,
     ManuscriptProposalStatusUpdate,
     ManuscriptRevisionDiff,
     ManuscriptRevision,
     ManuscriptScene,
     ManuscriptSceneUpdate,
 )
-from app.routers.scenes import (
-    build_compile_checklist,
-    build_compile_context,
-    build_scene_draft,
-)
+from app.services.manuscript_service import ManuscriptService
 
 
 router = APIRouter(tags=["manuscript"])
@@ -155,17 +137,10 @@ def update_manuscript_scene(
     scene_id: str,
     update: ManuscriptSceneUpdate,
     data_store: WritingDataStore = Depends(get_data_store),
-    llm_wiki: LlmWiki = Depends(get_llm_wiki),
+    service: ManuscriptService = Depends(),
 ) -> ManuscriptScene:
     require_project(project_id, data_store)
-    scene = data_store.update_manuscript_scene(project_id, scene_id, update)
-    if scene is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Accepted manuscript scene not found.",
-        )
-    ingest_latest_manuscript_revision(project_id, scene.scene_id, data_store, llm_wiki)
-    return scene
+    return service.update_scene(project_id, scene_id, update)
 
 
 @router.get(
@@ -175,36 +150,10 @@ def update_manuscript_scene(
 def export_manuscript(
     project_id: str,
     data_store: WritingDataStore = Depends(get_data_store),
+    service: ManuscriptService = Depends(),
 ) -> ManuscriptExportResponse:
     require_project(project_id, data_store)
-    project = data_store.get_project(project_id)
-    scenes = data_store.list_manuscript_scenes(project_id)
-    scene_contracts = {
-        scene.id: scene
-        for scene in data_store.list_scene_contracts(project_id)
-    }
-    chapters = data_store.list_manuscript_chapters(project_id)
-    chapter_order = {chapter.id: chapter.sequence for chapter in chapters}
-    ordered_scene_pairs = sorted(
-        [
-            (scene, scene_contracts.get(scene.scene_id))
-            for scene in scenes
-        ],
-        key=lambda pair: (
-            chapter_order.get(pair[1].chapter_id, 9999) if pair[1] else 9999,
-            pair[1].sequence if pair[1] else 9999,
-            pair[0].title,
-        ),
-    )
-    title = project.title if project else project_id
-    content = build_export_markdown(title, chapters, ordered_scene_pairs)
-    return ManuscriptExportResponse(
-        project_id=project_id,
-        title=title,
-        scene_count=len(ordered_scene_pairs),
-        content=content,
-        generated_at=utc_now(),
-    )
+    return service.export(project_id)
 
 
 @router.get(
@@ -228,31 +177,10 @@ def diff_manuscript_revisions(
     left_revision_id: str,
     right_revision_id: str,
     data_store: WritingDataStore = Depends(get_data_store),
+    service: ManuscriptService = Depends(),
 ) -> ManuscriptRevisionDiff:
     require_project(project_id, data_store)
-    left = data_store.get_manuscript_revision(project_id, left_revision_id)
-    right = data_store.get_manuscript_revision(project_id, right_revision_id)
-    if left is None or right is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Manuscript revision not found.",
-        )
-    return ManuscriptRevisionDiff(
-        project_id=project_id,
-        left_revision_id=left.id,
-        right_revision_id=right.id,
-        left_title=f"{left.title} v{left.version}",
-        right_title=f"{right.title} v{right.version}",
-        diff_lines=list(
-            unified_diff(
-                left.content.splitlines(),
-                right.content.splitlines(),
-                fromfile=f"{left.title} v{left.version}",
-                tofile=f"{right.title} v{right.version}",
-                lineterm="",
-            )
-        ),
-    )
+    return service.diff_revisions(project_id, left_revision_id, right_revision_id)
 
 
 @router.post(
@@ -263,17 +191,10 @@ def restore_manuscript_revision(
     project_id: str,
     revision_id: str,
     data_store: WritingDataStore = Depends(get_data_store),
-    llm_wiki: LlmWiki = Depends(get_llm_wiki),
+    service: ManuscriptService = Depends(),
 ) -> ManuscriptScene:
     require_project(project_id, data_store)
-    scene = data_store.restore_manuscript_revision(project_id, revision_id)
-    if scene is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Manuscript revision not found.",
-        )
-    ingest_latest_manuscript_revision(project_id, scene.scene_id, data_store, llm_wiki)
-    return scene
+    return service.restore_revision(project_id, revision_id)
 
 
 @router.post(
@@ -285,49 +206,10 @@ def create_manuscript_proposal_from_scene(
     project_id: str,
     scene_id: str,
     data_store: WritingDataStore = Depends(get_data_store),
-    cognition: CognitionRegistry = Depends(get_cognition_registry),
-    llm_wiki: LlmWiki = Depends(get_llm_wiki),
+    service: ManuscriptService = Depends(),
 ) -> ManuscriptProposal:
     require_project(project_id, data_store)
-    scene = data_store.get_scene_contract(project_id, scene_id)
-    if scene is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Scene contract not found.",
-        )
-
-    project = data_store.get_project(project_id)
-    cognition_context = cognition.prepare_context(
-        build_project_snapshot(project_id, data_store),
-        WritingScope(kind="scene", ref=scene_id, instruction=scene.title),
-    )
-    llm_wiki_context = llm_wiki.retrieve_context(
-        WikiContextQuery(
-            project_id=project_id,
-            snowflake_step=10,
-            instruction=scene.title,
-            scope=scene.id,
-            story_position=scene.sequence,
-            spoiler_horizon=scene.sequence,
-        )
-    )
-    context = build_compile_context(
-        project.title if project else project_id,
-        scene,
-        data_store.list_canon_entities(project_id),
-        data_store.list_memory_records(project_id),
-        data_store.list_snowflake_artifacts(project_id),
-        cognition_context,
-        llm_wiki_context,
-    )
-    proposal = ManuscriptProposalCreate(
-        scene_id=scene.id,
-        title=f"{scene.sequence}. {scene.title}",
-        content=build_scene_draft(scene),
-        context=context,
-        checklist=build_compile_checklist(),
-    )
-    return data_store.create_manuscript_proposal(project_id, proposal)
+    return service.generate_local_proposal(project_id, scene_id)
 
 
 @router.post(
@@ -339,78 +221,10 @@ def create_provider_manuscript_proposal_from_scene(
     project_id: str,
     scene_id: str,
     data_store: WritingDataStore = Depends(get_data_store),
-    cognition: CognitionRegistry = Depends(get_cognition_registry),
-    llm_wiki: LlmWiki = Depends(get_llm_wiki),
+    service: ManuscriptService = Depends(),
 ) -> ManuscriptProposal:
     require_project(project_id, data_store)
-    scene = data_store.get_scene_contract(project_id, scene_id)
-    if scene is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Scene contract not found.",
-        )
-
-    try:
-        settings = DeepSeekSettings.from_env()
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail=f"DeepSeek environment is invalid: {exc}",
-        ) from exc
-    if settings is None:
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="DeepSeek provider is not configured.",
-        )
-
-    project = data_store.get_project(project_id)
-    cognition_context = cognition.prepare_context(
-        build_project_snapshot(project_id, data_store),
-        WritingScope(kind="scene", ref=scene_id, instruction=scene.title),
-    )
-    llm_wiki_context = llm_wiki.retrieve_context(
-        WikiContextQuery(
-            project_id=project_id,
-            snowflake_step=10,
-            instruction=scene.title,
-            scope=scene.id,
-            story_position=scene.sequence,
-            spoiler_horizon=scene.sequence,
-        )
-    )
-    context = build_compile_context(
-        project.title if project else project_id,
-        scene,
-        data_store.list_canon_entities(project_id),
-        data_store.list_memory_records(project_id),
-        data_store.list_snowflake_artifacts(project_id),
-        cognition_context,
-        llm_wiki_context,
-    )
-    try:
-        content = build_provider_scene_draft(settings, context)
-    except WorkflowNotConfiguredError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail=str(exc),
-        ) from exc
-    except Exception as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Provider manuscript generation failed: {exc}",
-        ) from exc
-
-    proposal = ManuscriptProposalCreate(
-        scene_id=scene.id,
-        title=f"{scene.sequence}. {scene.title} provider draft",
-        content=content,
-        context=context,
-        checklist=[
-            *build_compile_checklist(),
-            "Provider draft is reviewed before accepting into Manuscript.",
-        ],
-    )
-    return data_store.create_manuscript_proposal(project_id, proposal)
+    return service.generate_provider_proposal(project_id, scene_id)
 
 
 @router.put(
@@ -422,79 +236,7 @@ def update_manuscript_proposal_status(
     proposal_id: str,
     update: ManuscriptProposalStatusUpdate,
     data_store: WritingDataStore = Depends(get_data_store),
-    llm_wiki: LlmWiki = Depends(get_llm_wiki),
+    service: ManuscriptService = Depends(),
 ) -> ManuscriptProposal:
     require_project(project_id, data_store)
-    if update.status == "accepted":
-        scene = data_store.accept_manuscript_proposal(project_id, proposal_id)
-        proposal = data_store.get_manuscript_proposal(project_id, proposal_id)
-        if scene is None or proposal is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Manuscript proposal not found.",
-            )
-        ingest_latest_manuscript_revision(
-            project_id,
-            scene.scene_id,
-            data_store,
-            llm_wiki,
-        )
-        return proposal
-
-    proposal = data_store.update_manuscript_proposal_status(
-        project_id,
-        proposal_id,
-        update.status,
-    )
-    if proposal is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Manuscript proposal not found.",
-        )
-    return proposal
-
-
-def ingest_latest_manuscript_revision(
-    project_id: str,
-    scene_id: str,
-    data_store: WritingDataStore,
-    llm_wiki: LlmWiki,
-) -> None:
-    revisions = [
-        revision
-        for revision in data_store.list_manuscript_revisions(project_id)
-        if revision.scene_id == scene_id
-    ]
-    if not revisions:
-        return
-    latest = max(revisions, key=lambda revision: revision.version)
-    previous = max(
-        (
-            revision
-            for revision in revisions
-            if revision.version < latest.version
-        ),
-        key=lambda revision: revision.version,
-        default=None,
-    )
-    scene = data_store.get_scene_contract(project_id, scene_id)
-    llm_wiki.ingest(
-        WikiSourceDocument(
-            project_id=project_id,
-            source_kind="manuscript_revision",
-            source_ref=f"manuscript_revision:{latest.id}",
-            title=latest.title,
-            content=latest.content,
-            snowflake_step=10,
-            artifact_type="manuscript",
-            knowledge_class="observed",
-            version=latest.version,
-            supersedes=(
-                f"manuscript_revision:{previous.id}"
-                if previous is not None
-                else ""
-            ),
-            scope=scene_id,
-            story_position=scene.sequence if scene is not None else None,
-        )
-    )
+    return service.update_proposal_status(project_id, proposal_id, update.status)

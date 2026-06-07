@@ -22,6 +22,8 @@ from app.models import (
     WikiExportResponse,
     WritebackProposalCreate,
 )
+from app.text_utils import slugify, one_line, truncate as truncate_module_context, slug_with_id
+from app.cognition.graph_core import build_graph_nodes, build_graph_edges, build_graph_risks
 
 
 class LocalLlmWikiModule:
@@ -576,9 +578,9 @@ def build_graph_page(
     scenes: list[SceneContract],
     memory_records: list[MemoryRecord],
 ) -> str:
-    nodes = graph_nodes(project, artifacts, canon_entities, scenes, memory_records)
-    edges = graph_edges(project, artifacts, canon_entities, scenes, memory_records)
-    risks = graph_risks(artifacts, canon_entities, scenes, memory_records)
+    nodes = build_graph_nodes(project.id, project.title, artifacts, canon_entities, scenes, memory_records)
+    edges = build_graph_edges(project.id, artifacts, canon_entities, scenes, memory_records)
+    risks = build_graph_risks(artifacts, canon_entities, scenes, memory_records)
     lines = [
         "# Graph / Structure",
         "",
@@ -591,127 +593,19 @@ def build_graph_page(
         "## Risks",
     ]
     lines.extend(
-        f"- **{risk['severity']}** `{risk['source_id'] or 'project'}`: {risk['title']} - {risk['detail']}"
+        f"- **{risk.severity.upper()}** `{risk.source_id or 'project'}`: {risk.title} - {risk.detail}"
         for risk in risks
     )
     if not risks:
         lines.append("- _No structure risks found._")
     lines.extend(["", "## Edges"])
     lines.extend(
-        f"- `{edge['source']}` {edge['edge_type']} `{edge['target']}` ({edge['label'] or 'unlabeled'})"
+        f"- `{edge.source}` {edge.edge_type} `{edge.target}` ({edge.label or 'unlabeled'})"
         for edge in edges
     )
     if not edges:
         lines.append("- _No graph edges found._")
     return page("Graph / Structure", "graph", ["graph", "structure"], lines)
-
-
-def graph_nodes(
-    project: ProjectSummary,
-    artifacts: list[SnowflakeArtifact],
-    canon_entities: list[CanonEntity],
-    scenes: list[SceneContract],
-    memory_records: list[MemoryRecord],
-) -> list[str]:
-    return [
-        f"project:{project.id}",
-        *[f"artifact:{artifact.step_number}" for artifact in artifacts],
-        *[f"canon:{entity.id}" for entity in canon_entities],
-        *[f"scene:{scene.id}" for scene in scenes],
-        *[f"memory:{record.id}" for record in memory_records],
-    ]
-
-
-def graph_edges(
-    project: ProjectSummary,
-    artifacts: list[SnowflakeArtifact],
-    canon_entities: list[CanonEntity],
-    scenes: list[SceneContract],
-    memory_records: list[MemoryRecord],
-) -> list[dict[str, str]]:
-    project_node = f"project:{project.id}"
-    edges: list[dict[str, str]] = []
-    edges.extend(edge(project_node, f"artifact:{artifact.step_number}", "contains", "Snowflake") for artifact in artifacts)
-    edges.extend(edge(project_node, f"canon:{entity.id}", "contains", entity.entity_type) for entity in canon_entities)
-    edges.extend(edge(project_node, f"scene:{scene.id}", "contains", "Scene contract") for scene in scenes)
-    edges.extend(edge(project_node, f"memory:{record.id}", "contains", record.record_type) for record in memory_records)
-    artifact_steps = {artifact.step_number for artifact in artifacts}
-    edges.extend(
-        edge(f"scene:{scene.id}", f"artifact:{scene.source_artifact_step}", "depends_on", "source artifact")
-        for scene in scenes
-        if scene.source_artifact_step in artifact_steps
-    )
-    for scene in scenes:
-        scene_text = searchable_scene_text(scene)
-        for entity in canon_entities:
-            if entity.name and entity.name.lower() in scene_text:
-                edges.append(edge(f"scene:{scene.id}", f"canon:{entity.id}", "references", "mentions Canon"))
-    for record in memory_records:
-        source_ref = record.source_ref.strip().lower()
-        if not source_ref:
-            continue
-        for scene in scenes:
-            if source_ref in scene.id.lower() or source_ref in scene.title.lower():
-                edges.append(edge(f"memory:{record.id}", f"scene:{scene.id}", "informs", "source ref"))
-        for artifact in artifacts:
-            if source_ref in {artifact.artifact.lower(), f"step {artifact.step_number}"}:
-                edges.append(edge(f"memory:{record.id}", f"artifact:{artifact.step_number}", "informs", "source ref"))
-    return dedupe_edge_dicts(edges)
-
-
-def graph_risks(
-    artifacts: list[SnowflakeArtifact],
-    canon_entities: list[CanonEntity],
-    scenes: list[SceneContract],
-    memory_records: list[MemoryRecord],
-) -> list[dict[str, str]]:
-    risks: list[dict[str, str]] = []
-    artifact_steps = {artifact.step_number for artifact in artifacts}
-    if 8 in artifact_steps and not scenes:
-        risks.append(risk("critical", "artifact:8", "Scene list has no structured contracts", "Snowflake step 8 exists, but no Scene Contracts are recorded."))
-    for scene in scenes:
-        for field_name, label in (("pov", "POV"), ("goal", "goal"), ("conflict", "conflict"), ("turning_point", "turning point")):
-            if not getattr(scene, field_name):
-                risks.append(risk("critical", f"scene:{scene.id}", f"Scene is missing {label}", f"{scene.title} needs a {label} before reliable manuscript compilation."))
-        if scene.source_artifact_step not in artifact_steps:
-            risks.append(risk("warning", f"scene:{scene.id}", "Scene source artifact is missing", f"{scene.title} depends on Snowflake step {scene.source_artifact_step}, but that artifact is not saved."))
-        if scene.open_threads:
-            risks.append(risk("info", f"scene:{scene.id}", "Open thread requires review", f"{scene.title}: {one_line(scene.open_threads)}"))
-    referenced_canon_ids = {
-        entity.id
-        for scene in scenes
-        for entity in canon_entities
-        if entity.name and entity.name.lower() in searchable_scene_text(scene)
-    }
-    for entity in canon_entities:
-        if entity.id not in referenced_canon_ids and scenes:
-            risks.append(risk("warning", f"canon:{entity.id}", "Canon entity is not used by any scene", f"{entity.name} is recorded in Canon but is not mentioned in current Scene Contracts."))
-        if not entity.constraints and not entity.current_state:
-            risks.append(risk("info", f"canon:{entity.id}", "Canon entity has thin state", f"{entity.name} has no current state or constraints."))
-    for record in memory_records:
-        if not record.scope and not record.tags:
-            risks.append(risk("info", f"memory:{record.id}", "Memory record is unscoped", f"{record.title} has no scope or tags, making retrieval less precise."))
-    return risks
-
-
-def edge(source: str, target: str, edge_type: str, label: str) -> dict[str, str]:
-    return {"source": source, "target": target, "edge_type": edge_type, "label": label}
-
-
-def risk(severity: str, source_id: str, title: str, detail: str) -> dict[str, str]:
-    return {"severity": severity, "source_id": source_id, "title": title, "detail": detail}
-
-
-def dedupe_edge_dicts(edges: list[dict[str, str]]) -> list[dict[str, str]]:
-    seen: set[tuple[str, str, str, str]] = set()
-    deduped: list[dict[str, str]] = []
-    for item in edges:
-        key = (item["source"], item["target"], item["edge_type"], item["label"])
-        if key in seen:
-            continue
-        seen.add(key)
-        deduped.append(item)
-    return deduped
 
 
 def build_state_snapshot(
@@ -834,33 +728,8 @@ def searchable_scene_text(scene: SceneContract) -> str:
     ).lower()
 
 
-def slugify(value: str) -> str:
-    slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
-    return slug or "page"
-
-
-def slug_with_id(label: str, record_id: str) -> str:
-    label_slug = slugify(label)
-    id_slug = slugify(record_id)
-    if label_slug == id_slug or id_slug == "page":
-        return label_slug
-    return f"{label_slug}-{id_slug}"
-
-
-def one_line(value: str) -> str:
-    compact = " ".join(value.split())
-    return compact[:117] + "..." if len(compact) > 120 else compact or "No summary."
-
-
 def escape_link_label(label: str) -> str:
     return label.replace("|", "-")
-
-
-def truncate_module_context(value: str, limit: int) -> str:
-    compact = value.strip()
-    if len(compact) <= limit:
-        return compact
-    return f"{compact[: limit - 3].rstrip()}..."
 
 
 def canon_entity_exists(entities: list[CanonEntity], name: str) -> bool:

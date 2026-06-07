@@ -3,14 +3,8 @@ from app.agents.writing_workflow import WorkflowNotConfiguredError
 
 
 def build_provider_scene_draft(settings: DeepSeekSettings, context: str) -> str:
-    try:
-        from openai import OpenAI
-    except ImportError as exc:
-        raise WorkflowNotConfiguredError(
-            "The OpenAI-compatible SDK is not installed. Run `pip install -r backend/requirements.txt`."
-        ) from exc
-
-    client = OpenAI(api_key=settings.api_key, base_url=settings.base_url)
+    from app.agents.client_factory import get_openai_client
+    client = get_openai_client(api_key=settings.api_key, base_url=settings.base_url)
     response = client.chat.completions.create(
         model=settings.model,
         messages=[

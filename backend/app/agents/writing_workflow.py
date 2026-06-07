@@ -13,6 +13,7 @@ from app.models import (
     SnowflakeStep,
     WorkflowAgentTrace,
 )
+from app.text_utils import truncate as summarize
 
 
 class WorkflowNotConfiguredError(RuntimeError):
@@ -334,11 +335,6 @@ def draft_for_step(step_number: int, premise: str, user_input: str) -> str:
         "Use this as a structured development draft. Expand it into the requested "
         f"Snowflake artifact while preserving the project premise: {single_line(source)}"
     )
-
-
-def summarize(value: str, limit: int = 240) -> str:
-    compact = " ".join(value.split())
-    return compact if len(compact) <= limit else f"{compact[: limit - 3]}..."
 
 
 def single_line(value: str) -> str:

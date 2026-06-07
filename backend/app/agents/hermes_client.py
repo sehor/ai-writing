@@ -1,11 +1,11 @@
-from typing import Any, Protocol
-
 from app.models import (
     HermesProcessingIssue,
     HermesRevisionProcessResult,
     ManuscriptRevision,
     SceneContract,
 )
+from app.text_utils import one_line, safe_slug
+from typing import Any, Protocol
 
 
 class HermesAgentTransport(Protocol):
@@ -222,13 +222,3 @@ def split_contract_terms(value: str) -> list[str]:
         if len(term) >= 4:
             terms.append(term)
     return terms
-
-
-def one_line(value: str, limit: int) -> str:
-    compact = " ".join(value.split())
-    return compact if len(compact) <= limit else f"{compact[: limit - 3]}..."
-
-
-def safe_slug(value: str) -> str:
-    cleaned = "".join(char.lower() if char.isalnum() else "-" for char in value)
-    return "-".join(part for part in cleaned.split("-") if part) or "scene"

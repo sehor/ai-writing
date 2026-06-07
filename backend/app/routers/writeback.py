@@ -94,10 +94,7 @@ def create_writeback_proposals_from_revision(
         for report in reports
         for proposal in report.writeback_proposals
     ]
-    return [
-        data_store.create_writeback_proposal(project_id, proposal)
-        for proposal in proposals
-    ]
+    return data_store.create_writeback_proposals(project_id, proposals)
 
 
 @router.post(
@@ -134,10 +131,7 @@ def process_revision_with_hermes(
     )
     for proposal in result.writeback_proposals:
         validate_writeback_payload(proposal)
-    stored_proposals = [
-        data_store.create_writeback_proposal(project_id, proposal)
-        for proposal in result.writeback_proposals
-    ]
+    stored_proposals = data_store.create_writeback_proposals(project_id, result.writeback_proposals)
     return HermesRevisionProcessResponse(
         status=result.status,
         summary=result.summary,
@@ -196,10 +190,7 @@ def create_provider_writeback_proposals_from_revision(
             detail=f"Provider write-back generation failed: {exc}",
         ) from exc
 
-    return [
-        data_store.create_writeback_proposal(project_id, proposal)
-        for proposal in proposals
-    ]
+    return data_store.create_writeback_proposals(project_id, proposals)
 
 
 @router.put(
