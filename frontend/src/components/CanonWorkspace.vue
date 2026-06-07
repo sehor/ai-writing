@@ -5,7 +5,6 @@ import { useWorkspaceStore } from '../stores/workspace'
 const store = useWorkspaceStore()
 const {
   canonEntities,
-  activeSection,
   activeCanonId,
   isSavingCanon,
   isDeletingCanon,

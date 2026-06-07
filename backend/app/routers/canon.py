@@ -3,18 +3,11 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.data import WritingDataStore, get_data_store
+from app.dependencies import require_project
 from app.models import CanonEntity, CanonEntityCreate, CanonEntityUpdate
 
 
 router = APIRouter(tags=["canon"])
-
-
-def require_project(project_id: str, data_store: WritingDataStore) -> None:
-    if not data_store.project_exists(project_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found.",
-        )
 
 
 @router.get("/projects/{project_id}/canon/entities", response_model=list[CanonEntity])

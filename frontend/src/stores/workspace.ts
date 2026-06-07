@@ -6,14 +6,12 @@ import type {
   SnowflakeArtifact,
   WorkflowAgentTrace,
   SnowflakeGenerationResponse,
-  CanonEntityType,
   CanonEntity,
   CanonDraft,
   SceneContract,
   SceneDraft,
   ManuscriptChapter,
   ManuscriptChapterDraft,
-  MemoryRecordType,
   MemoryRecord,
   MemoryDraft,
   ChapterCompileResponse,
@@ -24,24 +22,17 @@ import type {
   ManuscriptRevisionDiff,
   ManuscriptExport,
   WritebackProposalStatus,
-  WritebackTarget,
   ReferenceSuggestionStatus,
-  ReferenceScopeType,
-  ReferenceSuggestionType,
   WritebackProposal,
   ReferenceSuggestion,
   ReferenceDraft,
-  HermesWikiChange,
-  HermesProcessingIssue,
   HermesRevisionProcessResponse,
-  GraphNode,
-  GraphEdge,
-  GraphRisk,
-  GraphAnalysisSummary,
   GraphAnalysisResponse,
   WorkflowRuntimeStatus,
   ActiveSection
 } from "../types"
+
+type ApiStatus = 'checking' | 'ok' | 'offline'
 
 export const useWorkspaceStore = defineStore('workspace', () => {
   const projects = ref<ProjectSummary[]>([])
@@ -70,7 +61,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const diffLeftRevisionId = ref('')
   const diffRightRevisionId = ref('')
   const editingManuscriptSceneId = ref('')
-  const apiStatus = ref('checking')
+  const apiStatus = ref<ApiStatus>('checking')
   const workflowRuntime = ref<WorkflowRuntimeStatus | null>(null)
   const isCreating = ref(false)
   const isSavingArtifact = ref(false)
@@ -326,7 +317,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
   
+  let projectLoadController: AbortController | null = null
+
   watch(activeProjectId, async (projectId) => {
+    projectLoadController?.abort()
+    const controller = new AbortController()
+    projectLoadController = controller
     artifactError.value = ''
     artifactStatus.value = ''
     workflowTrace.value = []
@@ -398,19 +394,39 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         manuscriptRevisionResponse,
         writebackResponse,
         referenceResponse,
-      ] =
-        await Promise.all([
-          fetch(`/api/projects/${projectId}/snowflake/artifacts`),
-          fetch(`/api/projects/${projectId}/canon/entities`),
-          fetch(`/api/projects/${projectId}/manuscript/chapters`),
-          fetch(`/api/projects/${projectId}/scene-contracts`),
-          fetch(`/api/projects/${projectId}/memory/records`),
-          fetch(`/api/projects/${projectId}/manuscript/proposals`),
-          fetch(`/api/projects/${projectId}/manuscript/scenes`),
-          fetch(`/api/projects/${projectId}/manuscript/revisions`),
-          fetch(`/api/projects/${projectId}/writeback/proposals`),
-          fetch(`/api/projects/${projectId}/references/suggestions`),
-        ])
+        ] =
+          await Promise.all([
+            fetch(`/api/projects/${projectId}/snowflake/artifacts`, {
+              signal: controller.signal,
+            }),
+            fetch(`/api/projects/${projectId}/canon/entities`, {
+              signal: controller.signal,
+            }),
+            fetch(`/api/projects/${projectId}/manuscript/chapters`, {
+              signal: controller.signal,
+            }),
+            fetch(`/api/projects/${projectId}/scene-contracts`, {
+              signal: controller.signal,
+            }),
+            fetch(`/api/projects/${projectId}/memory/records`, {
+              signal: controller.signal,
+            }),
+            fetch(`/api/projects/${projectId}/manuscript/proposals`, {
+              signal: controller.signal,
+            }),
+            fetch(`/api/projects/${projectId}/manuscript/scenes`, {
+              signal: controller.signal,
+            }),
+            fetch(`/api/projects/${projectId}/manuscript/revisions`, {
+              signal: controller.signal,
+            }),
+            fetch(`/api/projects/${projectId}/writeback/proposals`, {
+              signal: controller.signal,
+            }),
+            fetch(`/api/projects/${projectId}/references/suggestions`, {
+              signal: controller.signal,
+            }),
+          ])
       if (
         !artifactResponse.ok ||
         !canonResponse.ok ||
@@ -425,23 +441,52 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       ) {
         throw new Error('Could not load artifacts')
       }
-      artifacts.value = await artifactResponse.json()
-      canonEntities.value = await canonResponse.json()
-      manuscriptChapters.value = await chapterResponse.json()
-      sceneContracts.value = await sceneResponse.json()
-      memoryRecords.value = await memoryResponse.json()
-      manuscriptProposals.value = await proposalResponse.json()
-      manuscriptScenes.value = await manuscriptSceneResponse.json()
-      manuscriptRevisions.value = await manuscriptRevisionResponse.json()
-      writebackProposals.value = await writebackResponse.json()
-      referenceSuggestions.value = await referenceResponse.json()
+      const [
+        loadedArtifacts,
+        loadedCanonEntities,
+        loadedChapters,
+        loadedSceneContracts,
+        loadedMemoryRecords,
+        loadedProposals,
+        loadedManuscriptScenes,
+        loadedRevisions,
+        loadedWritebacks,
+        loadedReferences,
+      ] = await Promise.all([
+        artifactResponse.json(),
+        canonResponse.json(),
+        chapterResponse.json(),
+        sceneResponse.json(),
+        memoryResponse.json(),
+        proposalResponse.json(),
+        manuscriptSceneResponse.json(),
+        manuscriptRevisionResponse.json(),
+        writebackResponse.json(),
+        referenceResponse.json(),
+      ])
+      if (controller.signal.aborted) {
+        return
+      }
+      artifacts.value = loadedArtifacts
+      canonEntities.value = loadedCanonEntities
+      manuscriptChapters.value = loadedChapters
+      sceneContracts.value = loadedSceneContracts
+      memoryRecords.value = loadedMemoryRecords
+      manuscriptProposals.value = loadedProposals
+      manuscriptScenes.value = loadedManuscriptScenes
+      manuscriptRevisions.value = loadedRevisions
+      writebackProposals.value = loadedWritebacks
+      referenceSuggestions.value = loadedReferences
       activeProposalId.value = manuscriptProposals.value[0]?.id ?? ''
       activeWritebackId.value = writebackProposals.value[0]?.id ?? ''
       activeReferenceId.value = referenceSuggestions.value[0]?.id ?? ''
       syncRevisionCompareSelection()
       artifactDraft.value = savedActiveArtifact.value?.content ?? ''
-      await loadGraphAnalysis(projectId)
-    } catch {
+      await loadGraphAnalysis(projectId, controller.signal)
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return
+      }
       artifactError.value = 'Project data could not be loaded.'
     }
   })
@@ -575,7 +620,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     )
   }
   
-  async function loadGraphAnalysis(projectId = activeProject.value?.id) {
+  async function loadGraphAnalysis(
+    projectId = activeProject.value?.id,
+    signal?: AbortSignal,
+  ) {
     graphError.value = ''
     if (!projectId) {
       graphAnalysis.value = null
@@ -584,15 +632,20 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   
     isLoadingGraph.value = true
     try {
-      const response = await fetch(`/api/projects/${projectId}/graph/analysis`)
+      const response = await fetch(`/api/projects/${projectId}/graph/analysis`, { signal })
       if (!response.ok) {
         throw new Error('Could not load graph analysis')
       }
       graphAnalysis.value = await response.json()
-    } catch {
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return
+      }
       graphError.value = 'Graph analysis could not be loaded.'
     } finally {
-      isLoadingGraph.value = false
+      if (!signal?.aborted) {
+        isLoadingGraph.value = false
+      }
     }
   }
   
@@ -1231,9 +1284,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         proposal.id === updated.id ? updated : proposal
       )
       if (status === 'accepted') {
-        await loadManuscriptScenes(projectId)
-        await loadManuscriptRevisions(projectId)
-        await loadWritebackProposals(projectId)
+        await Promise.all([
+          loadManuscriptScenes(projectId),
+          loadManuscriptRevisions(projectId),
+          loadWritebackProposals(projectId),
+        ])
       }
       activeProposalId.value = updated.id
       manuscriptStatus.value =
@@ -1652,7 +1707,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
   
   function statusText(value: string) {
-    return value.replace('_', ' ')
+    return value.split('_').join(' ')
   }
   
   function formatJson(value: Record<string, unknown>) {

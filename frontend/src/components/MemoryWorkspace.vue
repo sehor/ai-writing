@@ -5,7 +5,6 @@ import { useWorkspaceStore } from '../stores/workspace'
 const store = useWorkspaceStore()
 const {
   memoryRecords,
-  activeSection,
   activeMemoryId,
   isSavingMemory,
   isDeletingMemory,
@@ -16,7 +15,8 @@ const {
 const {
   startNewMemoryRecord,
   saveMemoryRecord,
-  deleteMemoryRecord
+  deleteMemoryRecord,
+  statusText
 } = store
 </script>
 
@@ -42,7 +42,7 @@ const {
               @click="activeMemoryId = record.id"
             >
               <span>{{ record.title }}</span>
-              <small>{{ record.record_type.replace('_', ' ') }}</small>
+              <small>{{ statusText(record.record_type) }}</small>
             </button>
             <p v-if="memoryRecords.length === 0" class="empty-state">
               No Memory / Style records yet.

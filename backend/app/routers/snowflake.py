@@ -9,6 +9,7 @@ from app.agents import (
     create_deepseek_workflow,
 )
 from app.data import WritingDataStore, get_data_store
+from app.dependencies import require_project
 from app.llm_wiki.dependencies import get_llm_wiki
 from app.llm_wiki.interfaces import LlmWiki, WikiSourceDocument
 from app.models import (
@@ -128,14 +129,6 @@ def get_snowflake_step(step_number: int) -> SnowflakeStep:
         status_code=status.HTTP_404_NOT_FOUND,
         detail="Snowflake step not found.",
     )
-
-
-def require_project(project_id: str, data_store: WritingDataStore) -> None:
-    if not data_store.project_exists(project_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found.",
-        )
 
 
 @router.get(

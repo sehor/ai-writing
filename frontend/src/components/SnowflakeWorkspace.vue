@@ -7,7 +7,6 @@ const {
   steps,
   artifacts,
   activeStepNumber,
-  activeSection,
   isCreating,
   isSavingArtifact,
   isGeneratingArtifact,

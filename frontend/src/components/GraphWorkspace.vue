@@ -4,7 +4,6 @@ import { useWorkspaceStore } from '../stores/workspace'
 
 const store = useWorkspaceStore()
 const {
-  activeSection,
   isLoadingGraph,
   graphError,
   graphAnalysis,

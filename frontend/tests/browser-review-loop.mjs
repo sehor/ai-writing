@@ -6,12 +6,7 @@ import { chromium } from 'playwright'
 
 const frontendUrl = 'http://127.0.0.1:5174'
 const frontendDir = fileURLToPath(new URL('..', import.meta.url))
-const viteBin = join(
-  frontendDir,
-  'node_modules',
-  '.bin',
-  process.platform === 'win32' ? 'vite.cmd' : 'vite',
-)
+const viteBin = join(frontendDir, 'node_modules', 'vite', 'bin', 'vite.js')
 
 const state = {
   project: {
@@ -188,14 +183,15 @@ async function waitForServer(url) {
 }
 
 const server = spawn(
-  viteBin,
-  ['--host', '127.0.0.1', '--port', '5174', '--strictPort'],
-  { cwd: frontendDir, stdio: 'pipe', shell: process.platform === 'win32' },
+  process.execPath,
+  [viteBin, '--host', '127.0.0.1', '--port', '5174', '--strictPort'],
+  { cwd: frontendDir, stdio: 'ignore' },
 )
 
+let browser
 try {
   await waitForServer(frontendUrl)
-  const browser = await chromium.launch()
+  browser = await chromium.launch()
   const page = await browser.newPage()
   await page.route('**/api/**', handleApi)
   await page.goto(frontendUrl)
@@ -237,9 +233,15 @@ try {
   await page.getByRole('button', { name: 'Accept Reference' }).click()
   await page.getByText('Reference accepted.').waitFor()
 
-  await browser.close()
   assert.equal(state.proposals[0].status, 'accepted')
   assert.equal(state.references[0].status, 'accepted')
 } finally {
-  server.kill()
+  await browser?.close()
+  if (server.exitCode === null) {
+    server.kill()
+    await Promise.race([
+      new Promise((resolve) => server.once('exit', resolve)),
+      new Promise((resolve) => setTimeout(resolve, 5000)),
+    ])
+  }
 }

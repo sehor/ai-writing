@@ -1,22 +1,15 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends
 
 from app.cognition.registry import CognitionRegistry, get_cognition_registry
 from app.cognition.snapshots import build_project_snapshot
 from app.data import WritingDataStore, get_data_store
+from app.dependencies import require_project
 from app.models import (
     GraphAnalysisResponse,
 )
 
 
 router = APIRouter(tags=["graph"])
-
-
-def require_project(project_id: str, data_store: WritingDataStore) -> None:
-    if not data_store.project_exists(project_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found.",
-        )
 
 
 @router.get(

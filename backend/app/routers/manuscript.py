@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 import sqlite3
 
 from app.data import WritingDataStore, get_data_store
+from app.dependencies import require_project
 from app.models import (
     ManuscriptExportResponse,
     ManuscriptChapter,
@@ -18,14 +19,6 @@ from app.services.manuscript_service import ManuscriptService
 
 
 router = APIRouter(tags=["manuscript"])
-
-
-def require_project(project_id: str, data_store: WritingDataStore) -> None:
-    if not data_store.project_exists(project_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found.",
-        )
 
 
 @router.get(

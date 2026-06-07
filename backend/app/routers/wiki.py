@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.data import WritingDataStore, get_data_store
+from app.dependencies import require_project
 from app.llm_wiki.dependencies import get_llm_wiki
 from app.llm_wiki.interfaces import (
     LlmWiki,
@@ -12,14 +13,6 @@ from app.llm_wiki.interfaces import (
 
 
 router = APIRouter(tags=["wiki"])
-
-
-def require_project(project_id: str, data_store: WritingDataStore) -> None:
-    if not data_store.project_exists(project_id):
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Project not found.",
-        )
 
 
 def require_matching_project(project_id: str, request_project_id: str) -> None:
