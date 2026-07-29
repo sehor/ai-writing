@@ -268,6 +268,22 @@ class ManuscriptDataMixin:
     ) -> ManuscriptProposal | None:
         reviewed_at = utc_now() if proposal_status != "pending_review" else ""
         with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, scene_id, source, title, content, context,
+                       checklist_json, status, created_at, reviewed_at
+                FROM manuscript_proposals
+                WHERE project_id = ? AND id = ?
+                """,
+                (project_id, proposal_id),
+            ).fetchone()
+            if row is None:
+                return None
+            current = manuscript_proposal_from_row(row)
+            if current.status == proposal_status:
+                return current
+            if current.status != "pending_review":
+                return None
             cursor = connection.execute(
                 """
                 UPDATE manuscript_proposals
@@ -360,6 +376,10 @@ class ManuscriptDataMixin:
             if proposal_row is None:
                 return None
             proposal = manuscript_proposal_from_row(proposal_row)
+            if proposal.status == "accepted":
+                return self.get_manuscript_scene(project_id, proposal.scene_id)
+            if proposal.status != "pending_review":
+                return None
             current_row = connection.execute(
                 """
                 SELECT version

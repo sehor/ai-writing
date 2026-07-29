@@ -1,4 +1,5 @@
 import json
+import re
 from hashlib import sha256
 from pathlib import Path
 
@@ -14,7 +15,7 @@ from app.llm_wiki.interfaces import (
     WikiSourceDocument,
 )
 from app.llm_wiki.stage_protocol import get_stage_policy
-from app.text_utils import truncate as excerpt
+from app.text_utils import one_line, slugify
 
 
 class LocalFileLlmWiki:
@@ -32,6 +33,8 @@ class LocalFileLlmWiki:
             json.dumps(document.model_dump(mode="json"), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+        self._write_markdown_source(source_path.with_suffix(".md"), document)
+        self._rebuild_projection(project_path, document.project_id)
         return WikiIngestionResult(
             status=status,
             source_ref=document.source_ref,
@@ -48,6 +51,7 @@ class LocalFileLlmWiki:
         ]
         documents.sort(
             key=lambda item: (
+                -self._score_document(item, query),
                 item.story_position if item.story_position is not None else -1,
                 item.snowflake_step,
                 item.source_ref,
@@ -57,7 +61,7 @@ class LocalFileLlmWiki:
             WikiEvidence(
                 source_ref=document.source_ref,
                 title=document.title,
-                excerpt=excerpt(document.content),
+                excerpt=self._projection_summary(document),
                 knowledge_class=document.knowledge_class,
                 snowflake_step=document.snowflake_step,
                 scope=document.scope,
@@ -93,7 +97,19 @@ class LocalFileLlmWiki:
             for item in context.evidence
             if item.knowledge_class == "observed"
         ]
-        if query.snowflake_step == 10 and planned_refs and not observed_refs:
+        if not context.evidence:
+            insights = [
+                WikiInsight(
+                    kind="stage_context_gap",
+                    summary="No stage-visible LLM Wiki evidence is available.",
+                    detail=(
+                        "Continue with user-provided context only, or save upstream "
+                        "Snowflake artifacts before asking the wiki for constraints."
+                    ),
+                    source_refs=[],
+                )
+            ]
+        elif query.snowflake_step == 10 and planned_refs and not observed_refs:
             insights = [
                 WikiInsight(
                     kind="observed_context_gap",
@@ -144,6 +160,28 @@ class LocalFileLlmWiki:
         digest = sha256(document.source_ref.encode("utf-8")).hexdigest()[:20]
         return project_path / "sources" / document.knowledge_class / f"{digest}.json"
 
+    def _write_markdown_source(self, path: Path, document: WikiSourceDocument) -> None:
+        lines = [
+            "---",
+            f"project_id: {json.dumps(document.project_id, ensure_ascii=False)}",
+            f"source_kind: {json.dumps(document.source_kind, ensure_ascii=False)}",
+            f"source_ref: {json.dumps(document.source_ref, ensure_ascii=False)}",
+            f"title: {json.dumps(document.title, ensure_ascii=False)}",
+            f"snowflake_step: {document.snowflake_step}",
+            f"artifact_type: {json.dumps(document.artifact_type, ensure_ascii=False)}",
+            f"knowledge_class: {json.dumps(document.knowledge_class, ensure_ascii=False)}",
+            f"status: {json.dumps(document.status, ensure_ascii=False)}",
+            f"version: {document.version}",
+            f"supersedes: {json.dumps(document.supersedes, ensure_ascii=False)}",
+            f"scope: {json.dumps(document.scope, ensure_ascii=False)}",
+            f"story_position: {json.dumps(document.story_position)}",
+            "---",
+            "",
+            document.content.strip(),
+            "",
+        ]
+        path.write_text("\n".join(lines), encoding="utf-8")
+
     def _load_documents(self, project_id: str) -> list[WikiSourceDocument]:
         sources_path = self._project_path(project_id) / "sources"
         if not sources_path.is_dir():
@@ -167,17 +205,124 @@ class LocalFileLlmWiki:
             )
             if document.source_ref != source_ref:
                 continue
+            updated = document.model_copy(update={"status": "superseded"})
             path.write_text(
                 json.dumps(
-                    document.model_copy(update={"status": "superseded"}).model_dump(
-                        mode="json"
-                    ),
+                    updated.model_dump(mode="json"),
                     ensure_ascii=False,
                     indent=2,
                 ),
                 encoding="utf-8",
             )
+            self._write_markdown_source(path.with_suffix(".md"), updated)
             return
+
+    def _rebuild_projection(self, project_path: Path, project_id: str) -> None:
+        documents = [
+            document
+            for document in self._load_documents(project_id)
+            if document.status == "approved"
+        ]
+        documents.sort(
+            key=lambda item: (
+                item.snowflake_step,
+                item.story_position if item.story_position is not None else -1,
+                item.title,
+                item.source_ref,
+            )
+        )
+        concepts_path = project_path / "wiki" / "concepts"
+        concepts_path.mkdir(parents=True, exist_ok=True)
+        for path in concepts_path.glob("*.md"):
+            if path.is_file():
+                path.unlink()
+        pages = []
+        for document in documents:
+            slug = self._concept_slug(document)
+            (concepts_path / f"{slug}.md").write_text(
+                self._concept_page(slug, document),
+                encoding="utf-8",
+            )
+            pages.append((slug, document))
+        self._write_projection_index(project_path / "wiki" / "index.md", pages)
+
+    def _concept_slug(self, document: WikiSourceDocument) -> str:
+        digest = sha256(document.source_ref.encode("utf-8")).hexdigest()[:10]
+        return f"{slugify(document.title, 'source')}-{digest}"
+
+    def _concept_page(self, slug: str, document: WikiSourceDocument) -> str:
+        summary = self._projection_summary(document)
+        lines = [
+            "---",
+            f"title: {json.dumps(document.title, ensure_ascii=False)}",
+            'kind: "concept"',
+            f"summary: {json.dumps(summary, ensure_ascii=False)}",
+            f"sources: {json.dumps([document.source_ref], ensure_ascii=False)}",
+            f"source_ref: {json.dumps(document.source_ref, ensure_ascii=False)}",
+            f"source_kind: {json.dumps(document.source_kind, ensure_ascii=False)}",
+            f"knowledge_class: {json.dumps(document.knowledge_class, ensure_ascii=False)}",
+            f"snowflake_step: {document.snowflake_step}",
+            f"artifact_type: {json.dumps(document.artifact_type, ensure_ascii=False)}",
+            f"scope: {json.dumps(document.scope, ensure_ascii=False)}",
+            f"story_position: {json.dumps(document.story_position)}",
+            "---",
+            "",
+            f"# {document.title}",
+            "",
+            f"- Source: `{document.source_ref}`",
+            f"- Snowflake step: {document.snowflake_step}",
+            f"- Knowledge class: {document.knowledge_class}",
+            "",
+            "## Content",
+            "",
+            document.content.strip(),
+            "",
+            f"<!-- generated-slug: {slug} -->",
+            "",
+        ]
+        return "\n".join(lines)
+
+    @staticmethod
+    def _projection_summary(document: WikiSourceDocument) -> str:
+        return one_line(document.content, 180)
+
+    def _write_projection_index(
+        self,
+        path: Path,
+        pages: list[tuple[str, WikiSourceDocument]],
+    ) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        lines = ["# Wiki Index", "", "## Concepts", ""]
+        if not pages:
+            lines.append("- _No active approved sources._")
+        else:
+            lines.extend(
+                (
+                    f"- [[concepts/{slug}|{document.title.replace('|', '-')}]]"
+                    f" - {document.knowledge_class} step {document.snowflake_step};"
+                    f" `{document.source_ref}`"
+                )
+                for slug, document in pages
+            )
+        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+    @staticmethod
+    def _score_document(document: WikiSourceDocument, query: WikiContextQuery) -> int:
+        tokens = set(re.findall(r"[\w]+", f"{query.instruction} {query.scope}".lower()))
+        if not tokens:
+            return 0
+        title = document.title.lower()
+        content = document.content.lower()
+        metadata = f"{document.source_ref} {document.artifact_type} {document.scope}".lower()
+        score = 0
+        for token in tokens:
+            if token in title:
+                score += 4
+            if token in content:
+                score += 2
+            if token in metadata:
+                score += 1
+        return score
 
     @staticmethod
     def _is_visible(

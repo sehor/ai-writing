@@ -178,10 +178,7 @@ Backend:
 
 ```bash
 cd backend
-python -m venv .venv
-.venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --port 8000
+uv run --with-requirements requirements.txt uvicorn app.main:app --reload --port 8000
 ```
 
 AI runtime configuration lives in the repository `.env` file:
@@ -211,7 +208,7 @@ Use these checks after relevant changes:
 ```bash
 python -m compileall backend\app
 cd backend
-.venv\Scripts\python -m unittest discover -s tests
+uv run --with-requirements requirements.txt python -m unittest discover -s tests
 cd frontend
 pnpm build
 ```

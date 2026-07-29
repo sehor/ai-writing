@@ -69,7 +69,13 @@ def generate_provider_reference_suggestion(
     cognition: CognitionRegistry = Depends(get_cognition_registry),
 ) -> ReferenceSuggestion:
     require_project(project_id, data_store)
-    settings = DeepSeekSettings.from_env()
+    try:
+        settings = DeepSeekSettings.from_env()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=f"DeepSeek env invalid: {exc}",
+        ) from exc
     if settings is None:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,

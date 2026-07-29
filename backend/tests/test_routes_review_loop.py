@@ -1,6 +1,7 @@
 from pathlib import Path
 from tempfile import TemporaryDirectory
 import unittest
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -110,6 +111,125 @@ class ReviewLoopRouteTests(unittest.TestCase):
                     canon_response = client.get(f"/api/projects/{project_id}/canon/entities")
                     self.assertEqual(canon_response.status_code, 200)
                     self.assertEqual(canon_response.json()[0]["name"], "Altered map")
+            finally:
+                app.dependency_overrides.clear()
+
+    def test_accepted_manuscript_proposal_is_terminal(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            store = SQLiteWritingDataStore(Path(temp_dir) / "app.db")
+            store.init()
+            app.dependency_overrides[get_data_store] = lambda: store
+            try:
+                with TestClient(app) as client:
+                    project_id = client.post(
+                        "/api/projects",
+                        json={
+                            "title": "Terminal Proposal",
+                            "premise": "A map refuses to be edited twice.",
+                        },
+                    ).json()["id"]
+                    scene = client.post(
+                        f"/api/projects/{project_id}/scene-contracts",
+                        json={
+                            "sequence": 1,
+                            "title": "Single Accept",
+                            "pov": "Mira",
+                            "goal": "Accept one draft.",
+                            "conflict": "The review button is clicked twice.",
+                            "turning_point": "The second click is ignored.",
+                            "required_canon": "",
+                            "forbidden_facts": "",
+                            "open_threads": "",
+                            "source_artifact_step": 8,
+                        },
+                    ).json()
+                    proposal = client.post(
+                        f"/api/projects/{project_id}/manuscript/proposals/from-scene/{scene['id']}"
+                    ).json()
+
+                    first_accept = client.put(
+                        f"/api/projects/{project_id}/manuscript/proposals/{proposal['id']}/status",
+                        json={"status": "accepted"},
+                    )
+                    second_accept = client.put(
+                        f"/api/projects/{project_id}/manuscript/proposals/{proposal['id']}/status",
+                        json={"status": "accepted"},
+                    )
+                    reject_after_accept = client.put(
+                        f"/api/projects/{project_id}/manuscript/proposals/{proposal['id']}/status",
+                        json={"status": "rejected"},
+                    )
+
+                    self.assertEqual(first_accept.status_code, 200)
+                    self.assertEqual(second_accept.status_code, 200)
+                    self.assertEqual(reject_after_accept.status_code, 409)
+                    self.assertEqual(len(store.list_manuscript_revisions(project_id)), 1)
+                    self.assertEqual(
+                        store.get_manuscript_proposal(project_id, proposal["id"]).status,
+                        "accepted",
+                    )
+            finally:
+                app.dependency_overrides.clear()
+
+    def test_invalid_deepseek_env_returns_501_for_provider_routes(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            store = SQLiteWritingDataStore(Path(temp_dir) / "app.db")
+            store.init()
+            app.dependency_overrides[get_data_store] = lambda: store
+            env = {
+                "DEEPSEEK_API_KEY": "test-key",
+                "DEEPSEEK_TEMPERATURE": "not-a-number",
+            }
+            try:
+                with patch.dict("os.environ", env, clear=False):
+                    with TestClient(app) as client:
+                        project_id = client.post(
+                            "/api/projects",
+                            json={
+                                "title": "Invalid Provider Env",
+                                "premise": "Bad runtime config should not become a 500.",
+                            },
+                        ).json()["id"]
+                        scene = client.post(
+                            f"/api/projects/{project_id}/scene-contracts",
+                            json={
+                                "sequence": 1,
+                                "title": "Provider Config",
+                                "pov": "Mira",
+                                "goal": "Reach provider route setup.",
+                                "conflict": "The env is invalid.",
+                                "turning_point": "The route rejects config.",
+                                "required_canon": "",
+                                "forbidden_facts": "",
+                                "open_threads": "",
+                                "source_artifact_step": 8,
+                            },
+                        ).json()
+                        proposal = client.post(
+                            f"/api/projects/{project_id}/manuscript/proposals/from-scene/{scene['id']}"
+                        ).json()
+                        client.put(
+                            f"/api/projects/{project_id}/manuscript/proposals/{proposal['id']}/status",
+                            json={"status": "accepted"},
+                        )
+                        revision_id = store.list_manuscript_revisions(project_id)[0].id
+
+                        reference_response = client.post(
+                            f"/api/projects/{project_id}/references/suggestions/generate/provider",
+                            json={
+                                "suggestion_type": "scene_bridge",
+                                "scope_type": "project",
+                                "scope_ref": "",
+                                "author_problem": "Need a bridge.",
+                                "desired_output": "",
+                            },
+                        )
+                        writeback_response = client.post(
+                            f"/api/projects/{project_id}/writeback/proposals/from-revision/{revision_id}/provider"
+                        )
+
+                    self.assertEqual(reference_response.status_code, 501)
+                    self.assertEqual(writeback_response.status_code, 501)
             finally:
                 app.dependency_overrides.clear()
 

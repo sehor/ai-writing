@@ -118,6 +118,13 @@ class ManuscriptService:
         return self.data_store.create_manuscript_proposal(project_id, proposal)
 
     def update_proposal_status(self, project_id: str, proposal_id: str, status_str: str) -> ManuscriptProposal:
+        current = self.data_store.get_manuscript_proposal(project_id, proposal_id)
+        if not current:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Manuscript proposal not found.")
+        if current.status == status_str:
+            return current
+        if current.status != "pending_review":
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Manuscript proposal is already reviewed.")
         if status_str == "accepted":
             scene = self.data_store.accept_manuscript_proposal(project_id, proposal_id)
             proposal = self.data_store.get_manuscript_proposal(project_id, proposal_id)

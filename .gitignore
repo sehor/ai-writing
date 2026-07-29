@@ -9,6 +9,10 @@ pnpm-lock.yaml.*
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
 .venv/
 
 # Local environment configuration
@@ -23,8 +27,19 @@ backend/data/projects/
 backend/app/data/*.db
 backend/app/data/*.db-*
 
+# Logs and temporary files
+*.log
+tmp/
+temp/
+graphify-out/
+
 # Editor configuration
 .vscode/
+.idea/
+
+# OS metadata
+.DS_Store
+Thumbs.db
 
 # One-off migration and extraction helpers
 *.bak

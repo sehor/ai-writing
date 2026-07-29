@@ -153,7 +153,13 @@ def create_provider_writeback_proposals_from_revision(
             detail="Manuscript revision not found.",
         )
 
-    settings = DeepSeekSettings.from_env()
+    try:
+        settings = DeepSeekSettings.from_env()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_501_NOT_IMPLEMENTED,
+            detail=f"DeepSeek env invalid: {exc}",
+        ) from exc
     if settings is None:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
