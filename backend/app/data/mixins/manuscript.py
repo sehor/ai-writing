@@ -155,12 +155,14 @@ class ManuscriptDataMixin:
             existing_ids = {
                 row["id"]
                 for row in connection.execute(
-                    "SELECT id FROM manuscript_chapters WHERE project_id = ?",
-                    (project_id,),
+                    "SELECT id FROM manuscript_chapters",
                 ).fetchall()
             }
             created = ManuscriptChapter(
-                id=make_record_id(f"chapter-{chapter.sequence}-{chapter.title}", existing_ids),
+                id=make_record_id(
+                    f"{project_id}-chapter-{chapter.sequence}-{chapter.title}",
+                    existing_ids,
+                ),
                 project_id=project_id,
                 **chapter.model_dump(),
             )
@@ -237,12 +239,14 @@ class ManuscriptDataMixin:
             existing_ids = {
                 row["id"]
                 for row in connection.execute(
-                    "SELECT id FROM manuscript_proposals WHERE project_id = ?",
-                    (project_id,),
+                    "SELECT id FROM manuscript_proposals",
                 ).fetchall()
             }
             created = ManuscriptProposal(
-                id=make_record_id(f"proposal-{proposal.title}", existing_ids),
+                id=make_record_id(
+                    f"{project_id}-proposal-{proposal.title}",
+                    existing_ids,
+                ),
                 project_id=project_id,
                 status="pending_review",
                 created_at=now,
@@ -391,12 +395,11 @@ class ManuscriptDataMixin:
             version = current_row["version"] + 1 if current_row else 1
             scene = ManuscriptScene(
                 id=make_record_id(
-                    f"manuscript-{proposal.scene_id}",
+                    f"{project_id}-manuscript-{proposal.scene_id}",
                     {
                         row["id"]
                         for row in connection.execute(
-                            "SELECT id FROM manuscript_scenes WHERE project_id = ?",
-                            (project_id,),
+                            "SELECT id FROM manuscript_scenes",
                         ).fetchall()
                     },
                 )
@@ -412,12 +415,11 @@ class ManuscriptDataMixin:
             )
             revision = ManuscriptRevision(
                 id=make_record_id(
-                    f"revision-{proposal.scene_id}-v{version}",
+                    f"{project_id}-revision-{proposal.scene_id}-v{version}",
                     {
                         row["id"]
                         for row in connection.execute(
-                            "SELECT id FROM manuscript_revisions WHERE project_id = ?",
-                            (project_id,),
+                            "SELECT id FROM manuscript_revisions",
                         ).fetchall()
                     },
                 ),
@@ -507,17 +509,16 @@ class ManuscriptDataMixin:
             version = current_row["version"] + 1 if current_row else 1
             scene = ManuscriptScene(
                 id=make_record_id(
-                    f"manuscript-{source_revision.scene_id}",
+                    f"{project_id}-manuscript-{source_revision.scene_id}",
                     {
                         row["id"]
                         for row in connection.execute(
-                            "SELECT id FROM manuscript_scenes WHERE project_id = ?",
-                            (project_id,),
+                            "SELECT id FROM manuscript_scenes",
                         ).fetchall()
                     },
                 )
                 if current_row is None
-                else f"manuscript-{source_revision.scene_id}",
+                else f"{project_id}-manuscript-{source_revision.scene_id}",
                 project_id=project_id,
                 scene_id=source_revision.scene_id,
                 proposal_id=source_revision.proposal_id,
@@ -528,12 +529,11 @@ class ManuscriptDataMixin:
             )
             restored_revision = ManuscriptRevision(
                 id=make_record_id(
-                    f"revision-{source_revision.scene_id}-v{version}",
+                    f"{project_id}-revision-{source_revision.scene_id}-v{version}",
                     {
                         row["id"]
                         for row in connection.execute(
-                            "SELECT id FROM manuscript_revisions WHERE project_id = ?",
-                            (project_id,),
+                            "SELECT id FROM manuscript_revisions",
                         ).fetchall()
                     },
                 ),
@@ -602,12 +602,11 @@ class ManuscriptDataMixin:
             )
             revision = ManuscriptRevision(
                 id=make_record_id(
-                    f"revision-{scene_id}-v{version}",
+                    f"{project_id}-revision-{scene_id}-v{version}",
                     {
                         row["id"]
                         for row in connection.execute(
-                            "SELECT id FROM manuscript_revisions WHERE project_id = ?",
-                            (project_id,),
+                            "SELECT id FROM manuscript_revisions",
                         ).fetchall()
                     },
                 ),

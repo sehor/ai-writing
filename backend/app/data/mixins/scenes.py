@@ -110,12 +110,14 @@ class ScenesDataMixin:
             existing_ids = {
                 row["id"]
                 for row in connection.execute(
-                    "SELECT id FROM scene_contracts WHERE project_id = ?",
-                    (project_id,),
+                    "SELECT id FROM scene_contracts",
                 ).fetchall()
             }
             created = SceneContract(
-                id=make_record_id(f"s{scene.sequence}-{scene.title}", existing_ids),
+                id=make_record_id(
+                    f"{project_id}-s{scene.sequence}-{scene.title}",
+                    existing_ids,
+                ),
                 project_id=project_id,
                 **scene.model_dump(),
             )

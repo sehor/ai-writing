@@ -16,6 +16,21 @@ from app.services.compile_service import CompileService
 router = APIRouter(tags=["scenes"])
 
 
+def require_project_chapter(
+    project_id: str,
+    chapter_id: str,
+    data_store: WritingDataStore,
+) -> None:
+    if chapter_id and not any(
+        chapter.id == chapter_id
+        for chapter in data_store.list_manuscript_chapters(project_id)
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Chapter does not belong to this project.",
+        )
+
+
 @router.get(
     "/projects/{project_id}/scene-contracts",
     response_model=list[SceneContract],
@@ -39,6 +54,7 @@ def create_scene_contract(
     data_store: WritingDataStore = Depends(get_data_store),
 ) -> SceneContract:
     require_project(project_id, data_store)
+    require_project_chapter(project_id, scene.chapter_id, data_store)
     try:
         return data_store.create_scene_contract(project_id, scene)
     except sqlite3.IntegrityError as exc:
@@ -59,6 +75,7 @@ def update_scene_contract(
     data_store: WritingDataStore = Depends(get_data_store),
 ) -> SceneContract:
     require_project(project_id, data_store)
+    require_project_chapter(project_id, scene.chapter_id, data_store)
     try:
         updated = data_store.update_scene_contract(project_id, scene_id, scene)
     except sqlite3.IntegrityError as exc:

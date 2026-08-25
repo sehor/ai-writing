@@ -296,6 +296,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       desired_output: '',
     }
   }
+
+  function isActiveProject(projectId: string) {
+    return projectId === activeProjectId.value
+  }
   
   async function loadInitialData() {
     try {
@@ -636,7 +640,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (!response.ok) {
         throw new Error('Could not load graph analysis')
       }
-      graphAnalysis.value = await response.json()
+      const analysis = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      graphAnalysis.value = analysis
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         return
@@ -662,7 +670,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (!response.ok) {
         throw new Error('Could not load manuscript proposals')
       }
-      manuscriptProposals.value = await response.json()
+      const proposals = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      manuscriptProposals.value = proposals
       if (!manuscriptProposals.value.some((proposal) => proposal.id === activeProposalId.value)) {
         activeProposalId.value = manuscriptProposals.value[0]?.id ?? ''
       }
@@ -684,7 +696,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (!response.ok) {
         throw new Error('Could not load manuscript chapters')
       }
-      manuscriptChapters.value = await response.json()
+      const chapters = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      manuscriptChapters.value = chapters
       if (!manuscriptChapters.value.some((chapter) => chapter.id === activeChapterId.value)) {
         activeChapterId.value = manuscriptChapters.value[0]?.id ?? ''
       }
@@ -705,7 +721,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (!response.ok) {
         throw new Error('Could not load manuscript scenes')
       }
-      manuscriptScenes.value = await response.json()
+      const scenes = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      manuscriptScenes.value = scenes
     } catch {
       manuscriptError.value = 'Accepted manuscript scenes could not be loaded.'
     }
@@ -726,7 +746,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (!response.ok) {
         throw new Error('Could not load manuscript revisions')
       }
-      manuscriptRevisions.value = await response.json()
+      const revisions = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      manuscriptRevisions.value = revisions
       syncRevisionCompareSelection()
     } catch {
       manuscriptError.value = 'Manuscript revision history could not be loaded.'
@@ -746,7 +770,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (!response.ok) {
         throw new Error('Could not load write-back proposals')
       }
-      writebackProposals.value = await response.json()
+      const proposals = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      writebackProposals.value = proposals
       if (!writebackProposals.value.some((proposal) => proposal.id === activeWritebackId.value)) {
         activeWritebackId.value = writebackProposals.value[0]?.id ?? ''
       }
@@ -768,7 +796,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (!response.ok) {
         throw new Error('Could not load reference suggestions')
       }
-      referenceSuggestions.value = await response.json()
+      const suggestions = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      referenceSuggestions.value = suggestions
       if (!referenceSuggestions.value.some((suggestion) => suggestion.id === activeReferenceId.value)) {
         activeReferenceId.value = referenceSuggestions.value[0]?.id ?? ''
       }
@@ -859,6 +891,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         throw new Error('Could not save artifact')
       }
       const saved = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
       upsertArtifact(saved)
       advanceActiveProject(saved.step_number)
       artifactDraft.value = saved.content
@@ -896,12 +931,18 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       })
       if (!response.ok) {
         const detail = await readErrorDetail(response)
+        if (!isActiveProject(projectId)) {
+          return
+        }
         if (detail.workflow_trace) {
           workflowTrace.value = detail.workflow_trace
         }
         throw new Error(detail.message || 'Could not generate artifact')
       }
       const generated: SnowflakeGenerationResponse = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
       upsertArtifact(generated)
       advanceActiveProject(generated.step_number)
       artifactDraft.value = generated.content
@@ -972,6 +1013,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         throw new Error('Could not save Canon entity')
       }
       const saved = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
       canonEntities.value = [
         ...canonEntities.value.filter((entity) => entity.id !== saved.id),
         saved,
@@ -1006,6 +1050,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       })
       if (!response.ok) {
         throw new Error('Could not delete Canon entity')
+      }
+      if (!isActiveProject(projectId)) {
+        return
       }
       canonEntities.value = canonEntities.value.filter((entity) => entity.id !== entityId)
       startNewCanonEntity()
@@ -1053,6 +1100,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         throw new Error('Could not save Chapter')
       }
       const saved: ManuscriptChapter = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
       manuscriptChapters.value = [
         ...manuscriptChapters.value.filter((chapter) => chapter.id !== saved.id),
         saved,
@@ -1084,6 +1134,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       })
       if (!response.ok) {
         throw new Error('Could not delete Chapter')
+      }
+      if (!isActiveProject(projectId)) {
+        return
       }
       manuscriptChapters.value = manuscriptChapters.value.filter((chapter) => chapter.id !== chapterId)
       sceneContracts.value = sceneContracts.value.map((scene) =>
@@ -1141,6 +1194,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         throw new Error('Could not save Scene contract')
       }
       const saved = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
       sceneContracts.value = [
         ...sceneContracts.value.filter((scene) => scene.id !== saved.id),
         saved,
@@ -1174,6 +1230,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (!response.ok) {
         throw new Error('Could not delete Scene contract')
       }
+      if (!isActiveProject(projectId)) {
+        return
+      }
       sceneContracts.value = sceneContracts.value.filter((scene) => scene.id !== sceneId)
       startNewSceneContract()
       sceneStatus.value = 'Scene contract deleted.'
@@ -1205,7 +1264,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (!response.ok) {
         throw new Error('Could not compile Scene contract')
       }
-      compileResult.value = await response.json()
+      const result = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      compileResult.value = result
       sceneStatus.value = 'Scene compiled.'
     } catch {
       sceneError.value = 'Scene compile failed. Check that the API is running.'
@@ -1238,6 +1301,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         throw new Error(detail.message || 'Could not create manuscript proposal')
       }
       const created: ManuscriptProposal = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
       manuscriptProposals.value = [
         created,
         ...manuscriptProposals.value.filter((proposal) => proposal.id !== created.id),
@@ -1280,6 +1346,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         throw new Error('Could not update manuscript proposal')
       }
       const updated: ManuscriptProposal = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
       manuscriptProposals.value = manuscriptProposals.value.map((proposal) =>
         proposal.id === updated.id ? updated : proposal
       )
@@ -1289,6 +1358,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           loadManuscriptRevisions(projectId),
           loadWritebackProposals(projectId),
         ])
+        if (!isActiveProject(projectId)) {
+          return
+        }
       }
       activeProposalId.value = updated.id
       manuscriptStatus.value =
@@ -1339,6 +1411,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         throw new Error(detail.message || 'Could not generate reference suggestion')
       }
       const created: ReferenceSuggestion = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
       referenceSuggestions.value = [
         created,
         ...referenceSuggestions.value.filter((suggestion) => suggestion.id !== created.id),
@@ -1384,6 +1459,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         throw new Error('Could not update reference suggestion')
       }
       const updated: ReferenceSuggestion = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
       referenceSuggestions.value = referenceSuggestions.value.map((suggestion) =>
         suggestion.id === updated.id ? updated : suggestion
       )
@@ -1416,7 +1494,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (!response.ok) {
         throw new Error('Could not load revision diff')
       }
-      revisionDiff.value = await response.json()
+      const diff = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      revisionDiff.value = diff
       manuscriptStatus.value = 'Revision diff loaded.'
     } catch {
       manuscriptError.value = 'Revision diff failed. Check that the API is running.'
@@ -1444,8 +1526,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (!response.ok) {
         throw new Error('Could not restore revision')
       }
+      if (!isActiveProject(projectId)) {
+        return
+      }
       await loadManuscriptScenes(projectId)
       await loadManuscriptRevisions(projectId)
+      if (!isActiveProject(projectId)) {
+        return
+      }
       revisionDiff.value = null
       manuscriptStatus.value = 'Revision restored as a new current version.'
     } catch {
@@ -1472,7 +1560,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (!response.ok) {
         throw new Error('Could not export manuscript')
       }
-      manuscriptExport.value = await response.json()
+      const exported = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      manuscriptExport.value = exported
       manuscriptStatus.value = 'Manuscript export generated.'
     } catch {
       manuscriptError.value = 'Manuscript export failed. Check that the API is running.'
@@ -1522,6 +1614,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         throw new Error('Could not save manuscript scene')
       }
       const updated: ManuscriptScene = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
       manuscriptScenes.value = manuscriptScenes.value.map((scene) =>
         scene.scene_id === updated.scene_id ? updated : scene
       )
@@ -1529,6 +1624,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       manuscriptExport.value = null
       revisionDiff.value = null
       await loadManuscriptRevisions(projectId)
+      if (!isActiveProject(projectId)) {
+        return
+      }
       manuscriptStatus.value = `Scene saved as version ${updated.version}.`
     } catch {
       manuscriptError.value = 'Manuscript scene save failed. Check that the API is running.'
@@ -1560,6 +1658,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         throw new Error(detail.message || 'Could not create write-back proposals')
       }
       const created: WritebackProposal[] = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
       writebackProposals.value = [
         ...created,
         ...writebackProposals.value.filter(
@@ -1602,6 +1703,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         throw new Error(detail.message || 'Could not process revision with Hermes')
       }
       const result: HermesRevisionProcessResponse = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
       const created = result.writeback_proposals
       writebackProposals.value = [
         ...created,
@@ -1648,6 +1752,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         throw new Error('Could not update write-back proposal')
       }
       const updated: WritebackProposal = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
       writebackProposals.value = writebackProposals.value.map((proposal) =>
         proposal.id === updated.id ? updated : proposal
       )
@@ -1658,6 +1765,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           loadGraphAnalysis(projectId),
           refreshCanonAndMemory(projectId),
         ])
+        if (!isActiveProject(projectId)) {
+          return
+        }
       }
       writebackStatus.value =
         status === 'accepted' ? 'Write-back accepted and applied.' : 'Write-back rejected.'
@@ -1680,8 +1790,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!canonResponse.ok || !memoryResponse.ok) {
       throw new Error('Could not refresh Canon and Memory')
     }
-    canonEntities.value = await canonResponse.json()
-    memoryRecords.value = await memoryResponse.json()
+    const [canon, memory] = await Promise.all([
+      canonResponse.json(),
+      memoryResponse.json(),
+    ])
+    if (!isActiveProject(projectId)) {
+      return
+    }
+    canonEntities.value = canon
+    memoryRecords.value = memory
   }
   
   function scenesForChapter(chapterId: string) {
@@ -1753,6 +1870,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         throw new Error('Could not save Memory record')
       }
       const saved = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
       memoryRecords.value = [
         ...memoryRecords.value.filter((record) => record.id !== saved.id),
         saved,
@@ -1787,6 +1907,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       })
       if (!response.ok) {
         throw new Error('Could not delete Memory record')
+      }
+      if (!isActiveProject(projectId)) {
+        return
       }
       memoryRecords.value = memoryRecords.value.filter((record) => record.id !== recordId)
       startNewMemoryRecord()

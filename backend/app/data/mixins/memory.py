@@ -77,30 +77,37 @@ class MemoryDataMixin:
             ).fetchall()
         return [memory_record_from_row(row) for row in rows]
     def create_memory_record(
-        self, project_id: str, record: MemoryRecordCreate
+        self,
+        project_id: str,
+        record: MemoryRecordCreate,
+        connection: sqlite3.Connection | None = None,
     ) -> MemoryRecord:
-        with self.connect() as connection:
-            existing_ids = {
-                row["id"]
-                for row in connection.execute(
-                    "SELECT id FROM memory_records WHERE project_id = ?",
-                    (project_id,),
-                ).fetchall()
-            }
-            created = MemoryRecord(
-                id=make_record_id(f"{record.record_type}-{record.title}", existing_ids),
-                project_id=project_id,
-                **record.model_dump(),
+        if connection is None:
+            with self.connect() as connection:
+                return self.create_memory_record(project_id, record, connection)
+        existing_ids = {
+            row["id"]
+            for row in connection.execute(
+                "SELECT id FROM memory_records",
+            ).fetchall()
+        }
+        created = MemoryRecord(
+            id=make_record_id(
+                f"{project_id}-{record.record_type}-{record.title}",
+                existing_ids,
+            ),
+            project_id=project_id,
+            **record.model_dump(),
+        )
+        connection.execute(
+            """
+            INSERT INTO memory_records (
+                id, project_id, record_type, title, scope, content, tags, source_ref
             )
-            connection.execute(
-                """
-                INSERT INTO memory_records (
-                    id, project_id, record_type, title, scope, content, tags, source_ref
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                memory_record_to_params(created),
-            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            memory_record_to_params(created),
+        )
         return created
     def update_memory_record(
         self, project_id: str, record_id: str, record: MemoryRecordUpdate

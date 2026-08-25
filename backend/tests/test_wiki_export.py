@@ -104,20 +104,26 @@ class WikiExportTests(unittest.TestCase):
         self.assertIn("project.md", files)
         self.assertIn("graph.md", files)
         self.assertIn("raw/project-state.json", files)
-        self.assertIn("entities/character-mira-character-mira.md", files)
-        self.assertIn("memory/voice_sample-mira-clipped-voice-voice-sample-mira-clipped-voice.md", files)
-        self.assertIn("scenes/001-archive-door-s1-archive-door.md", files)
+        entity_path = f"entities/character-mira-{canon.id}.md"
+        memory_path = f"memory/voice_sample-mira-clipped-voice-{memory.id}.md"
+        scene_path = f"scenes/001-archive-door-{scene.id}.md"
+        self.assertIn(entity_path, files)
+        self.assertIn(memory_path, files)
+        self.assertIn(scene_path, files)
 
         index = files["index.md"]
-        self.assertIn("[[entities/character-mira-character-mira|Mira]]", index)
-        self.assertIn("[[scenes/001-archive-door-s1-archive-door|1. Archive Door]]", index)
+        self.assertIn(f"[[{entity_path.removesuffix('.md')}|Mira]]", index)
+        self.assertIn(f"[[{scene_path.removesuffix('.md')}|1. Archive Door]]", index)
 
-        scene_page = files["scenes/001-archive-door-s1-archive-door.md"]
-        self.assertIn("[[entities/character-mira-character-mira|Mira]]", scene_page)
+        scene_page = files[scene_path]
+        self.assertIn(f"[[{entity_path.removesuffix('.md')}|Mira]]", scene_page)
         self.assertIn("[[artifacts/step-8-scene-contracts|Step 8: scene_contracts]]", scene_page)
 
-        entity_page = files["entities/character-mira-character-mira.md"]
-        self.assertIn("[[scenes/001-archive-door-s1-archive-door|1. Archive Door]]", entity_page)
+        entity_page = files[entity_path]
+        self.assertIn(
+            f"[[{scene_path.removesuffix('.md')}|1. Archive Door]]",
+            entity_page,
+        )
 
         snapshot = json.loads(files["raw/project-state.json"])
         self.assertEqual(snapshot["project"]["id"], project.id)

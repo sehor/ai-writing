@@ -141,12 +141,14 @@ class WikiDataMixin:
             existing_ids = {
                 row["id"]
                 for row in connection.execute(
-                    "SELECT id FROM writeback_proposals WHERE project_id = ?",
-                    (project_id,),
+                    "SELECT id FROM writeback_proposals",
                 ).fetchall()
             }
             created = WritebackProposal(
-                id=make_record_id(f"writeback-{proposal.target}-{proposal.title}", existing_ids),
+                id=make_record_id(
+                    f"{project_id}-writeback-{proposal.target}-{proposal.title}",
+                    existing_ids,
+                ),
                 project_id=project_id,
                 status="pending_review",
                 created_at=now,
@@ -175,15 +177,17 @@ class WikiDataMixin:
             existing_ids = {
                 row["id"]
                 for row in connection.execute(
-                    "SELECT id FROM writeback_proposals WHERE project_id = ?",
-                    (project_id,),
+                    "SELECT id FROM writeback_proposals",
                 ).fetchall()
             }
             created_list = []
             params_list = []
             for proposal in proposals:
                 created = WritebackProposal(
-                    id=make_record_id(f"writeback-{proposal.target}-{proposal.title}", existing_ids),
+                    id=make_record_id(
+                        f"{project_id}-writeback-{proposal.target}-{proposal.title}",
+                        existing_ids,
+                    ),
                     project_id=project_id,
                     status="pending_review",
                     created_at=now,
@@ -217,17 +221,33 @@ class WikiDataMixin:
 
         reviewed_at = utc_now() if proposal_status != "pending_review" else ""
         with self.connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, target, action, title, rationale, payload_json,
+                       source_ref, status, created_at, reviewed_at, applied_record_id
+                FROM writeback_proposals
+                WHERE project_id = ? AND id = ?
+                """,
+                (project_id, proposal_id),
+            ).fetchone()
+            if row is None:
+                return None
+            current = writeback_proposal_from_row(row)
+            if current.status == proposal_status:
+                return current
+            if current.status != "pending_review":
+                raise ValueError("Write-back proposal is already reviewed.")
             cursor = connection.execute(
                 """
                 UPDATE writeback_proposals
                 SET status = ?,
                     reviewed_at = ?
-                WHERE project_id = ? AND id = ?
+                WHERE project_id = ? AND id = ? AND status = 'pending_review'
                 """,
                 (proposal_status, reviewed_at, project_id, proposal_id),
             )
             if cursor.rowcount == 0:
-                return None
+                raise ValueError("Write-back proposal is already reviewed.")
             row = connection.execute(
                 """
                 SELECT id, project_id, target, action, title, rationale, payload_json,
@@ -241,38 +261,60 @@ class WikiDataMixin:
     def accept_writeback_proposal(
         self, project_id: str, proposal_id: str
     ) -> WritebackProposal | None:
-        proposal = self.get_writeback_proposal(project_id, proposal_id)
-        if proposal is None:
-            return None
-        if proposal.status == "accepted":
-            return proposal
-
-        if proposal.target == "canon_entity":
-            applied = self.create_canon_entity(
-                project_id,
-                CanonEntityCreate.model_validate(proposal.payload),
-            )
-            applied_record_id = applied.id
-        else:
-            applied = self.create_memory_record(
-                project_id,
-                MemoryRecordCreate.model_validate(proposal.payload),
-            )
-            applied_record_id = applied.id
-
-        reviewed_at = utc_now()
         with self.connect() as connection:
-            connection.execute(
+            row = connection.execute(
+                """
+                SELECT id, project_id, target, action, title, rationale, payload_json,
+                       source_ref, status, created_at, reviewed_at, applied_record_id
+                FROM writeback_proposals
+                WHERE project_id = ? AND id = ?
+                """,
+                (project_id, proposal_id),
+            ).fetchone()
+            if row is None:
+                return None
+            proposal = writeback_proposal_from_row(row)
+            if proposal.status == "accepted":
+                return proposal
+            if proposal.status != "pending_review":
+                raise ValueError("Write-back proposal is already reviewed.")
+
+            if proposal.target == "canon_entity":
+                applied = self.create_canon_entity(
+                    project_id,
+                    CanonEntityCreate.model_validate(proposal.payload),
+                    connection,
+                )
+            else:
+                applied = self.create_memory_record(
+                    project_id,
+                    MemoryRecordCreate.model_validate(proposal.payload),
+                    connection,
+                )
+
+            reviewed_at = utc_now()
+            cursor = connection.execute(
                 """
                 UPDATE writeback_proposals
                 SET status = ?,
                     reviewed_at = ?,
                     applied_record_id = ?
+                WHERE project_id = ? AND id = ? AND status = 'pending_review'
+                """,
+                ("accepted", reviewed_at, applied.id, project_id, proposal_id),
+            )
+            if cursor.rowcount == 0:
+                raise ValueError("Write-back proposal is already reviewed.")
+            row = connection.execute(
+                """
+                SELECT id, project_id, target, action, title, rationale, payload_json,
+                       source_ref, status, created_at, reviewed_at, applied_record_id
+                FROM writeback_proposals
                 WHERE project_id = ? AND id = ?
                 """,
-                ("accepted", reviewed_at, applied_record_id, project_id, proposal_id),
-            )
-        return self.get_writeback_proposal(project_id, proposal_id)
+                (project_id, proposal_id),
+            ).fetchone()
+        return writeback_proposal_from_row(row) if row else None
     def get_writeback_proposal(
         self, project_id: str, proposal_id: str
     ) -> WritebackProposal | None:
@@ -311,12 +353,14 @@ class WikiDataMixin:
             existing_ids = {
                 row["id"]
                 for row in connection.execute(
-                    "SELECT id FROM reference_suggestions WHERE project_id = ?",
-                    (project_id,),
+                    "SELECT id FROM reference_suggestions",
                 ).fetchall()
             }
             created = ReferenceSuggestion(
-                id=make_record_id(f"reference-{suggestion.suggestion_type}-{suggestion.title}", existing_ids),
+                id=make_record_id(
+                    f"{project_id}-reference-{suggestion.suggestion_type}-{suggestion.title}",
+                    existing_ids,
+                ),
                 project_id=project_id,
                 status="pending_review",
                 created_at=now,

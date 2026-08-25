@@ -78,31 +78,38 @@ class CanonDataMixin:
             ).fetchall()
         return [canon_entity_from_row(row) for row in rows]
     def create_canon_entity(
-        self, project_id: str, entity: CanonEntityCreate
+        self,
+        project_id: str,
+        entity: CanonEntityCreate,
+        connection: sqlite3.Connection | None = None,
     ) -> CanonEntity:
-        with self.connect() as connection:
-            existing_ids = {
-                row["id"]
-                for row in connection.execute(
-                    "SELECT id FROM canon_entities WHERE project_id = ?",
-                    (project_id,),
-                ).fetchall()
-            }
-            created = CanonEntity(
-                id=make_record_id(f"{entity.entity_type}-{entity.name}", existing_ids),
-                project_id=project_id,
-                **entity.model_dump(),
+        if connection is None:
+            with self.connect() as connection:
+                return self.create_canon_entity(project_id, entity, connection)
+        existing_ids = {
+            row["id"]
+            for row in connection.execute(
+                "SELECT id FROM canon_entities",
+            ).fetchall()
+        }
+        created = CanonEntity(
+            id=make_record_id(
+                f"{project_id}-{entity.entity_type}-{entity.name}",
+                existing_ids,
+            ),
+            project_id=project_id,
+            **entity.model_dump(),
+        )
+        connection.execute(
+            """
+            INSERT INTO canon_entities (
+                id, project_id, entity_type, name, summary, current_state,
+                constraints, last_seen, timeline_notes
             )
-            connection.execute(
-                """
-                INSERT INTO canon_entities (
-                    id, project_id, entity_type, name, summary, current_state,
-                    constraints, last_seen, timeline_notes
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                canon_entity_to_params(created),
-            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            canon_entity_to_params(created),
+        )
         return created
     def update_canon_entity(
         self, project_id: str, entity_id: str, entity: CanonEntityUpdate
