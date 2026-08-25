@@ -41,9 +41,14 @@ export type CanonEntity = {
   constraints: string
   last_seen: string
   timeline_notes: string
+  version: number
+  updated_at: string
 }
 
-export type CanonDraft = Omit<CanonEntity, 'id' | 'project_id'>
+export type CanonDraft = Omit<
+  CanonEntity,
+  'id' | 'project_id' | 'version' | 'updated_at'
+>
 
 export type SceneContract = {
   id: string
@@ -96,7 +101,7 @@ export type ChapterCompileResponse = {
   checklist: string[]
 }
 
-export type ManuscriptProposalStatus = 'pending_review' | 'accepted' | 'rejected'
+export type ManuscriptProposalStatus = 'pending_review' | 'accepted' | 'rejected' | 'superseded'
 
 export type ManuscriptProposal = {
   id: string
@@ -151,9 +156,11 @@ export type ManuscriptExport = {
   generated_at: string
 }
 
-export type WritebackProposalStatus = 'pending_review' | 'accepted' | 'rejected'
+export type ReviewStatus = 'pending_review' | 'accepted' | 'rejected' | 'superseded'
+
+export type WritebackProposalStatus = ReviewStatus
 export type WritebackTarget = 'canon_entity' | 'memory_record'
-export type ReferenceSuggestionStatus = 'pending_review' | 'accepted' | 'rejected'
+export type ReferenceSuggestionStatus = ReviewStatus
 export type ReferenceScopeType =
   | 'project'
   | 'snowflake_step'
@@ -171,15 +178,23 @@ export type ReferenceSuggestionType =
   | 'prose_reference'
   | 'structure_fix'
 
+export type WritebackFieldChange = {
+  before: string
+  after: string
+}
+
 export type WritebackProposal = {
   id: string
   project_id: string
   target: WritebackTarget
-  action: 'create'
+  action: 'create' | 'update'
   title: string
   rationale: string
   payload: Record<string, unknown>
   source_ref: string
+  target_record_id: string
+  expected_version: number | null
+  changes: Record<string, WritebackFieldChange>
   status: WritebackProposalStatus
   created_at: string
   reviewed_at: string

@@ -8,7 +8,7 @@ from app.cognition.interfaces import (
     WritingScope,
 )
 from app.models import WritebackProposalCreate
-from app.text_utils import safe_slug
+from app.text_utils import prose_excerpt, safe_slug
 
 
 class LocalMemplaceModule:
@@ -54,17 +54,25 @@ class LocalMemplaceModule:
     ) -> ModuleReport:
         project_path = self.project_path(snapshot.project.id)
         persist_sample(project_path, event)
+        # Memory keeps an excerpt, not a full manuscript copy: prose
+        # samples stay in the 2,000-6,000 character band and point at the
+        # authoritative revision via source_ref (P1-03).
+        sample = prose_excerpt(event.content)
         proposal = WritebackProposalCreate(
             target="memory_record",
             title=f"Prose sample from {event.title}",
-            rationale="Confirmed writing can serve as continuity memory for later prose generation.",
+            rationale=(
+                "Confirmed writing can serve as continuity memory for later prose "
+                "generation. The sample is an excerpt; the full text stays in the "
+                "manuscript revision history."
+            ),
             source_ref=event.source_ref,
             payload={
                 "record_type": "prose_sample",
                 "title": f"{event.title} prose sample",
                 "scope": event.revision.scene_id if event.revision else event.source_ref,
-                "content": event.content,
-                "tags": "accepted manuscript, prose sample",
+                "content": sample,
+                "tags": "accepted manuscript, prose sample, excerpt",
                 "source_ref": event.source_ref,
             },
         )

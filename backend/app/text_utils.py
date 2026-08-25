@@ -44,6 +44,27 @@ def safe_slug(value: str, fallback: str = "scene") -> str:
     return "-".join(part for part in cleaned.split("-") if part) or fallback
 
 
+def prose_excerpt(content: str, max_chars: int = 4000) -> str:
+    """
+    Keeps a prose sample inside the recommended 2,000-6,000 character band
+    instead of copying the full manuscript text. The head and tail of the
+    piece are preserved with an explicit omission marker pointing at the
+    authoritative source_ref.
+    """
+    text = content.strip()
+    if len(text) <= max_chars:
+        return text
+    head_len = (max_chars * 2) // 3
+    tail_len = max_chars - head_len
+    omitted = len(text) - max_chars
+    return (
+        f"{text[:head_len].rstrip()}\n\n"
+        f"[... excerpt: {omitted} characters omitted; "
+        f"see the source revision for the full text ...]\n\n"
+        f"{text[-tail_len:].lstrip()}"
+    )
+
+
 def slug_with_id(label: str, record_id: str) -> str:
     """
     Combines a label and an ID into a single slug.

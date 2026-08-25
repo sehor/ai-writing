@@ -17,6 +17,7 @@ from app.models import (
     ManuscriptScene,
     ManuscriptSceneUpdate,
 )
+from app.review.service import conflict_from, decide
 from app.services.compile_service import (
     build_compile_checklist,
     build_compile_context,
@@ -158,11 +159,10 @@ class ManuscriptService:
             )
         if current.status == status_str:
             return current
-        if current.status != "pending_review":
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail="Manuscript proposal is already reviewed.",
-            )
+        try:
+            decide(current.status, status_str, "Manuscript proposal")
+        except ValueError as exc:
+            raise conflict_from(exc) from exc
         if status_str == "accepted":
             scene = self.data_store.accept_manuscript_proposal(project_id, proposal_id)
             proposal = self.data_store.get_manuscript_proposal(project_id, proposal_id)
@@ -170,10 +170,14 @@ class ManuscriptService:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND, detail="Manuscript proposal not found."
                 )
-                return proposal
-        proposal = self.data_store.update_manuscript_proposal_status(
-            project_id, proposal_id, status_str
-        )
+            return proposal
+        try:
+            proposal = self.data_store.update_manuscript_proposal_status(
+                project_id, proposal_id, status_str
+            )
+        except ValueError as exc:
+            # Lost a transition race between the read and the write.
+            raise conflict_from(exc) from exc
         if not proposal:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Manuscript proposal not found."

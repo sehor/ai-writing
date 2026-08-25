@@ -8,6 +8,7 @@ from app.data.mixins.manuscript import ManuscriptDataMixin
 from app.data.mixins.memory import MemoryDataMixin
 from app.data.mixins.wiki import WikiDataMixin
 from app.data.mixins.outbox import OutboxDataMixin
+from app.data.mixins.analysis import AnalysisDataMixin
 
 
 class SQLiteWritingDataStore(
@@ -19,6 +20,7 @@ class SQLiteWritingDataStore(
     MemoryDataMixin,
     WikiDataMixin,
     OutboxDataMixin,
+    AnalysisDataMixin,
 ):
     def __init__(self, database_path: Path):
         self.database_path = database_path

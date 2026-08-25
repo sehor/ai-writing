@@ -10,6 +10,7 @@ from app.models import (
     ManuscriptRevision,
     WritebackProposalCreate,
 )
+from app.review.writeback_apply import validate_update_proposal
 
 
 def build_provider_writeback_proposals(
@@ -40,6 +41,16 @@ def build_provider_writeback_proposals(
 
 
 def validate_writeback_payload(proposal: WritebackProposalCreate) -> None:
+    """Structural validation before a proposal is persisted (P1-03).
+
+    Create proposals carry their record shape in ``payload``; update
+    proposals target an existing canon record by id with field-level
+    changes. Anything malformed raises ValueError, which creation routes
+    map to HTTP 422.
+    """
+    if proposal.action == "update":
+        validate_update_proposal(proposal)
+        return
     if proposal.target == "canon_entity":
         CanonEntityCreate.model_validate(proposal.payload)
         return
@@ -57,12 +68,18 @@ def build_provider_messages(
             "content": (
                 "You propose structured write-back changes for AI Writing Studio. "
                 "Return JSON only. Do not include Markdown. "
-                "Every item must match this shape: "
-                "{target: 'canon_entity'|'memory_record', action: 'create', title: string, "
-                "rationale: string, source_ref: string, payload: object}. "
-                "Canon payload must match CanonEntityCreate. Memory payload must match MemoryRecordCreate. "
-                "Only propose facts that are strongly supported by the accepted manuscript revision. "
-                "When unsure, omit the proposal."
+                "Every item must match one of these shapes: "
+                "create: {target: 'canon_entity'|'memory_record', action: 'create', "
+                "title: string, rationale: string, source_ref: string, payload: object}; "
+                "update: {target: 'canon_entity', action: 'update', title: string, "
+                "rationale: string, source_ref: string, target_record_id: string, "
+                "expected_version: number, changes: {field: {before: string, after: string}}}. "
+                "Create canon payloads must match CanonEntityCreate; memory payloads must "
+                "match MemoryRecordCreate. Update 'field' must be one of entity_type, name, "
+                "summary, current_state, constraints, last_seen, timeline_notes, and "
+                "'expected_version' must be the current version of that canon record. "
+                "Only propose facts that are strongly supported by the accepted manuscript "
+                "revision. When unsure, omit the proposal."
             ),
         },
         {
@@ -78,7 +95,11 @@ def build_provider_context(
     memory_records: list[MemoryRecord],
 ) -> str:
     existing_canon = (
-        "\n".join(f"- {entity.entity_type}: {entity.name}" for entity in canon_entities[:40])
+        "\n".join(
+            f"- id={entity.id} v{entity.version} | {entity.entity_type}: {entity.name} | "
+            f"state: {truncate_state(entity.current_state)}"
+            for entity in canon_entities[:40]
+        )
         or "No Canon entities recorded."
     )
     existing_memory = (
@@ -114,3 +135,10 @@ def parse_provider_json(content: str) -> Any:
             lines = lines[:-1]
         text = "\n".join(lines).strip()
     return json.loads(text)
+
+
+def truncate_state(value: str, limit: int = 160) -> str:
+    text = " ".join(value.split())
+    if len(text) <= limit:
+        return text or "(empty)"
+    return f"{text[: limit - 3]}..."

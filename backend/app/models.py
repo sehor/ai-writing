@@ -15,10 +15,10 @@ GraphEdgeType = Literal["contains", "depends_on", "references", "informs"]
 GraphRiskSeverity = Literal["info", "warning", "critical"]
 WorkflowRuntimeType = Literal["local_deterministic", "provider_deepseek"]
 ManuscriptProposalSource = Literal["scene_contract"]
-ManuscriptProposalStatus = Literal["pending_review", "accepted", "rejected"]
+ManuscriptProposalStatus = Literal["pending_review", "accepted", "rejected", "superseded"]
 WritebackTarget = Literal["canon_entity", "memory_record"]
-WritebackAction = Literal["create"]
-WritebackProposalStatus = Literal["pending_review", "accepted", "rejected"]
+WritebackAction = Literal["create", "update"]
+WritebackProposalStatus = Literal["pending_review", "accepted", "rejected", "superseded"]
 ReferenceScopeType = Literal[
     "project",
     "snowflake_step",
@@ -37,7 +37,7 @@ ReferenceSuggestionType = Literal[
     "prose_reference",
     "structure_fix",
 ]
-ReferenceSuggestionStatus = Literal["pending_review", "accepted", "rejected"]
+ReferenceSuggestionStatus = Literal["pending_review", "accepted", "rejected", "superseded"]
 HermesProcessStatus = Literal["completed", "partial", "failed"]
 HermesWikiChangeAction = Literal["created", "updated", "skipped"]
 HermesIssueSeverity = Literal["info", "warning", "error"]
@@ -160,6 +160,8 @@ class CanonEntityUpdate(CanonEntityCreate):
 class CanonEntity(CanonEntityCreate):
     id: str
     project_id: str
+    version: int = Field(default=1, ge=1)
+    updated_at: str = ""
 
 
 class SceneContractCreate(BaseModel):
@@ -350,8 +352,13 @@ class WritebackProposalCreate(BaseModel):
     rationale: str = Field(default="", max_length=4000)
     payload: dict = Field(default_factory=dict)
     source_ref: str = Field(default="", max_length=160)
+    # Update proposals carry an optimistic-concurrency handle on the
+    # existing record plus field-level before/after changes.
+    target_record_id: str = Field(default="", max_length=160)
+    expected_version: int | None = Field(default=None, ge=1)
+    changes: dict[str, dict[str, str]] = Field(default_factory=dict)
 
-    @field_validator("title", "rationale", "source_ref")
+    @field_validator("title", "rationale", "source_ref", "target_record_id")
     @classmethod
     def normalize_writeback_text(cls, value: str) -> str:
         return value.strip()
@@ -444,6 +451,8 @@ class HermesRevisionProcessResponse(BaseModel):
     issues: list[HermesProcessingIssue] = Field(default_factory=list)
     writeback_proposals: list[WritebackProposal] = Field(default_factory=list)
     processed_source_ref: str
+    cached: bool = False
+    analysis_run_id: str = ""
 
 
 class GraphNode(BaseModel):

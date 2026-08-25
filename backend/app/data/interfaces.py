@@ -64,6 +64,14 @@ class WritingDataStore(Protocol):
     def list_canon_entities(self, project_id: str) -> list[CanonEntity]:
         pass
 
+    def get_canon_entity(
+        self,
+        project_id: str,
+        entity_id: str,
+        connection: object | None = None,
+    ) -> CanonEntity | None:
+        pass
+
     def create_canon_entity(self, project_id: str, entity: CanonEntityCreate) -> CanonEntity:
         pass
 
@@ -188,6 +196,23 @@ class WritingDataStore(Protocol):
         proposal_id: str,
         proposal_status: WritebackProposalStatus,
     ) -> WritebackProposal | None:
+        pass
+
+    def get_writeback_proposal(
+        self,
+        project_id: str,
+        proposal_id: str,
+        connection: object | None = None,
+    ) -> WritebackProposal | None:
+        pass
+
+    def get_analysis_run(
+        self,
+        project_id: str,
+        source_ref: str,
+        processor: str,
+        input_hash: str | None = None,
+    ) -> object | None:
         pass
 
     def list_reference_suggestions(self, project_id: str) -> list[ReferenceSuggestion]:

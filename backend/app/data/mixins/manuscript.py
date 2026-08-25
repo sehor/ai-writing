@@ -13,6 +13,7 @@ from app.models import (
     ManuscriptSceneUpdate,
 )
 from app.data.helpers import make_record_id, utc_now
+from app.review.state_machine import validate_review_transition
 
 
 def manuscript_chapter_from_row(row: sqlite3.Row) -> ManuscriptChapter:
@@ -268,7 +269,7 @@ class ManuscriptDataMixin:
         proposal_id: str,
         proposal_status: ManuscriptProposalStatus,
     ) -> ManuscriptProposal | None:
-        reviewed_at = utc_now() if proposal_status != "pending_review" else ""
+        """Non-accepting status change; raises on illegal transitions."""
         with self.connect() as connection:
             row = connection.execute(
                 """
@@ -284,19 +285,19 @@ class ManuscriptDataMixin:
             current = manuscript_proposal_from_row(row)
             if current.status == proposal_status:
                 return current
-            if current.status != "pending_review":
-                return None
+            validate_review_transition(current.status, proposal_status, "Manuscript proposal")
+            reviewed_at = utc_now()
             cursor = connection.execute(
                 """
                 UPDATE manuscript_proposals
                 SET status = ?,
                     reviewed_at = ?
-                WHERE project_id = ? AND id = ?
+                WHERE project_id = ? AND id = ? AND status = ?
                 """,
-                (proposal_status, reviewed_at, project_id, proposal_id),
+                (proposal_status, reviewed_at, project_id, proposal_id, current.status),
             )
             if cursor.rowcount == 0:
-                return None
+                raise ValueError("Manuscript proposal changed concurrently; retry.")
             row = connection.execute(
                 """
                 SELECT id, project_id, scene_id, source, title, content, context,
@@ -469,6 +470,18 @@ class ManuscriptDataMixin:
                 WHERE project_id = ? AND id = ?
                 """,
                 ("accepted", now, project_id, proposal_id),
+            )
+            # Sibling pending proposals for the same scene are stale now;
+            # supersede them instead of leaving a second accept ambiguous.
+            connection.execute(
+                """
+                UPDATE manuscript_proposals
+                SET status = 'superseded',
+                    reviewed_at = ?
+                WHERE project_id = ? AND scene_id = ? AND id <> ?
+                  AND status = 'pending_review'
+                """,
+                (now, project_id, proposal.scene_id, proposal_id),
             )
         return self.get_manuscript_scene(project_id, proposal.scene_id)
 

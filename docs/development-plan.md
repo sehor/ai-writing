@@ -4,7 +4,7 @@
 
 Build a local-first long-form writing studio around the Snowflake Method. The backend should expose stable business APIs first, while AI generation remains behind project-owned interfaces so the implementation can later use direct model SDKs, LangGraph, or another workflow runtime without changing the API contract.
 
-The next implementation focus is **live-backend browser interaction tests and edge-case coverage**. Canon DB v0, Memory / Style v0, structured Scene Contracts, Chapter Compiler v0, Graph / Structure v0, project-scoped cognition modules, deterministic local workflow, DeepSeek-backed Snowflake runtime, provider-backed manuscript proposals, Manuscript Proposal review v0, accepted manuscript scene state, chapter-level manuscript organization, direct scene editing, manuscript revision history, Markdown export, Canon / Memory write-back proposals, deterministic revision-based write-back suggestions, provider-backed write-back suggestions, structured References / Copilot UI, frontend review tools, frontend contract tests, browser smoke tests, backend route tests, and backend edit-versioning tests now exist.
+The next implementation focus is **consistency checking with evidence-backed findings (improvement plan Phase 4)**. Canon DB v0, Memory / Style v0, structured Scene Contracts, Chapter Compiler v0, Graph / Structure v0, project-scoped cognition modules, deterministic local workflow, DeepSeek-backed Snowflake runtime, provider-backed manuscript proposals, Manuscript Proposal review v0, accepted manuscript scene state, chapter-level manuscript organization, direct scene editing, manuscript revision history, Markdown export, Canon / Memory write-back proposals, deterministic revision-based write-back suggestions, provider-backed write-back suggestions, structured References / Copilot UI, frontend review tools, frontend contract tests, browser smoke tests, backend route tests, backend edit-versioning tests, CI gates, LLM Wiki outbox, and the unified review state machine with Canon-update write-backs, pre-persist proposal validation, and idempotent analysis runs now exist.
 
 ## Near-Term Milestones
 
@@ -94,6 +94,17 @@ The next implementation focus is **live-backend browser interaction tests and ed
    - Done in v0: add backend route test coverage for proposal acceptance, export, and write-back review.
    - Done in v0: add browser-level smoke test for chapter, scene, proposal, export, and References UI flow.
    - Next: add browser interaction tests against a live backend and broaden edge-case coverage.
+
+14. Unified review state machine (improvement plan Phase 3)
+   - Done in P1-01: one shared transition model (`backend/app/review/state_machine.py`) for every reviewable object: `pending_review -> accepted | rejected | superseded`; decided states are terminal.
+   - Done in P1-01: manuscript proposals, write-back proposals, and reference suggestions all enforce the machine; illegal moves return HTTP 409, unknown records 404, malformed requests 422.
+   - Done in P1-01: accepting a manuscript proposal supersedes sibling pending proposals for the same scene; accepting a Canon update supersedes sibling updates for the same record.
+   - Done in P1-02: write-back supports `action="update"` for existing Canon records with `target_record_id`, optimistic `expected_version`, field-level before/after `changes`, plus `version` / `updated_at` on Canon entities.
+   - Done in P1-02: the frontend shows current value vs. proposed value, target record with versions, evidence excerpt from the source revision, and a conflict warning that blocks acceptance when the record changed.
+   - Done in P1-03: every creation route validates proposals against current data before insert (structure, target existence, expected version, duplicate Canon names), so any created proposal can be accepted unless data changes concurrently.
+   - Done in P1-03: Memplace prose samples are capped excerpts (2,000–6,000 character band) pointing at the authoritative revision instead of full-manuscript copies.
+   - Done in P1-04: idempotent analysis runs (`analysis_runs` table keyed by project, source, processor, input hash); repeated unchanged requests replay stored results, explicit re-runs bump the run version and supersede still-pending prior proposals, failed runs are recorded and retried.
+   - Next: reuse `analysis_runs` for the consistency checker processor in the next phase.
 
 ## Interface Direction
 

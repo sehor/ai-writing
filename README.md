@@ -112,6 +112,10 @@ Implemented:
 - Canon / Memory write-back proposal generation and review UI.
 - Structured References / Copilot UI for reviewable writing suggestions.
 - Outbox-backed LLM Wiki indexing: core saves commit first, wiki ingest failures surface as retryable jobs (`GET /api/projects/{id}/outbox-jobs`, `POST .../outbox-jobs/{job_id}/retry`) instead of failed requests.
+- Unified review state machine: every reviewable object moves `pending_review -> accepted | rejected | superseded`; decided states are final and illegal changes return HTTP 409.
+- Write-back updates for existing Canon records with optimistic version checks: the UI shows current vs. proposed values, evidence from the source revision, and a conflict warning when the record changed after proposal creation.
+- Pre-persist write-back validation: proposals are checked against current data (structure, target record, expected version, duplicate names) before insertion.
+- Idempotent analysis runs: repeated unchanged analysis requests replay stored results instead of duplicating proposals; explicit re-runs supersede stale pending proposals and bump the run version.
 - Draft safety on the frontend: editors autosave to a local draft cache, confirm before switching away, restore cached drafts, and flush on page close; async generations are bound to project/step request scopes.
 - Backend unit coverage for manuscript edit versioning.
 - Backend route test coverage for the manuscript/write-back review loop.

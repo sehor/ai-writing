@@ -54,6 +54,8 @@ class ProjectsDataMixin:
                     constraints TEXT NOT NULL,
                     last_seen TEXT NOT NULL,
                     timeline_notes TEXT NOT NULL,
+                    version INTEGER NOT NULL DEFAULT 1,
+                    updated_at TEXT NOT NULL DEFAULT '',
                     UNIQUE (project_id, entity_type, name),
                     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
                 );
@@ -150,6 +152,9 @@ class ProjectsDataMixin:
                     rationale TEXT NOT NULL,
                     payload_json TEXT NOT NULL,
                     source_ref TEXT NOT NULL,
+                    target_record_id TEXT NOT NULL DEFAULT '',
+                    expected_version INTEGER,
+                    changes_json TEXT NOT NULL DEFAULT '{}',
                     status TEXT NOT NULL,
                     created_at TEXT NOT NULL,
                     reviewed_at TEXT NOT NULL,
@@ -198,6 +203,22 @@ class ProjectsDataMixin:
                     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
                 );
                 CREATE INDEX IF NOT EXISTS idx_outbox_jobs_project_id_status ON outbox_jobs(project_id, status);
+
+                CREATE TABLE IF NOT EXISTS analysis_runs (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    source_ref TEXT NOT NULL,
+                    processor TEXT NOT NULL,
+                    input_hash TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    result_json TEXT NOT NULL DEFAULT '{}',
+                    run_version INTEGER NOT NULL DEFAULT 1,
+                    created_at TEXT NOT NULL,
+                    completed_at TEXT NOT NULL DEFAULT '',
+                    UNIQUE (project_id, source_ref, processor, input_hash),
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_analysis_runs_project_id ON analysis_runs(project_id);
                 """
             )
             ensure_column(
@@ -205,6 +226,41 @@ class ProjectsDataMixin:
                 "scene_contracts",
                 "chapter_id",
                 "TEXT NOT NULL DEFAULT ''",
+            )
+            # Phase 3 (P1-02): optimistic-concurrency columns for Canon so
+            # update write-backs can detect records changed after proposal
+            # creation. Existing rows keep working as version 1.
+            ensure_column(
+                connection,
+                "canon_entities",
+                "version",
+                "INTEGER NOT NULL DEFAULT 1",
+            )
+            ensure_column(
+                connection,
+                "canon_entities",
+                "updated_at",
+                "TEXT NOT NULL DEFAULT ''",
+            )
+            # Phase 3 (P1-02): update write-backs carry an optimistic
+            # concurrency handle and field-level changes.
+            ensure_column(
+                connection,
+                "writeback_proposals",
+                "target_record_id",
+                "TEXT NOT NULL DEFAULT ''",
+            )
+            ensure_column(
+                connection,
+                "writeback_proposals",
+                "expected_version",
+                "INTEGER",
+            )
+            ensure_column(
+                connection,
+                "writeback_proposals",
+                "changes_json",
+                "TEXT NOT NULL DEFAULT '{}'",
             )
             if not connection.execute("SELECT 1 FROM projects LIMIT 1").fetchone():
                 connection.execute(

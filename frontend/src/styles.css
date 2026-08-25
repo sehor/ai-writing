@@ -660,6 +660,51 @@ code {
   text-transform: capitalize;
 }
 
+.writeback-changes {
+  width: 100%;
+  border-collapse: collapse;
+  background: #ffffff;
+  border: 1px solid #dce3dd;
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 0.85rem;
+}
+
+.writeback-changes th,
+.writeback-changes td {
+  padding: 8px 10px;
+  border-top: 1px solid #e6ebe7;
+  text-align: left;
+  vertical-align: top;
+}
+
+.writeback-changes thead th {
+  background: #eef3ef;
+  color: #405060;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.writeback-changes tbody th {
+  color: #1f2933;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.evidence-excerpt {
+  margin: 0;
+  padding: 12px;
+  max-height: 260px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #f7faf8;
+  border: 1px solid #dce3dd;
+  border-radius: 8px;
+  font-size: 0.82rem;
+}
+
 .accepted-list,
 .revision-list {
   display: grid;

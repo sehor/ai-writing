@@ -48,3 +48,8 @@ Thumbs.db
 /frontend/extract_store.py
 /frontend/extract_types.py
 /frontend/split_components.py
+
+# Session-local agent tooling and test scratch space
+.agent-run/
+_agentrun/
+.tmp/

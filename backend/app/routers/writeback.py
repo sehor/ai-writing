@@ -1,6 +1,6 @@
 import sqlite3
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 from pydantic import ValidationError
 
 from app.agents import (
@@ -9,7 +9,8 @@ from app.agents import (
     WorkflowNotConfiguredError,
     build_provider_writeback_proposals,
 )
-from app.agents.writeback_workflow import validate_writeback_payload
+from app.analysis.http import apply_analysis_headers
+from app.analysis.service import AnalysisService, writeback_input_fingerprint
 from app.cognition.interfaces import CommittedContentEvent
 from app.cognition.registry import CognitionRegistry, get_cognition_registry
 from app.cognition.snapshots import build_project_snapshot
@@ -21,9 +22,20 @@ from app.models import (
     WritebackProposalStatusUpdate,
     HermesRevisionProcessResponse,
 )
+from app.review.service import (
+    WritebackPreValidationError,
+    ensure_writeback_proposals_acceptable,
+    unprocessable_from,
+)
 
 
 router = APIRouter(tags=["writeback"])
+
+
+def get_analysis_service(
+    data_store: WritingDataStore = Depends(get_data_store),
+) -> AnalysisService:
+    return AnalysisService(data_store=data_store)
 
 
 @router.get(
@@ -49,6 +61,10 @@ def create_writeback_proposal(
     data_store: WritingDataStore = Depends(get_data_store),
 ) -> WritebackProposal:
     require_project(project_id, data_store)
+    try:
+        ensure_writeback_proposals_acceptable(data_store, project_id, [proposal])
+    except WritebackPreValidationError as exc:
+        raise unprocessable_from(exc) from exc
     return data_store.create_writeback_proposal(project_id, proposal)
 
 
@@ -60,8 +76,11 @@ def create_writeback_proposal(
 def create_writeback_proposals_from_revision(
     project_id: str,
     revision_id: str,
+    response: Response,
+    force: bool = False,
     data_store: WritingDataStore = Depends(get_data_store),
     cognition: CognitionRegistry = Depends(get_cognition_registry),
+    analysis: AnalysisService = Depends(get_analysis_service),
 ) -> list[WritebackProposal]:
     require_project(project_id, data_store)
     revision = data_store.get_manuscript_revision(project_id, revision_id)
@@ -72,18 +91,34 @@ def create_writeback_proposals_from_revision(
         )
 
     snapshot = build_project_snapshot(project_id, data_store)
-    reports = cognition.ingest_committed_content(
-        snapshot,
-        CommittedContentEvent(
-            source="manuscript_revision",
-            source_ref=f"manuscript_revision:{revision.id}",
-            title=revision.title,
-            content=revision.content,
-            revision=revision,
+
+    def _generate() -> list[WritebackProposalCreate]:
+        reports = cognition.ingest_committed_content(
+            snapshot,
+            CommittedContentEvent(
+                source="manuscript_revision",
+                source_ref=f"manuscript_revision:{revision.id}",
+                title=revision.title,
+                content=revision.content,
+                revision=revision,
+            ),
+        )
+        return [proposal for report in reports for proposal in report.writeback_proposals]
+
+    outcome = analysis.run_writeback_generation(
+        project_id=project_id,
+        source_ref=f"manuscript_revision:{revision.id}",
+        processor="local_writeback",
+        fingerprint=writeback_input_fingerprint(
+            revision,
+            canon_entities=snapshot.canon_entities,
+            memory_records=snapshot.memory_records,
         ),
+        generate=_generate,
+        force=force,
     )
-    proposals = [proposal for report in reports for proposal in report.writeback_proposals]
-    return data_store.create_writeback_proposals(project_id, proposals)
+    apply_analysis_headers(response, outcome)
+    return outcome.proposals
 
 
 @router.post(
@@ -94,7 +129,9 @@ def create_writeback_proposals_from_revision(
 def process_revision_with_hermes(
     project_id: str,
     revision_id: str,
+    force: bool = False,
     data_store: WritingDataStore = Depends(get_data_store),
+    analysis: AnalysisService = Depends(get_analysis_service),
 ) -> HermesRevisionProcessResponse:
     require_project(project_id, data_store)
     revision = data_store.get_manuscript_revision(project_id, revision_id)
@@ -112,23 +149,47 @@ def process_revision_with_hermes(
     project = data_store.get_project(project_id)
     project_title = project.title if project else project_id
 
-    result = HermesAgentClient().process_manuscript_revision(
+    holder: dict = {}
+
+    def _generate() -> list[WritebackProposalCreate]:
+        result = HermesAgentClient().process_manuscript_revision(
+            project_id=project_id,
+            project_title=project_title,
+            revision=revision,
+            scene_contract=scene,
+        )
+        holder["result"] = result
+        return result.writeback_proposals
+
+    outcome = analysis.run_writeback_generation(
         project_id=project_id,
-        project_title=project_title,
-        revision=revision,
-        scene_contract=scene,
+        source_ref=f"manuscript_revision:{revision.id}",
+        processor="hermes",
+        fingerprint=writeback_input_fingerprint(
+            revision,
+            extra={"processor": "hermes", "project_title": project_title},
+        ),
+        generate=_generate,
+        force=force,
     )
-    for proposal in result.writeback_proposals:
-        validate_writeback_payload(proposal)
-    stored_proposals = data_store.create_writeback_proposals(project_id, result.writeback_proposals)
-    return HermesRevisionProcessResponse(
-        status=result.status,
-        summary=result.summary,
-        wiki_changes=result.wiki_changes,
-        issues=result.issues,
-        writeback_proposals=stored_proposals,
-        processed_source_ref=result.processed_source_ref,
+    result = holder.get("result")
+    response_model = HermesRevisionProcessResponse(
+        status=result.status if result else "completed",
+        summary=(
+            result.summary
+            if result
+            else f"Replayed cached Hermes run {outcome.run.id} (v{outcome.run.run_version})."
+        ),
+        wiki_changes=result.wiki_changes if result else [],
+        issues=result.issues if result else [],
+        writeback_proposals=outcome.proposals,
+        processed_source_ref=(
+            result.processed_source_ref if result else f"manuscript_revision:{revision.id}"
+        ),
+        cached=outcome.cached,
+        analysis_run_id=outcome.run.id,
     )
+    return response_model
 
 
 @router.post(
@@ -139,7 +200,10 @@ def process_revision_with_hermes(
 def create_provider_writeback_proposals_from_revision(
     project_id: str,
     revision_id: str,
+    response: Response,
+    force: bool = False,
     data_store: WritingDataStore = Depends(get_data_store),
+    analysis: AnalysisService = Depends(get_analysis_service),
 ) -> list[WritebackProposal]:
     require_project(project_id, data_store)
     revision = data_store.get_manuscript_revision(project_id, revision_id)
@@ -162,13 +226,33 @@ def create_provider_writeback_proposals_from_revision(
             detail="DeepSeek provider is not configured.",
         )
 
-    try:
-        proposals = build_provider_writeback_proposals(
+    canon_entities = data_store.list_canon_entities(project_id)
+    memory_records = data_store.list_memory_records(project_id)
+
+    def _generate() -> list[WritebackProposalCreate]:
+        return build_provider_writeback_proposals(
             settings,
             revision,
-            data_store.list_canon_entities(project_id),
-            data_store.list_memory_records(project_id),
+            canon_entities,
+            memory_records,
         )
+
+    try:
+        outcome = analysis.run_writeback_generation(
+            project_id=project_id,
+            source_ref=f"manuscript_revision:{revision.id}",
+            processor="deepseek_writeback",
+            fingerprint=writeback_input_fingerprint(
+                revision,
+                canon_entities=canon_entities,
+                memory_records=memory_records,
+                extra={"model": settings.model},
+            ),
+            generate=_generate,
+            force=force,
+        )
+    except WritebackPreValidationError as exc:
+        raise unprocessable_from(exc) from exc
     except WorkflowNotConfiguredError as exc:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
@@ -185,7 +269,8 @@ def create_provider_writeback_proposals_from_revision(
             detail=f"Provider write-back generation failed: {exc}",
         ) from exc
 
-    return data_store.create_writeback_proposals(project_id, proposals)
+    apply_analysis_headers(response, outcome)
+    return outcome.proposals
 
 
 @router.put(
@@ -205,15 +290,17 @@ def update_writeback_proposal_status(
             proposal_id,
             update.status,
         )
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=str(exc),
-        ) from exc
     except ValidationError as exc:
+        # A stored proposal whose payload no longer matches its target shape.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail="Write-back payload does not match the target record shape.",
+        ) from exc
+    except ValueError as exc:
+        # Illegal review transitions and version conflicts share 409.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
         ) from exc
     except sqlite3.IntegrityError as exc:
         raise HTTPException(

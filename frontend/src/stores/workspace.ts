@@ -2133,7 +2133,16 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         }
       )
       if (!response.ok) {
-        throw new Error('Could not update write-back proposal')
+        let detail = 'Could not update write-back proposal'
+        try {
+          const body = await response.json()
+          if (typeof body?.detail === 'string' && body.detail) {
+            detail = body.detail
+          }
+        } catch {
+          // keep the default message
+        }
+        throw new Error(detail)
       }
       const updated: WritebackProposal = await response.json()
       if (!isActiveProject(projectId)) {
@@ -2154,10 +2163,16 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         }
       }
       writebackStatus.value =
-        status === 'accepted' ? 'Write-back accepted and applied.' : 'Write-back rejected.'
-    } catch {
+        status === 'accepted'
+          ? 'Write-back accepted and applied.'
+          : status === 'superseded'
+            ? 'Write-back marked as superseded.'
+            : 'Write-back rejected.'
+    } catch (error) {
       writebackError.value =
-        'Write-back update failed. Check for duplicate Canon names or invalid payloads.'
+        error instanceof Error
+          ? `Write-back update failed. ${error.message}`
+          : 'Write-back update failed. Check for duplicate Canon names or invalid payloads.'
     } finally {
       isUpdatingWriteback.value = false
     }

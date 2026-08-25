@@ -116,11 +116,18 @@ def update_reference_suggestion_status(
     data_store: WritingDataStore = Depends(get_data_store),
 ) -> ReferenceSuggestion:
     require_project(project_id, data_store)
-    suggestion = data_store.update_reference_suggestion_status(
-        project_id,
-        suggestion_id,
-        update.status,
-    )
+    try:
+        suggestion = data_store.update_reference_suggestion_status(
+            project_id,
+            suggestion_id,
+            update.status,
+        )
+    except ValueError as exc:
+        # Illegal review transition: already reviewed, cannot change again.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
     if suggestion is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
