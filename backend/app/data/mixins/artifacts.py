@@ -40,21 +40,27 @@ class ArtifactsDataMixin:
             ).fetchone()
         return artifact_from_row(row) if row else None
 
-    def save_snowflake_artifact(self, artifact: SnowflakeArtifact) -> SnowflakeArtifact:
-        with self.connect() as connection:
-            connection.execute(
-                """
-                INSERT INTO snowflake_artifacts (project_id, step_number, artifact, content)
-                VALUES (?, ?, ?, ?)
-                ON CONFLICT(project_id, step_number) DO UPDATE SET
-                    artifact = excluded.artifact,
-                    content = excluded.content
-                """,
-                (
-                    artifact.project_id,
-                    artifact.step_number,
-                    artifact.artifact,
-                    artifact.content,
-                ),
-            )
+    def save_snowflake_artifact(
+        self,
+        artifact: SnowflakeArtifact,
+        connection: sqlite3.Connection | None = None,
+    ) -> SnowflakeArtifact:
+        if connection is None:
+            with self.connect() as owned:
+                return self.save_snowflake_artifact(artifact, owned)
+        connection.execute(
+            """
+            INSERT INTO snowflake_artifacts (project_id, step_number, artifact, content)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(project_id, step_number) DO UPDATE SET
+                artifact = excluded.artifact,
+                content = excluded.content
+            """,
+            (
+                artifact.project_id,
+                artifact.step_number,
+                artifact.artifact,
+                artifact.content,
+            ),
+        )
         return artifact

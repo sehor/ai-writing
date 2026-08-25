@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.agents import (
     DeepSeekSettings,
@@ -12,6 +12,9 @@ from app.data import WritingDataStore, get_data_store
 from app.dependencies import require_project
 from app.llm_wiki.dependencies import get_llm_wiki
 from app.llm_wiki.interfaces import LlmWiki, WikiSourceDocument
+from app.outbox.handlers import snowflake_index_payload
+from app.outbox.http import apply_wiki_index_headers
+from app.outbox.service import OutboxService, get_outbox_service
 from app.models import (
     SnowflakeArtifact,
     SnowflakeArtifactUpdate,
@@ -171,8 +174,9 @@ def save_snowflake_artifact(
     project_id: str,
     step_number: int,
     update: SnowflakeArtifactUpdate,
+    response: Response,
     data_store: WritingDataStore = Depends(get_data_store),
-    llm_wiki: LlmWiki = Depends(get_llm_wiki),
+    outbox: OutboxService = Depends(get_outbox_service),
 ) -> SnowflakeArtifact:
     require_project(project_id, data_store)
     step = get_snowflake_step(step_number)
@@ -182,9 +186,11 @@ def save_snowflake_artifact(
         artifact=step.artifact,
         content=update.content,
     )
-    saved = data_store.save_snowflake_artifact(artifact)
-    data_store.advance_project_current_step(project_id, step_number)
-    llm_wiki.ingest(snowflake_wiki_document(saved))
+    # One transaction: artifact + project step + index job.
+    saved, job_id = data_store.enqueue_snowflake_index_job(artifact, advance_step_to=step_number)
+    processed = outbox.process_job(project_id, job_id)
+    if processed is not None:
+        apply_wiki_index_headers(response, [processed])
     return saved
 
 
@@ -211,9 +217,10 @@ def get_writing_workflow(
 )
 def generate_snowflake_artifact(
     request: SnowflakeGenerationRequest,
+    response: Response,
     data_store: WritingDataStore = Depends(get_data_store),
     workflow: WritingWorkflow = Depends(get_writing_workflow),
-    llm_wiki: LlmWiki = Depends(get_llm_wiki),
+    outbox: OutboxService = Depends(get_outbox_service),
 ) -> SnowflakeGenerationResponse:
     require_project(request.project_id, data_store)
     get_snowflake_step(request.step_number)
@@ -235,29 +242,22 @@ def generate_snowflake_artifact(
                 "workflow_trace": [trace.model_dump() for trace in exc.trace],
             },
         ) from exc
-    saved = data_store.save_snowflake_artifact(
+    # One transaction: artifact + project step + index job.
+    _, job_id = data_store.enqueue_snowflake_index_job(
         SnowflakeArtifact(
             project_id=generated.project_id,
             step_number=generated.step_number,
             artifact=generated.artifact,
             content=generated.content,
-        )
+        ),
+        advance_step_to=request.step_number,
     )
-    data_store.advance_project_current_step(request.project_id, request.step_number)
-    llm_wiki.ingest(snowflake_wiki_document(saved))
+    processed = outbox.process_job(request.project_id, job_id)
+    if processed is not None:
+        apply_wiki_index_headers(response, [processed])
     return generated
 
 
 def snowflake_wiki_document(artifact: SnowflakeArtifact) -> WikiSourceDocument:
-    is_manuscript_draft = artifact.step_number == 10
-    return WikiSourceDocument(
-        project_id=artifact.project_id,
-        source_kind="snowflake_artifact",
-        source_ref=f"snowflake:{artifact.step_number}",
-        title=f"Snowflake step {artifact.step_number}: {artifact.artifact}",
-        content=artifact.content,
-        snowflake_step=artifact.step_number,
-        artifact_type=artifact.artifact,
-        knowledge_class="observed" if is_manuscript_draft else "planned",
-        status="draft" if is_manuscript_draft else "approved",
-    )
+    """Kept for compatibility; the mapping now lives in app.outbox.handlers."""
+    return WikiSourceDocument.model_validate(snowflake_index_payload(artifact))

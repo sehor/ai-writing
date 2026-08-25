@@ -181,6 +181,23 @@ class ProjectsDataMixin:
                 CREATE INDEX IF NOT EXISTS idx_manuscript_proposals_project_id_scene_id ON manuscript_proposals(project_id, scene_id);
                 CREATE INDEX IF NOT EXISTS idx_writeback_proposals_project_id ON writeback_proposals(project_id);
                 CREATE INDEX IF NOT EXISTS idx_reference_suggestions_project_id ON reference_suggestions(project_id);
+
+                CREATE TABLE IF NOT EXISTS outbox_jobs (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    job_type TEXT NOT NULL,
+                    aggregate_type TEXT NOT NULL,
+                    aggregate_id TEXT NOT NULL,
+                    payload_json TEXT NOT NULL,
+                    idempotency_key TEXT NOT NULL UNIQUE,
+                    status TEXT NOT NULL,
+                    attempt_count INTEGER NOT NULL DEFAULT 0,
+                    last_error TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    completed_at TEXT NOT NULL DEFAULT '',
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_outbox_jobs_project_id_status ON outbox_jobs(project_id, status);
                 """
             )
             ensure_column(
@@ -272,20 +289,25 @@ class ProjectsDataMixin:
         return row is not None
 
     def advance_project_current_step(
-        self, project_id: str, completed_step: int
+        self,
+        project_id: str,
+        completed_step: int,
+        connection: sqlite3.Connection | None = None,
     ) -> ProjectSummary | None:
         next_step = min(completed_step + 1, 10)
-        with self.connect() as connection:
-            connection.execute(
-                """
-                UPDATE projects
-                SET current_step = MAX(current_step, ?)
-                WHERE id = ?
-                """,
-                (next_step, project_id),
-            )
-            row = connection.execute(
-                "SELECT id, title, premise, current_step FROM projects WHERE id = ?",
-                (project_id,),
-            ).fetchone()
+        if connection is None:
+            with self.connect() as owned:
+                return self.advance_project_current_step(project_id, completed_step, owned)
+        connection.execute(
+            """
+            UPDATE projects
+            SET current_step = MAX(current_step, ?)
+            WHERE id = ?
+            """,
+            (next_step, project_id),
+        )
+        row = connection.execute(
+            "SELECT id, title, premise, current_step FROM projects WHERE id = ?",
+            (project_id,),
+        ).fetchone()
         return project_from_row(row) if row else None

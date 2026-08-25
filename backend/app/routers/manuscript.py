@@ -1,8 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 import sqlite3
 
 from app.data import WritingDataStore, get_data_store
 from app.dependencies import require_project
+from app.outbox.http import apply_wiki_index_headers
+from app.outbox.service import OutboxService, get_outbox_service
 from app.models import (
     ManuscriptExportResponse,
     ManuscriptChapter,
@@ -129,11 +131,15 @@ def update_manuscript_scene(
     project_id: str,
     scene_id: str,
     update: ManuscriptSceneUpdate,
+    response: Response,
     data_store: WritingDataStore = Depends(get_data_store),
     service: ManuscriptService = Depends(),
+    outbox: OutboxService = Depends(get_outbox_service),
 ) -> ManuscriptScene:
     require_project(project_id, data_store)
-    return service.update_scene(project_id, scene_id, update)
+    scene = service.update_scene(project_id, scene_id, update)
+    apply_wiki_index_headers(response, outbox.process_pending(project_id))
+    return scene
 
 
 @router.get(
@@ -183,11 +189,15 @@ def diff_manuscript_revisions(
 def restore_manuscript_revision(
     project_id: str,
     revision_id: str,
+    response: Response,
     data_store: WritingDataStore = Depends(get_data_store),
     service: ManuscriptService = Depends(),
+    outbox: OutboxService = Depends(get_outbox_service),
 ) -> ManuscriptScene:
     require_project(project_id, data_store)
-    return service.restore_revision(project_id, revision_id)
+    scene = service.restore_revision(project_id, revision_id)
+    apply_wiki_index_headers(response, outbox.process_pending(project_id))
+    return scene
 
 
 @router.post(
@@ -228,8 +238,12 @@ def update_manuscript_proposal_status(
     project_id: str,
     proposal_id: str,
     update: ManuscriptProposalStatusUpdate,
+    response: Response,
     data_store: WritingDataStore = Depends(get_data_store),
     service: ManuscriptService = Depends(),
+    outbox: OutboxService = Depends(get_outbox_service),
 ) -> ManuscriptProposal:
     require_project(project_id, data_store)
-    return service.update_proposal_status(project_id, proposal_id, update.status)
+    proposal = service.update_proposal_status(project_id, proposal_id, update.status)
+    apply_wiki_index_headers(response, outbox.process_pending(project_id))
+    return proposal

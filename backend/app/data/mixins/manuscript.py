@@ -460,6 +460,7 @@ class ManuscriptDataMixin:
                 """,
                 manuscript_revision_to_params(revision),
             )
+            self.enqueue_manuscript_revision_index_job(connection, revision=revision)
             connection.execute(
                 """
                 UPDATE manuscript_proposals
@@ -574,6 +575,7 @@ class ManuscriptDataMixin:
                 """,
                 manuscript_revision_to_params(restored_revision),
             )
+            self.enqueue_manuscript_revision_index_job(connection, revision=restored_revision)
         return self.get_manuscript_scene(project_id, source_revision.scene_id)
 
     def update_manuscript_scene(
@@ -650,6 +652,7 @@ class ManuscriptDataMixin:
                 """,
                 manuscript_revision_to_params(revision),
             )
+            self.enqueue_manuscript_revision_index_job(connection, revision=revision)
             row = connection.execute(
                 """
                 SELECT id, project_id, scene_id, proposal_id, title, content,

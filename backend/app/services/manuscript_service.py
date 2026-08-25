@@ -7,7 +7,7 @@ from app.cognition.registry import CognitionRegistry, get_cognition_registry
 from app.cognition.snapshots import build_project_snapshot
 from app.data import WritingDataStore, get_data_store, utc_now
 from app.llm_wiki.dependencies import get_llm_wiki
-from app.llm_wiki.interfaces import LlmWiki, WikiContextQuery, WikiSourceDocument
+from app.llm_wiki.interfaces import LlmWiki, WikiContextQuery
 from app.manuscript_export import build_export_markdown
 from app.models import (
     ManuscriptExportResponse,
@@ -43,7 +43,6 @@ class ManuscriptService:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Accepted manuscript scene not found."
             )
-        self._ingest_latest_revision(project_id, scene.scene_id)
         return scene
 
     def export(self, project_id: str) -> ManuscriptExportResponse:
@@ -102,7 +101,6 @@ class ManuscriptService:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Manuscript revision not found."
             )
-        self._ingest_latest_revision(project_id, scene.scene_id)
         return scene
 
     def generate_local_proposal(self, project_id: str, scene_id: str) -> ManuscriptProposal:
@@ -172,8 +170,7 @@ class ManuscriptService:
                 raise HTTPException(
                     status_code=status.HTTP_404_NOT_FOUND, detail="Manuscript proposal not found."
                 )
-            self._ingest_latest_revision(project_id, scene.scene_id)
-            return proposal
+                return proposal
         proposal = self.data_store.update_manuscript_proposal_status(
             project_id, proposal_id, status_str
         )
@@ -215,36 +212,4 @@ class ManuscriptService:
             self.data_store.list_snowflake_artifacts(project.id if project else project_id),
             cognition_ctx,
             wiki_ctx,
-        )
-
-    def _ingest_latest_revision(self, project_id: str, scene_id: str) -> None:
-        revisions = [
-            r
-            for r in self.data_store.list_manuscript_revisions(project_id)
-            if r.scene_id == scene_id
-        ]
-        if not revisions:
-            return
-        latest = max(revisions, key=lambda r: r.version)
-        previous = max(
-            (r for r in revisions if r.version < latest.version),
-            key=lambda r: r.version,
-            default=None,
-        )
-        scene = self.data_store.get_scene_contract(project_id, scene_id)
-        self.llm_wiki.ingest(
-            WikiSourceDocument(
-                project_id=project_id,
-                source_kind="manuscript_revision",
-                source_ref=f"manuscript_revision:{latest.id}",
-                title=latest.title,
-                content=latest.content,
-                snowflake_step=10,
-                artifact_type="manuscript",
-                knowledge_class="observed",
-                version=latest.version,
-                supersedes=f"manuscript_revision:{previous.id}" if previous else "",
-                scope=scene_id,
-                story_position=scene.sequence if scene else None,
-            )
         )

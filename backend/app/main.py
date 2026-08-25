@@ -10,6 +10,7 @@ from app.routers import (
     health,
     manuscript,
     memory,
+    outbox,
     projects,
     references,
     scenes,
@@ -51,3 +52,4 @@ app.include_router(manuscript.router, prefix="/api")
 app.include_router(wiki.router, prefix="/api")
 app.include_router(writeback.router, prefix="/api")
 app.include_router(references.router, prefix="/api")
+app.include_router(outbox.router, prefix="/api")

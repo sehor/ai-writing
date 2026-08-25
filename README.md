@@ -111,6 +111,8 @@ Implemented:
 - Markdown export for accepted manuscript scenes.
 - Canon / Memory write-back proposal generation and review UI.
 - Structured References / Copilot UI for reviewable writing suggestions.
+- Outbox-backed LLM Wiki indexing: core saves commit first, wiki ingest failures surface as retryable jobs (`GET /api/projects/{id}/outbox-jobs`, `POST .../outbox-jobs/{job_id}/retry`) instead of failed requests.
+- Draft safety on the frontend: editors autosave to a local draft cache, confirm before switching away, restore cached drafts, and flush on page close; async generations are bound to project/step request scopes.
 - Backend unit coverage for manuscript edit versioning.
 - Backend route test coverage for the manuscript/write-back review loop.
 - Frontend contract test coverage for the References UI.
