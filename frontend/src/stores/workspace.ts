@@ -1,5 +1,14 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
+import {
+  clearDraft,
+  loadDraft,
+  saveDraft,
+  type CachedDraft,
+} from '../services/draftCache'
+import { useEditorSessionStore } from './editorSession'
+import { useDirtyGuard } from '../composables/useDirtyGuard'
+import { useScopedRequest } from '../composables/useScopedRequest'
 import type {
   ProjectSummary,
   SnowflakeStep,
@@ -125,6 +134,188 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     title: '',
     premise: '',
   })
+
+  // ---- Draft safety (P0-05): autosave cache, dirty tracking, switch guards ----
+  const editorSession = useEditorSessionStore()
+  const { confirmLeave, confirmLeaveMultiple } = useDirtyGuard({
+    flushAll: flushAllDirtyDrafts,
+  })
+  const requestScopes = useScopedRequest()
+  const draftBaselines = new Map<string, string>()
+  const autosaveTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+  function stableValue(value: unknown): string {
+    return JSON.stringify(value)
+  }
+
+  function setBaseline(scopeKey: string, value: unknown): void {
+    draftBaselines.set(scopeKey, stableValue(value))
+    editorSession.markClean(scopeKey)
+  }
+
+  function isScopeDirty(scopeKey: string, value: unknown): boolean {
+    return (
+      draftBaselines.has(scopeKey) && draftBaselines.get(scopeKey) !== stableValue(value)
+    )
+  }
+
+  function scopeHasProject(scopeKey: string): boolean {
+    return Boolean(scopeKey.split(':')[1])
+  }
+
+  function persistDraft(scopeKey: string, value: unknown): void {
+    if (!scopeHasProject(scopeKey)) {
+      return
+    }
+    const cached = saveDraft(scopeKey, value)
+    if (cached) {
+      editorSession.markDirty(scopeKey, cached.savedAt)
+    }
+  }
+
+  function restoreCachedDraft<T>(scopeKey: string): CachedDraft<T> | null {
+    if (!scopeHasProject(scopeKey)) {
+      return null
+    }
+    return loadDraft<T>(scopeKey)
+  }
+
+  function discardSavedScope(scopeKey: string, value: unknown): void {
+    clearDraft(scopeKey)
+    if (scopeHasProject(scopeKey)) {
+      setBaseline(scopeKey, value)
+    }
+  }
+
+  function formatSavedAt(iso: string): string {
+    const date = new Date(iso)
+    return Number.isNaN(date.getTime()) ? iso : date.toLocaleTimeString()
+  }
+
+  function artifactScopeKey(
+    projectId = activeProjectId.value,
+    step = activeStepNumber.value
+  ): string {
+    return `snowflake:${projectId}:${step}`
+  }
+
+  function canonScopeKey(
+    projectId = activeProjectId.value,
+    id = activeCanonId.value
+  ): string {
+    return `canon:${projectId}:${id || 'new'}`
+  }
+
+  function chapterScopeKey(
+    projectId = activeProjectId.value,
+    id = activeChapterId.value
+  ): string {
+    return `chapter:${projectId}:${id || 'new'}`
+  }
+
+  function sceneScopeKey(
+    projectId = activeProjectId.value,
+    id = activeSceneId.value
+  ): string {
+    return `scene:${projectId}:${id || 'new'}`
+  }
+
+  function memoryScopeKey(
+    projectId = activeProjectId.value,
+    id = activeMemoryId.value
+  ): string {
+    return `memory:${projectId}:${id || 'new'}`
+  }
+
+  function manuscriptEditScopeKey(
+    projectId = activeProjectId.value,
+    sceneId = editingManuscriptSceneId.value
+  ): string {
+    return `manuscript:${projectId}:${sceneId || 'new'}`
+  }
+
+  function referenceScopeKey(projectId = activeProjectId.value): string {
+    return `reference:${projectId}:request`
+  }
+
+  function currentManuscriptEdits(): { title: string; content: string } {
+    return { title: manuscriptEditTitle.value, content: manuscriptEditContent.value }
+  }
+
+  function queueAutosave(scopeKey: string, read: () => unknown): void {
+    const existing = autosaveTimers.get(scopeKey)
+    if (existing) {
+      clearTimeout(existing)
+    }
+    autosaveTimers.set(
+      scopeKey,
+      setTimeout(() => {
+        autosaveTimers.delete(scopeKey)
+        const value = read()
+        if (isScopeDirty(scopeKey, value)) {
+          persistDraft(scopeKey, value)
+        }
+      }, 400)
+    )
+  }
+
+  watch(artifactDraft, () => queueAutosave(artifactScopeKey(), () => artifactDraft.value))
+  watch(canonDraft, () => queueAutosave(canonScopeKey(), () => canonDraft.value), {
+    deep: true,
+  })
+  watch(chapterDraft, () => queueAutosave(chapterScopeKey(), () => chapterDraft.value), {
+    deep: true,
+  })
+  watch(sceneDraft, () => queueAutosave(sceneScopeKey(), () => sceneDraft.value), {
+    deep: true,
+  })
+  watch(memoryDraft, () => queueAutosave(memoryScopeKey(), () => memoryDraft.value), {
+    deep: true,
+  })
+  watch(referenceDraft, () => queueAutosave(referenceScopeKey(), () => referenceDraft.value), {
+    deep: true,
+  })
+  watch(
+    [manuscriptEditTitle, manuscriptEditContent],
+    () => queueAutosave(manuscriptEditScopeKey(), currentManuscriptEdits)
+  )
+
+  function flushAllDirtyDrafts(): void {
+    const snapshots: Array<[string, () => unknown]> = [
+      [artifactScopeKey(), () => artifactDraft.value],
+      [canonScopeKey(), () => canonDraft.value],
+      [chapterScopeKey(), () => chapterDraft.value],
+      [sceneScopeKey(), () => sceneDraft.value],
+      [memoryScopeKey(), () => memoryDraft.value],
+      [referenceScopeKey(), () => referenceDraft.value],
+      [manuscriptEditScopeKey(), currentManuscriptEdits],
+    ]
+    for (const [scopeKey, read] of snapshots) {
+      const value = read()
+      if (isScopeDirty(scopeKey, value)) {
+        persistDraft(scopeKey, value)
+      }
+    }
+  }
+
+  /** Set while a save/programmatic change moves a selection itself. */
+  let suppressNextSelectionGuard = false
+
+  /** Re-baseline an editor after a reset and reapply any cached draft. */
+  function restoreEntryDraft<T>(
+    scopeKey: string,
+    baselineValue: unknown,
+    apply: (cached: T) => void,
+    notify: (message: string) => void
+  ): void {
+    setBaseline(scopeKey, baselineValue)
+    const cached = restoreCachedDraft<T>(scopeKey)
+    if (cached && cached.value !== null && typeof cached.value === 'object') {
+      apply(cached.value)
+      editorSession.markDirty(scopeKey, cached.savedAt)
+      notify(`已恢复本地草稿（自动保存于 ${formatSavedAt(cached.savedAt)}）`)
+    }
+  }
   
   const runtimeLabel = computed(() => {
     if (!workflowRuntime.value) {
@@ -323,7 +514,32 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   
   let projectLoadController: AbortController | null = null
 
-  watch(activeProjectId, async (projectId) => {
+  watch(activeProjectId, async (projectId, prevProjectId) => {
+    if (suppressNextSelectionGuard) {
+      suppressNextSelectionGuard = false
+    } else if (prevProjectId) {
+      // Drafts still hold the outgoing project's values at this point.
+      const leaving: Array<[string, string, unknown]> = [
+        [artifactScopeKey(prevProjectId, activeStepNumber.value), 'Snowflake 草稿', artifactDraft.value],
+        [canonScopeKey(prevProjectId, activeCanonId.value), 'Canon 表单', canonDraft.value],
+        [chapterScopeKey(prevProjectId, activeChapterId.value), 'Chapter 表单', chapterDraft.value],
+        [sceneScopeKey(prevProjectId, activeSceneId.value), 'Scene 表单', sceneDraft.value],
+        [memoryScopeKey(prevProjectId, activeMemoryId.value), 'Memory 表单', memoryDraft.value],
+        [manuscriptEditScopeKey(prevProjectId, editingManuscriptSceneId.value), '正文编辑', currentManuscriptEdits()],
+        [referenceScopeKey(prevProjectId), 'Reference 请求表单', referenceDraft.value],
+      ]
+      const dirtyScopes = leaving.filter(([key, , value]) => isScopeDirty(key, value))
+      if (dirtyScopes.length > 0) {
+        if (!confirmLeaveMultiple(dirtyScopes.length)) {
+          suppressNextSelectionGuard = true
+          activeProjectId.value = prevProjectId
+          return
+        }
+        for (const [key, , value] of dirtyScopes) {
+          persistDraft(key, value)
+        }
+      }
+    }
     projectLoadController?.abort()
     const controller = new AbortController()
     projectLoadController = controller
@@ -485,7 +701,42 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       activeWritebackId.value = writebackProposals.value[0]?.id ?? ''
       activeReferenceId.value = referenceSuggestions.value[0]?.id ?? ''
       syncRevisionCompareSelection()
-      artifactDraft.value = savedActiveArtifact.value?.content ?? ''
+      // Entry-time draft restore for the incoming project.
+      const incomingArtifactScope = artifactScopeKey(projectId, activeStepNumber.value)
+      const baselineContent = savedActiveArtifact.value?.content ?? ''
+      setBaseline(incomingArtifactScope, baselineContent)
+      artifactDraft.value = baselineContent
+      const cachedArtifact = restoreCachedDraft<string>(incomingArtifactScope)
+      if (cachedArtifact && typeof cachedArtifact.value === 'string') {
+        artifactDraft.value = cachedArtifact.value
+        editorSession.markDirty(incomingArtifactScope, cachedArtifact.savedAt)
+        artifactStatus.value = `已恢复本地草稿（自动保存于 ${formatSavedAt(cachedArtifact.savedAt)}）`
+      }
+      restoreEntryDraft<CanonDraft>(canonScopeKey(), createEmptyCanonDraft(), (cached) => {
+        canonDraft.value = cached
+      }, (message) => {
+        canonStatus.value = message
+      })
+      restoreEntryDraft<ManuscriptChapterDraft>(chapterScopeKey(), createEmptyChapterDraft(), (cached) => {
+        chapterDraft.value = cached
+      }, (message) => {
+        chapterStatus.value = message
+      })
+      restoreEntryDraft<SceneDraft>(sceneScopeKey(), createEmptySceneDraft(), (cached) => {
+        sceneDraft.value = cached
+      }, (message) => {
+        sceneStatus.value = message
+      })
+      restoreEntryDraft<MemoryDraft>(memoryScopeKey(), createEmptyMemoryDraft(), (cached) => {
+        memoryDraft.value = cached
+      }, (message) => {
+        memoryStatus.value = message
+      })
+      restoreEntryDraft<ReferenceDraft>(referenceScopeKey(), createEmptyReferenceDraft(), (cached) => {
+        referenceDraft.value = cached
+      }, (message) => {
+        referenceStatus.value = message
+      })
       await loadGraphAnalysis(projectId, controller.signal)
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -495,18 +746,54 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   })
   
-  watch(activeStepNumber, () => {
+  watch(activeStepNumber, (next, prev) => {
+    if (suppressNextSelectionGuard) {
+      suppressNextSelectionGuard = false
+    } else {
+      const previousScope = artifactScopeKey(activeProjectId.value, prev)
+      if (isScopeDirty(previousScope, artifactDraft.value)) {
+        if (!confirmLeave(previousScope, `Snowflake Step ${prev}`)) {
+          suppressNextSelectionGuard = true
+          activeStepNumber.value = prev
+          return
+        }
+        persistDraft(previousScope, artifactDraft.value)
+      }
+    }
     artifactError.value = ''
     artifactStatus.value = ''
     workflowTrace.value = []
-    artifactDraft.value = savedActiveArtifact.value?.content ?? ''
+    const nextScope = artifactScopeKey()
+    const baselineContent = savedActiveArtifact.value?.content ?? ''
+    setBaseline(nextScope, baselineContent)
+    const cached = restoreCachedDraft<string>(nextScope)
+    if (cached && typeof cached.value === 'string') {
+      artifactDraft.value = cached.value
+      editorSession.markDirty(nextScope, cached.savedAt)
+      artifactStatus.value = `已恢复本地草稿（自动保存于 ${formatSavedAt(cached.savedAt)}）`
+    } else {
+      artifactDraft.value = baselineContent
+    }
   })
   
-  watch(activeCanonId, () => {
+  watch(activeCanonId, (next, prev) => {
+    if (suppressNextSelectionGuard) {
+      suppressNextSelectionGuard = false
+    } else {
+      const previousScope = canonScopeKey(activeProjectId.value, prev)
+      if (isScopeDirty(previousScope, canonDraft.value)) {
+        if (!confirmLeave(previousScope, prev ? 'Canon 实体编辑' : '新建 Canon 表单')) {
+          suppressNextSelectionGuard = true
+          activeCanonId.value = prev
+          return
+        }
+        persistDraft(previousScope, canonDraft.value)
+      }
+    }
     canonError.value = ''
     canonStatus.value = ''
     const selected = activeCanonEntity.value
-    canonDraft.value = selected
+    const baselineDraft = selected
       ? {
           entity_type: selected.entity_type,
           name: selected.name,
@@ -517,27 +804,63 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           timeline_notes: selected.timeline_notes,
         }
       : createEmptyCanonDraft()
+    restoreEntryDraft<CanonDraft>(canonScopeKey(), baselineDraft, (cached) => {
+      canonDraft.value = cached
+    }, (message) => {
+      canonStatus.value = message
+    })
   })
   
-  watch(activeChapterId, () => {
+  watch(activeChapterId, (next, prev) => {
+    if (suppressNextSelectionGuard) {
+      suppressNextSelectionGuard = false
+    } else {
+      const previousScope = chapterScopeKey(activeProjectId.value, prev)
+      if (isScopeDirty(previousScope, chapterDraft.value)) {
+        if (!confirmLeave(previousScope, prev ? 'Chapter 编辑' : '新建 Chapter 表单')) {
+          suppressNextSelectionGuard = true
+          activeChapterId.value = prev
+          return
+        }
+        persistDraft(previousScope, chapterDraft.value)
+      }
+    }
     chapterError.value = ''
     chapterStatus.value = ''
     const selected = activeChapter.value
-    chapterDraft.value = selected
+    const baselineDraft = selected
       ? {
           sequence: selected.sequence,
           title: selected.title,
           summary: selected.summary,
         }
       : createEmptyChapterDraft()
+    restoreEntryDraft<ManuscriptChapterDraft>(chapterScopeKey(), baselineDraft, (cached) => {
+      chapterDraft.value = cached
+    }, (message) => {
+      chapterStatus.value = message
+    })
   })
   
-  watch(activeSceneId, () => {
+  watch(activeSceneId, (next, prev) => {
+    if (suppressNextSelectionGuard) {
+      suppressNextSelectionGuard = false
+    } else {
+      const previousScope = sceneScopeKey(activeProjectId.value, prev)
+      if (isScopeDirty(previousScope, sceneDraft.value)) {
+        if (!confirmLeave(previousScope, prev ? 'Scene Contract 编辑' : '新建 Scene 表单')) {
+          suppressNextSelectionGuard = true
+          activeSceneId.value = prev
+          return
+        }
+        persistDraft(previousScope, sceneDraft.value)
+      }
+    }
     sceneError.value = ''
     sceneStatus.value = ''
     compileResult.value = null
     const selected = activeSceneContract.value
-    sceneDraft.value = selected
+    const baselineDraft = selected
       ? {
           chapter_id: selected.chapter_id,
           sequence: selected.sequence,
@@ -552,13 +875,31 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           source_artifact_step: selected.source_artifact_step,
         }
       : createEmptySceneDraft()
+    restoreEntryDraft<SceneDraft>(sceneScopeKey(), baselineDraft, (cached) => {
+      sceneDraft.value = cached
+    }, (message) => {
+      sceneStatus.value = message
+    })
   })
   
-  watch(activeMemoryId, () => {
+  watch(activeMemoryId, (next, prev) => {
+    if (suppressNextSelectionGuard) {
+      suppressNextSelectionGuard = false
+    } else {
+      const previousScope = memoryScopeKey(activeProjectId.value, prev)
+      if (isScopeDirty(previousScope, memoryDraft.value)) {
+        if (!confirmLeave(previousScope, prev ? 'Memory / Style 编辑' : '新建 Memory 表单')) {
+          suppressNextSelectionGuard = true
+          activeMemoryId.value = prev
+          return
+        }
+        persistDraft(previousScope, memoryDraft.value)
+      }
+    }
     memoryError.value = ''
     memoryStatus.value = ''
     const selected = activeMemoryRecord.value
-    memoryDraft.value = selected
+    const baselineDraft = selected
       ? {
           record_type: selected.record_type,
           title: selected.title,
@@ -568,6 +909,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           source_ref: selected.source_ref,
         }
       : createEmptyMemoryDraft()
+    restoreEntryDraft<MemoryDraft>(memoryScopeKey(), baselineDraft, (cached) => {
+      memoryDraft.value = cached
+    }, (message) => {
+      memoryStatus.value = message
+    })
   })
   
   async function createProject() {
@@ -897,6 +1243,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       upsertArtifact(saved)
       advanceActiveProject(saved.step_number)
       artifactDraft.value = saved.content
+      discardSavedScope(artifactScopeKey(projectId, saved.step_number), saved.content)
       artifactStatus.value = 'Artifact saved.'
       await loadGraphAnalysis(projectId)
     } catch {
@@ -919,6 +1266,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   
     isGeneratingArtifact.value = true
+    // Bind the generation to project + step so a late response can never
+    // overwrite a different step's editor (P0-06).
+    const generationScope = requestScopes.begin(
+      projectId,
+      'snowflake',
+      String(activeStepNumber.value)
+    )
     try {
       const response = await fetch('/api/snowflake/generate', {
         method: 'POST',
@@ -931,7 +1285,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       })
       if (!response.ok) {
         const detail = await readErrorDetail(response)
-        if (!isActiveProject(projectId)) {
+        if (!isActiveProject(projectId) || !requestScopes.isCurrent(generationScope)) {
           return
         }
         if (detail.workflow_trace) {
@@ -940,12 +1294,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         throw new Error(detail.message || 'Could not generate artifact')
       }
       const generated: SnowflakeGenerationResponse = await response.json()
-      if (!isActiveProject(projectId)) {
+      if (!isActiveProject(projectId) || !requestScopes.isCurrent(generationScope)) {
         return
       }
       upsertArtifact(generated)
       advanceActiveProject(generated.step_number)
       artifactDraft.value = generated.content
+      discardSavedScope(artifactScopeKey(projectId, generated.step_number), generated.content)
       workflowTrace.value = generated.workflow_trace
       artifactStatus.value = 'Draft generated and saved.'
       await loadGraphAnalysis(projectId)
@@ -1022,6 +1377,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       ].sort((left, right) =>
         `${left.entity_type}:${left.name}`.localeCompare(`${right.entity_type}:${right.name}`)
       )
+      clearDraft(canonScopeKey(projectId, activeCanonId.value))
+      suppressNextSelectionGuard = true
       activeCanonId.value = saved.id
       canonStatus.value = 'Canon entity saved.'
       await loadGraphAnalysis(projectId)
@@ -1107,6 +1464,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         ...manuscriptChapters.value.filter((chapter) => chapter.id !== saved.id),
         saved,
       ].sort((left, right) => left.sequence - right.sequence)
+      clearDraft(chapterScopeKey(projectId, activeChapterId.value))
+      suppressNextSelectionGuard = true
       activeChapterId.value = saved.id
       chapterStatus.value = 'Chapter saved.'
     } catch {
@@ -1201,6 +1560,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         ...sceneContracts.value.filter((scene) => scene.id !== saved.id),
         saved,
       ].sort((left, right) => left.sequence - right.sequence)
+      clearDraft(sceneScopeKey(projectId, activeSceneId.value))
+      suppressNextSelectionGuard = true
       activeSceneId.value = saved.id
       sceneStatus.value = 'Scene contract saved.'
       await loadGraphAnalysis(projectId)
@@ -1257,6 +1618,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   
     isCompilingScene.value = true
+    const compileScope = requestScopes.begin(projectId, 'scene-compile', sceneId)
     try {
       const response = await fetch(`/api/projects/${projectId}/scene-contracts/${sceneId}/compile`, {
         method: 'POST',
@@ -1265,7 +1627,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         throw new Error('Could not compile Scene contract')
       }
       const result = await response.json()
-      if (!isActiveProject(projectId)) {
+      if (!isActiveProject(projectId) || !requestScopes.isCurrent(compileScope)) {
         return
       }
       compileResult.value = result
@@ -1574,11 +1936,32 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
   
   function startEditingManuscriptScene(scene: ManuscriptScene) {
+    const currentScope = manuscriptEditScopeKey()
+    if (
+      editingManuscriptSceneId.value &&
+      isScopeDirty(currentScope, currentManuscriptEdits())
+    ) {
+      if (!confirmLeave(currentScope, `场景 ${editingManuscriptSceneId.value} 的正文编辑`)) {
+        return
+      }
+      persistDraft(currentScope, currentManuscriptEdits())
+    }
     manuscriptError.value = ''
     manuscriptStatus.value = ''
     editingManuscriptSceneId.value = scene.scene_id
-    manuscriptEditTitle.value = scene.title
-    manuscriptEditContent.value = scene.content
+    const nextScope = manuscriptEditScopeKey(activeProjectId.value, scene.scene_id)
+    const baseline = { title: scene.title, content: scene.content }
+    setBaseline(nextScope, baseline)
+    const cached = restoreCachedDraft<{ title: string; content: string }>(nextScope)
+    if (cached && cached.value && typeof cached.value === 'object') {
+      manuscriptEditTitle.value = cached.value.title ?? scene.title
+      manuscriptEditContent.value = cached.value.content ?? scene.content
+      editorSession.markDirty(nextScope, cached.savedAt)
+      manuscriptStatus.value = `已恢复本地草稿（自动保存于 ${formatSavedAt(cached.savedAt)}）`
+    } else {
+      manuscriptEditTitle.value = scene.title
+      manuscriptEditContent.value = scene.content
+    }
   }
   
   function cancelEditingManuscriptScene() {
@@ -1620,6 +2003,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       manuscriptScenes.value = manuscriptScenes.value.map((scene) =>
         scene.scene_id === updated.scene_id ? updated : scene
       )
+      clearDraft(manuscriptEditScopeKey(projectId, sceneId))
       cancelEditingManuscriptScene()
       manuscriptExport.value = null
       revisionDiff.value = null
@@ -1879,6 +2263,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       ].sort((left, right) =>
         `${left.record_type}:${left.title}`.localeCompare(`${right.record_type}:${right.title}`)
       )
+      clearDraft(memoryScopeKey(projectId, activeMemoryId.value))
+      suppressNextSelectionGuard = true
       activeMemoryId.value = saved.id
       memoryStatus.value = 'Memory / Style record saved.'
       await loadGraphAnalysis(projectId)
