@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import { useWorkspaceStore } from '../../stores/workspace'
+import { statusText } from '../../utils/format'
+import { useManuscriptStore } from '../../stores/manuscript'
+import { useReviewsStore } from '../../stores/reviews'
 
-const store = useWorkspaceStore()
+const store = useManuscriptStore()
 const {
   manuscriptProposals,
   activeProposalId,
@@ -11,11 +13,11 @@ const {
   manuscriptStatus,
   activeProposal,
   pendingProposalCount,
-  pendingWritebackCount,
   acceptedSceneCount,
   revisionCount,
 } = storeToRefs(store)
-const { updateProposalStatus, statusText } = store
+const { pendingWritebackCount } = storeToRefs(useReviewsStore())
+const { updateProposalStatus } = store
 </script>
 
 <template>

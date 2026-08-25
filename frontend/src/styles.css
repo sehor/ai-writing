@@ -889,6 +889,41 @@ code {
   background: #cfe0f4;
 }
 
+/* P1-07: post-acceptance analysis job status chips */
+.job-status-succeeded {
+  color: #14532d;
+  background: #bbf7d0;
+}
+
+.job-status-failed {
+  color: #ffffff;
+  background: #b42318;
+}
+
+.job-status-pending,
+.job-status-processing {
+  color: #4a2c00;
+  background: #f7c948;
+}
+
+.post-accept-analysis {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid #dce3dd;
+  border-radius: 10px;
+  background: #f7faf8;
+}
+
+.analysis-job-item {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border: 1px solid #dce3dd;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
 .finding-item {
   display: grid;
   gap: 8px;

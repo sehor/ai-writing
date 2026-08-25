@@ -2,10 +2,10 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-const workspaceStore = readFileSync(
-  new URL('../src/stores/workspace.ts', import.meta.url),
-  'utf8',
-)
+const read = (relative) =>
+  readFileSync(new URL(relative, import.meta.url), 'utf8')
+
+const workspaceStore = read('../src/stores/workspace.ts')
 
 test('project switching cancels stale project data requests', () => {
   assert.match(workspaceStore, /let projectLoadController: AbortController \| null/)
@@ -17,31 +17,38 @@ test('project switching cancels stale project data requests', () => {
   assert.match(workspaceStore, /error instanceof DOMException && error\.name === 'AbortError'/)
 })
 
-test('project-scoped mutations ignore responses after the active project changes', () => {
+test('the workspace store owns the active-project staleness check', () => {
   assert.match(
     workspaceStore,
     /function isActiveProject\(projectId: string\) \{\s*return projectId === activeProjectId\.value\s*\}/s,
   )
+})
 
-  for (const functionName of [
-    'saveCanonEntity',
-    'saveChapter',
-    'saveSceneContract',
-    'createProposalFromScene',
-    'generateReferenceSuggestion',
-    'saveManuscriptSceneEdit',
-    'createWritebackFromRevision',
-    'saveMemoryRecord',
-  ]) {
-    const start = workspaceStore.indexOf(`async function ${functionName}`)
-    const end = workspaceStore.indexOf('\n  async function ', start + 1)
-    const functionSource = workspaceStore.slice(start, end === -1 ? undefined : end)
+// Project-scoped mutations now live in their domain stores; each one must
+// still ignore responses that arrive after the active project changed.
+const staleGuardedFunctions = [
+  ['saveCanonEntity', '../src/stores/canon.ts'],
+  ['saveChapter', '../src/stores/manuscript.ts'],
+  ['saveSceneContract', '../src/stores/manuscript.ts'],
+  ['createProposalFromScene', '../src/stores/manuscript.ts'],
+  ['generateReferenceSuggestion', '../src/stores/reviews.ts'],
+  ['saveManuscriptSceneEdit', '../src/stores/manuscript.ts'],
+  ['createWritebackFromRevision', '../src/stores/reviews.ts'],
+  ['saveMemoryRecord', '../src/stores/memory.ts'],
+]
 
-    assert.notEqual(start, -1, `${functionName} must exist`)
+test('project-scoped mutations ignore responses after the active project changes', () => {
+  for (const [functionName, file] of staleGuardedFunctions) {
+    const source = read(file)
+    const start = source.indexOf('async function ' + functionName)
+    const end = source.indexOf('\n  async function ', start + 1)
+    const functionSource = source.slice(start, end === -1 ? undefined : end)
+
+    assert.notEqual(start, -1, functionName + ' must exist in ' + file)
     assert.match(
       functionSource,
       /if \(!isActiveProject\(projectId\)\) \{\s*return\s*\}/s,
-      `${functionName} must ignore stale project responses`,
+      functionName + ' (' + file + ') must ignore stale project responses',
     )
   }
 })

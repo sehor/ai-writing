@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import { useWorkspaceStore } from '../../stores/workspace'
+import { useManuscriptStore } from '../../stores/manuscript'
 
-const store = useWorkspaceStore()
+const store = useManuscriptStore()
 const {
   sceneContracts,
   manuscriptChapters,

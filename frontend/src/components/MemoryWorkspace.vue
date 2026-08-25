@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import { useWorkspaceStore } from '../stores/workspace'
+import { statusText } from '../utils/format'
+import { useMemoryStore } from '../stores/memory'
 
-const store = useWorkspaceStore()
+const store = useMemoryStore()
 const {
   memoryRecords,
   activeMemoryId,
@@ -15,8 +16,7 @@ const {
 const {
   startNewMemoryRecord,
   saveMemoryRecord,
-  deleteMemoryRecord,
-  statusText
+  deleteMemoryRecord
 } = store
 </script>
 

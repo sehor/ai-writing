@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useProjectsStore } from '../stores/projects'
 
-const store = useWorkspaceStore()
+const workspace = useWorkspaceStore()
 const {
-  projects,
   activeProjectId,
   activeSection
-} = storeToRefs(store)
+} = storeToRefs(workspace)
+const { projects } = storeToRefs(useProjectsStore())
 </script>
 
 <template>

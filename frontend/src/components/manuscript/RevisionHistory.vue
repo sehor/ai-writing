@@ -1,35 +1,45 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useWorkspaceStore } from '../../stores/workspace'
-import type { FindingSeverity } from '../../types'
+import { useManuscriptStore } from '../../stores/manuscript'
+import { useReviewsStore } from '../../stores/reviews'
+import type { FindingSeverity, OutboxJobStatus } from '../../types'
 
-const store = useWorkspaceStore()
+const store = useManuscriptStore()
+const reviews = useReviewsStore()
 const {
   manuscriptRevisions,
   diffLeftRevisionId,
   diffRightRevisionId,
   isLoadingDiff,
   isRestoringRevision,
+  revisionDiff,
+} = storeToRefs(store)
+const {
   isCreatingWriteback,
   isCreatingProviderWriteback,
   isProcessingHermesRevision,
   isRunningConsistencyCheck,
-  revisionDiff,
   consistencyReport,
   consistencyRevisionId,
   consistencyError,
   consistencyStatus,
-} = storeToRefs(store)
+  postAcceptJobs,
+} = storeToRefs(reviews)
 const {
   loadManuscriptRevisions,
   loadRevisionDiff,
   restoreRevision,
+  revisionLabel,
+} = store
+const {
   createWritebackFromRevision,
   processRevisionWithHermes,
   runConsistencyCheck,
-  revisionLabel,
-} = store
+  loadPostAcceptAnalysisJobs,
+  retryPostAcceptAnalysisJob,
+  analysisJobLabel,
+} = reviews
 
 const checkedRevisionLabel = computed(() => {
   if (!consistencyRevisionId.value) return ''
@@ -40,6 +50,12 @@ const checkedRevisionLabel = computed(() => {
 })
 
 const severityClass = (severity: FindingSeverity) => `severity-${severity}`
+
+const jobStatusClass = (status: OutboxJobStatus) => `job-status-${status}`
+
+const pendingAnalysisCount = computed(
+  () => postAcceptJobs.value.filter((job) => job.status === 'pending' || job.status === 'processing').length
+)
 </script>
 
 <template>
@@ -96,6 +112,43 @@ const severityClass = (severity: FindingSeverity) => `severity-${severity}`
         <span class="step-chip">{{ revisionDiff.diff_lines.length }} lines</span>
       </div>
       <pre>{{ revisionDiff.diff_lines.join('\n') }}</pre>
+    </section>
+
+    <!-- P1-07: automatic analyses scheduled when a proposal was accepted -->
+    <section v-if="postAcceptJobs.length" class="post-accept-analysis">
+      <div class="panel-header compact">
+        <div>
+          <p class="eyebrow">Post-Acceptance Analysis</p>
+          <h4>Scheduled automatically on acceptance</h4>
+        </div>
+        <div class="button-row">
+          <span v-if="pendingAnalysisCount" class="step-chip">
+            {{ pendingAnalysisCount }} running
+          </span>
+          <button class="secondary" type="button" @click="loadPostAcceptAnalysisJobs()">
+            Refresh
+          </button>
+        </div>
+      </div>
+
+      <article v-for="job in postAcceptJobs" :key="job.id" class="analysis-job-item">
+        <div class="panel-header compact">
+          <div>
+            <span :class="['severity-chip', jobStatusClass(job.status)]">{{ job.status }}</span>
+            <strong>{{ analysisJobLabel(job.job_type) }}</strong>
+          </div>
+          <small>{{ job.completed_at || job.created_at }}</small>
+        </div>
+        <p v-if="job.last_error" class="error-text">{{ job.last_error }}</p>
+        <div v-if="job.status === 'failed'" class="button-row">
+          <button class="secondary" type="button" @click="retryPostAcceptAnalysisJob(job.id)">
+            Retry
+          </button>
+        </div>
+      </article>
+      <p class="status-text">
+        Analysis runs automatically; its write-back suggestions stay pending for review.
+      </p>
     </section>
 
     <section v-if="consistencyReport || consistencyError" class="consistency-report">

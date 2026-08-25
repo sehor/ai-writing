@@ -1,17 +1,19 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useGraphStore } from '../stores/graph'
 
-const store = useWorkspaceStore()
+const workspace = useWorkspaceStore()
+const { activeProject } = storeToRefs(workspace)
+const graph = useGraphStore()
 const {
   isLoadingGraph,
   graphError,
-  graphAnalysis,
-  activeProject
-} = storeToRefs(store)
+  graphAnalysis
+} = storeToRefs(graph)
 const {
   loadGraphAnalysis
-} = store
+} = graph
 </script>
 
 <template>

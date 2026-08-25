@@ -1,0 +1,665 @@
+import { computed, ref, watch } from 'vue'
+import { defineStore } from 'pinia'
+import { fetchApi } from '../api/client'
+import { readErrorDetail } from '../api/errors'
+import { queueAutosave } from '../services/draftSessions'
+import type {
+  WritebackProposalStatus,
+  ReferenceSuggestionStatus,
+  WritebackProposal,
+  ReferenceSuggestion,
+  ReferenceDraft,
+  HermesRevisionProcessResponse,
+  ConsistencyReport,
+  OutboxJob,
+  OutboxJobType
+} from '../types'
+import { useCanonStore } from './canon'
+import { useGraphStore } from './graph'
+import { useManuscriptStore } from './manuscript'
+import { useMemoryStore } from './memory'
+import { useWorkspaceStore } from './workspace'
+import type { WorkspaceShell } from './workspaceShell'
+
+/** Human review queues: write-back proposals, reference suggestions, and the
+ *  consistency reports / post-acceptance analysis jobs they schedule. */
+export const useReviewsStore = defineStore('reviews', () => {
+  // Lazy, explicitly-typed access keeps the store type graph acyclic.
+  function ws(): WorkspaceShell {
+    return useWorkspaceStore()
+  }
+
+  // ---- Write-back proposals ----
+  const writebackProposals = ref<WritebackProposal[]>([])
+  const activeWritebackId = ref('')
+  const writebackError = ref('')
+  const writebackStatus = ref('')
+  const isCreatingWriteback = ref(false)
+  const isCreatingProviderWriteback = ref(false)
+  const isUpdatingWriteback = ref(false)
+  const isProcessingHermesRevision = ref(false)
+  const hermesProcessReport = ref<HermesRevisionProcessResponse | null>(null)
+
+  // ---- Reference suggestions ----
+  const referenceSuggestions = ref<ReferenceSuggestion[]>([])
+  const activeReferenceId = ref('')
+  const referenceDraft = ref<ReferenceDraft>(createEmptyReferenceDraft())
+  const referenceError = ref('')
+  const referenceStatus = ref('')
+  const isGeneratingReference = ref(false)
+  const isGeneratingProviderReference = ref(false)
+  const isUpdatingReference = ref(false)
+
+  // ---- Consistency reports + post-acceptance analysis (P1-07) ----
+  const consistencyReport = ref<ConsistencyReport | null>(null)
+  const consistencyRevisionId = ref('')
+  const consistencyError = ref('')
+  const consistencyStatus = ref('')
+  const isRunningConsistencyCheck = ref(false)
+  const postAcceptJobs = ref<OutboxJob[]>([])
+
+  const activeWritebackProposal = computed(() =>
+    writebackProposals.value.find((proposal) => proposal.id === activeWritebackId.value)
+  )
+
+  const pendingWritebackCount = computed(
+    () => writebackProposals.value.filter((proposal) => proposal.status === 'pending_review').length
+  )
+
+  const activeReferenceSuggestion = computed(() =>
+    referenceSuggestions.value.find((suggestion) => suggestion.id === activeReferenceId.value)
+  )
+
+  const pendingReferenceCount = computed(
+    () => referenceSuggestions.value.filter((suggestion) => suggestion.status === 'pending_review').length
+  )
+
+  function createEmptyReferenceDraft(): ReferenceDraft {
+    return {
+      suggestion_type: 'scene_bridge',
+      scope_type: 'scene',
+      scope_ref: '',
+      author_problem: '',
+      desired_output: '',
+    }
+  }
+
+  function isActiveProject(projectId: string) {
+    return projectId === ws().activeProjectId
+  }
+
+  function referenceScopeKey(projectId = ws().activeProjectId): string {
+    return `reference:${projectId}:request`
+  }
+
+  watch(referenceDraft, () => queueAutosave(referenceScopeKey(), () => referenceDraft.value), {
+    deep: true,
+  })
+
+  async function loadWritebackProposals(projectId = ws().activeProject?.id) {
+    writebackError.value = ''
+    if (!projectId) {
+      writebackProposals.value = []
+      activeWritebackId.value = ''
+      return
+    }
+
+    try {
+      const response = await fetchApi(`/projects/${projectId}/writeback/proposals`)
+      if (!response.ok) {
+        throw new Error('Could not load write-back proposals')
+      }
+      const proposals = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      writebackProposals.value = proposals
+      if (!writebackProposals.value.some((proposal) => proposal.id === activeWritebackId.value)) {
+        activeWritebackId.value = writebackProposals.value[0]?.id ?? ''
+      }
+    } catch {
+      writebackError.value = 'Write-back proposals could not be loaded.'
+    }
+  }
+
+  async function loadReferenceSuggestions(projectId = ws().activeProject?.id) {
+    referenceError.value = ''
+    if (!projectId) {
+      referenceSuggestions.value = []
+      activeReferenceId.value = ''
+      return
+    }
+
+    try {
+      const response = await fetchApi(`/projects/${projectId}/references/suggestions`)
+      if (!response.ok) {
+        throw new Error('Could not load reference suggestions')
+      }
+      const suggestions = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      referenceSuggestions.value = suggestions
+      if (!referenceSuggestions.value.some((suggestion) => suggestion.id === activeReferenceId.value)) {
+        activeReferenceId.value = referenceSuggestions.value[0]?.id ?? ''
+      }
+    } catch {
+      referenceError.value = 'Reference suggestions could not be loaded.'
+    }
+  }
+
+  async function generateReferenceSuggestion(provider = false) {
+    referenceError.value = ''
+    referenceStatus.value = ''
+    const projectId = ws().activeProject?.id
+    const authorProblem = referenceDraft.value.author_problem.trim()
+
+    if (!projectId) {
+      referenceError.value = 'Create or select a project first.'
+      return
+    }
+
+    if (!authorProblem) {
+      referenceError.value = 'Describe the writing problem before generating a reference.'
+      return
+    }
+
+    const loadingFlag = provider ? isGeneratingProviderReference : isGeneratingReference
+    loadingFlag.value = true
+    try {
+      const providerPath = provider ? '/provider' : ''
+      const response = await fetchApi(
+        `/projects/${projectId}/references/suggestions/generate${providerPath}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            suggestion_type: referenceDraft.value.suggestion_type,
+            scope_type: referenceDraft.value.scope_type,
+            scope_ref: referenceDraft.value.scope_ref.trim(),
+            author_problem: authorProblem,
+            desired_output: referenceDraft.value.desired_output.trim(),
+          }),
+        }
+      )
+      if (!response.ok) {
+        const detail = await readErrorDetail(response)
+        throw new Error(detail.message || 'Could not generate reference suggestion')
+      }
+      const created: ReferenceSuggestion = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      referenceSuggestions.value = [
+        created,
+        ...referenceSuggestions.value.filter((suggestion) => suggestion.id !== created.id),
+      ]
+      activeReferenceId.value = created.id
+      referenceStatus.value = provider
+        ? 'Provider reference created for review.'
+        : 'Reference created for review.'
+    } catch (error) {
+      referenceError.value =
+        error instanceof Error
+          ? `Reference generation failed. ${error.message}`
+          : 'Reference generation failed. Check that the API is running.'
+    } finally {
+      loadingFlag.value = false
+    }
+  }
+
+  async function updateReferenceStatus(
+    suggestionId: string,
+    status: ReferenceSuggestionStatus,
+  ) {
+    referenceError.value = ''
+    referenceStatus.value = ''
+    const projectId = ws().activeProject?.id
+
+    if (!projectId) {
+      referenceError.value = 'Create or select a project first.'
+      return
+    }
+
+    isUpdatingReference.value = true
+    try {
+      const response = await fetchApi(
+        `/projects/${projectId}/references/suggestions/${suggestionId}/status`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status }),
+        }
+      )
+      if (!response.ok) {
+        throw new Error('Could not update reference suggestion')
+      }
+      const updated: ReferenceSuggestion = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      referenceSuggestions.value = referenceSuggestions.value.map((suggestion) =>
+        suggestion.id === updated.id ? updated : suggestion
+      )
+      activeReferenceId.value = updated.id
+      referenceStatus.value =
+        status === 'accepted' ? 'Reference accepted.' : 'Reference rejected.'
+    } catch {
+      referenceError.value = 'Reference update failed. Check that the API is running.'
+    } finally {
+      isUpdatingReference.value = false
+    }
+  }
+
+  function referenceWarnings(suggestion: ReferenceSuggestion) {
+    return [
+      ...suggestion.canon_warnings,
+      ...suggestion.style_notes,
+      ...suggestion.graph_warnings,
+    ]
+  }
+
+  async function createWritebackFromRevision(revisionId: string, provider = false) {
+    writebackError.value = ''
+    writebackStatus.value = ''
+    const projectId = ws().activeProject?.id
+
+    if (!projectId) {
+      writebackError.value = 'Create or select a project first.'
+      return
+    }
+
+    const loadingFlag = provider ? isCreatingProviderWriteback : isCreatingWriteback
+    loadingFlag.value = true
+    try {
+      const providerPath = provider ? '/provider' : ''
+      const response = await fetchApi(
+        `/projects/${projectId}/writeback/proposals/from-revision/${revisionId}${providerPath}`,
+        { method: 'POST' }
+      )
+      if (!response.ok) {
+        const detail = await readErrorDetail(response)
+        throw new Error(detail.message || 'Could not create write-back proposals')
+      }
+      const created: WritebackProposal[] = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      writebackProposals.value = [
+        ...created,
+        ...writebackProposals.value.filter(
+          (proposal) => !created.some((item) => item.id === proposal.id)
+        ),
+      ]
+      activeWritebackId.value = created[0]?.id ?? activeWritebackId.value
+      writebackStatus.value = created.length
+        ? `${created.length} write-back proposal${created.length === 1 ? '' : 's'} created.`
+        : 'No write-back proposals were created.'
+    } catch (error) {
+      writebackError.value =
+        error instanceof Error
+          ? `Write-back generation failed. ${error.message}`
+          : 'Write-back generation failed. Check that the API is running.'
+    } finally {
+      loadingFlag.value = false
+    }
+  }
+
+  async function processRevisionWithHermes(revisionId: string) {
+    writebackError.value = ''
+    writebackStatus.value = ''
+    hermesProcessReport.value = null
+    const projectId = ws().activeProject?.id
+
+    if (!projectId) {
+      writebackError.value = 'Create or select a project first.'
+      return
+    }
+
+    isProcessingHermesRevision.value = true
+    try {
+      const response = await fetchApi(
+        `/projects/${projectId}/writeback/proposals/from-revision/${revisionId}/hermes`,
+        { method: 'POST' }
+      )
+      if (!response.ok) {
+        const detail = await readErrorDetail(response)
+        throw new Error(detail.message || 'Could not process revision with Hermes')
+      }
+      const result: HermesRevisionProcessResponse = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      const created = result.writeback_proposals
+      writebackProposals.value = [
+        ...created,
+        ...writebackProposals.value.filter(
+          (proposal) => !created.some((item) => item.id === proposal.id)
+        ),
+      ]
+      activeWritebackId.value = created[0]?.id ?? activeWritebackId.value
+      hermesProcessReport.value = result
+      writebackStatus.value = created.length
+        ? `Hermes processed the revision and returned ${created.length} proposal${created.length === 1 ? '' : 's'}.`
+        : 'Hermes processed the revision without write-back proposals.'
+    } catch (error) {
+      writebackError.value =
+        error instanceof Error
+          ? `Hermes processing failed. ${error.message}`
+          : 'Hermes processing failed. Check that the API is running.'
+    } finally {
+      isProcessingHermesRevision.value = false
+    }
+  }
+
+  async function runConsistencyCheck(revisionId: string, force = false) {
+    consistencyError.value = ''
+    consistencyStatus.value = ''
+    const projectId = ws().activeProject?.id
+
+    if (!projectId) {
+      consistencyError.value = 'Create or select a project first.'
+      return
+    }
+
+    isRunningConsistencyCheck.value = true
+    try {
+      const forceParam = force ? '?force=true' : ''
+      const response = await fetchApi(
+        `/projects/${projectId}/analysis/consistency/from-revision/${revisionId}${forceParam}`,
+        { method: 'POST' }
+      )
+      if (!response.ok) {
+        const detail = await readErrorDetail(response)
+        throw new Error(detail.message || 'Could not run the consistency check')
+      }
+      const report: ConsistencyReport = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      consistencyReport.value = report
+      consistencyRevisionId.value = revisionId
+      const { finding_count, critical_count, warning_count } = report.summary
+      if (finding_count === 0) {
+        consistencyStatus.value = 'Consistency check passed with no findings.'
+      } else {
+        consistencyStatus.value =
+          `${finding_count} finding${finding_count === 1 ? '' : 's'}` +
+          (critical_count ? `, ${critical_count} critical` : '') +
+          (warning_count ? `, ${warning_count} warning${warning_count === 1 ? '' : 's'}` : '') +
+          (report.cached ? ' (replayed cached run).' : '.')
+      }
+    } catch (error) {
+      consistencyError.value =
+        error instanceof Error
+          ? `Consistency check failed. ${error.message}`
+          : 'Consistency check failed. Check that the API is running.'
+    } finally {
+      isRunningConsistencyCheck.value = false
+    }
+  }
+
+  // ---- Post-acceptance analysis (P1-07): show job status, surface results ----
+
+  const POST_ACCEPT_JOB_TYPES: OutboxJobType[] = ['consistency_analysis', 'writeback_analysis']
+
+  function analysisJobLabel(jobType: OutboxJobType): string {
+    return jobType === 'consistency_analysis' ? 'Consistency report' : 'Write-back suggestions'
+  }
+
+  async function loadPostAcceptAnalysisJobs(projectId = ws().activeProject?.id) {
+    if (!projectId) {
+      postAcceptJobs.value = []
+      return
+    }
+
+    try {
+      const response = await fetchApi(`/projects/${projectId}/outbox-jobs`)
+      if (!response.ok) {
+        throw new Error('Could not load analysis jobs')
+      }
+      const jobs: OutboxJob[] = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      postAcceptJobs.value = jobs.filter((job) => POST_ACCEPT_JOB_TYPES.includes(job.job_type))
+    } catch {
+      if (isActiveProject(projectId)) {
+        postAcceptJobs.value = []
+      }
+    }
+  }
+
+  async function retryPostAcceptAnalysisJob(jobId: string) {
+    consistencyError.value = ''
+    consistencyStatus.value = ''
+    const projectId = ws().activeProject?.id
+
+    if (!projectId) {
+      consistencyError.value = 'Create or select a project first.'
+      return
+    }
+
+    try {
+      const response = await fetchApi(`/projects/${projectId}/outbox-jobs/${jobId}/retry`, {
+        method: 'POST',
+      })
+      if (!response.ok) {
+        const detail = await readErrorDetail(response)
+        throw new Error(detail.message || 'Could not retry the analysis job')
+      }
+      const retried: OutboxJob = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      postAcceptJobs.value = postAcceptJobs.value.map((job) =>
+        job.id === retried.id ? retried : job
+      )
+      consistencyStatus.value =
+        `${analysisJobLabel(retried.job_type)} re-run: ${retried.status.replace('_', ' ')}.`
+      if (retried.status === 'succeeded' && retried.job_type === 'consistency_analysis') {
+        await showLatestConsistencyReport(projectId, retried.aggregate_id)
+      }
+      if (retried.status === 'succeeded' && retried.job_type === 'writeback_analysis') {
+        await loadWritebackProposals(projectId)
+      }
+    } catch (error) {
+      consistencyError.value =
+        error instanceof Error
+          ? `Retry failed. ${error.message}`
+          : 'Retry failed. Check that the API is running.'
+    }
+  }
+
+  async function showLatestConsistencyReport(
+    projectId = ws().activeProject?.id,
+    revisionId?: string
+  ) {
+    if (!projectId) {
+      return
+    }
+    const revisions = useManuscriptStore().manuscriptRevisions
+    const revision = revisionId
+      ? revisions.find((item) => item.id === revisionId)
+      : revisions[0]
+    if (!revision) {
+      return
+    }
+
+    try {
+      const response = await fetchApi(
+        `/projects/${projectId}/analysis/consistency/from-revision/${revision.id}`
+      )
+      if (!response.ok) {
+        return
+      }
+      const report: ConsistencyReport = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      consistencyReport.value = report
+      consistencyRevisionId.value = revision.id
+    } catch {
+      // Advisory panel only; the manual Consistency action reports failures.
+    }
+  }
+
+  async function updateWritebackStatus(proposalId: string, status: WritebackProposalStatus) {
+    writebackError.value = ''
+    writebackStatus.value = ''
+    const projectId = ws().activeProject?.id
+
+    if (!projectId) {
+      writebackError.value = 'Create or select a project first.'
+      return
+    }
+
+    isUpdatingWriteback.value = true
+    try {
+      const response = await fetchApi(
+        `/projects/${projectId}/writeback/proposals/${proposalId}/status`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status }),
+        }
+      )
+      if (!response.ok) {
+        let detail = 'Could not update write-back proposal'
+        try {
+          const body = await response.json()
+          if (typeof body?.detail === 'string' && body.detail) {
+            detail = body.detail
+          }
+        } catch {
+          // keep the default message
+        }
+        throw new Error(detail)
+      }
+      const updated: WritebackProposal = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      writebackProposals.value = writebackProposals.value.map((proposal) =>
+        proposal.id === updated.id ? updated : proposal
+      )
+      activeWritebackId.value = updated.id
+      if (status === 'accepted') {
+        await Promise.all([
+          loadWritebackProposals(projectId),
+          useGraphStore().loadGraphAnalysis(projectId),
+          refreshCanonAndMemory(projectId),
+        ])
+        if (!isActiveProject(projectId)) {
+          return
+        }
+      }
+      writebackStatus.value =
+        status === 'accepted'
+          ? 'Write-back accepted and applied.'
+          : status === 'superseded'
+            ? 'Write-back marked as superseded.'
+            : 'Write-back rejected.'
+    } catch (error) {
+      writebackError.value =
+        error instanceof Error
+          ? `Write-back update failed. ${error.message}`
+          : 'Write-back update failed. Check for duplicate Canon names or invalid payloads.'
+    } finally {
+      isUpdatingWriteback.value = false
+    }
+  }
+
+  /** Re-read canon entities and memory records after an applied write-back. */
+  async function refreshCanonAndMemory(projectId = ws().activeProject?.id) {
+    if (!projectId) {
+      return
+    }
+    const [canonResponse, memoryResponse] = await Promise.all([
+      fetchApi(`/projects/${projectId}/canon/entities`),
+      fetchApi(`/projects/${projectId}/memory/records`),
+    ])
+    if (!canonResponse.ok || !memoryResponse.ok) {
+      throw new Error('Could not refresh Canon and Memory')
+    }
+    const [canon, memory] = await Promise.all([
+      canonResponse.json(),
+      memoryResponse.json(),
+    ])
+    if (!isActiveProject(projectId)) {
+      return
+    }
+    useCanonStore().canonEntities = canon
+    useMemoryStore().memoryRecords = memory
+  }
+
+  /** Drop project-scoped state before the workspace loads another project. */
+  function resetProjectState() {
+    writebackProposals.value = []
+    activeWritebackId.value = ''
+    writebackError.value = ''
+    writebackStatus.value = ''
+    hermesProcessReport.value = null
+    referenceSuggestions.value = []
+    activeReferenceId.value = ''
+    referenceDraft.value = createEmptyReferenceDraft()
+    referenceError.value = ''
+    referenceStatus.value = ''
+    consistencyReport.value = null
+    consistencyRevisionId.value = ''
+    consistencyError.value = ''
+    consistencyStatus.value = ''
+    postAcceptJobs.value = []
+  }
+
+  function draftSnapshotEntries(): Array<[string, () => unknown]> {
+    return [[referenceScopeKey(), () => referenceDraft.value]]
+  }
+
+  return {
+    writebackProposals,
+    activeWritebackId,
+    writebackError,
+    writebackStatus,
+    isCreatingWriteback,
+    isCreatingProviderWriteback,
+    isUpdatingWriteback,
+    isProcessingHermesRevision,
+    hermesProcessReport,
+    referenceSuggestions,
+    activeReferenceId,
+    referenceDraft,
+    referenceError,
+    referenceStatus,
+    isGeneratingReference,
+    isGeneratingProviderReference,
+    isUpdatingReference,
+    consistencyReport,
+    consistencyRevisionId,
+    consistencyError,
+    consistencyStatus,
+    isRunningConsistencyCheck,
+    postAcceptJobs,
+    activeWritebackProposal,
+    pendingWritebackCount,
+    activeReferenceSuggestion,
+    pendingReferenceCount,
+    createEmptyReferenceDraft,
+    referenceScopeKey,
+    loadWritebackProposals,
+    loadReferenceSuggestions,
+    generateReferenceSuggestion,
+    updateReferenceStatus,
+    referenceWarnings,
+    createWritebackFromRevision,
+    processRevisionWithHermes,
+    runConsistencyCheck,
+    analysisJobLabel,
+    loadPostAcceptAnalysisJobs,
+    retryPostAcceptAnalysisJob,
+    showLatestConsistencyReport,
+    updateWritebackStatus,
+    resetProjectState,
+    draftSnapshotEntries,
+  }
+})

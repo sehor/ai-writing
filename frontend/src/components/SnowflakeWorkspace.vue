@@ -2,23 +2,26 @@
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useSnowflakeStore } from '../stores/snowflake'
+import { useProjectsStore } from '../stores/projects'
 
-const store = useWorkspaceStore()
+const workspace = useWorkspaceStore()
+const snowflake = useSnowflakeStore()
+const projectsStore = useProjectsStore()
+const {
+  activeStepNumber,
+  activeStep,
+  activeProject
+} = storeToRefs(workspace)
 const {
   steps,
   artifacts,
-  activeStepNumber,
-  isCreating,
   isSavingArtifact,
   isGeneratingArtifact,
   isCompilingArtifact,
-  createError,
   artifactError,
   artifactDraft,
   workflowTrace,
-  newProject,
-  activeProject,
-  activeStep,
   hasUnsavedArtifactChanges,
   artifactStateLabel,
   sceneProposals,
@@ -27,17 +30,26 @@ const {
   selectedSceneProposalIds,
   sceneProposalError,
   sceneProposalStatus
-} = storeToRefs(store)
+} = storeToRefs(snowflake)
 const {
-  createProject,
-  selectStep,
+  newProject,
+  isCreating,
+  createError
+} = storeToRefs(projectsStore)
+const {
+  createProject
+} = projectsStore
+const {
   saveArtifact,
   generateArtifact,
   compileStepArtifact,
   toggleSceneProposalSelection,
   acceptSceneProposalBatch,
   rejectSceneProposal
-} = store
+} = snowflake
+const {
+  selectStep
+} = workspace
 
 const compilerStep = computed(() => {
   const number = activeStep.value?.number ?? 0

@@ -262,6 +262,25 @@ export type WritebackProposal = {
   applied_record_id: string
 }
 
+// P1-07: outbox jobs surfaced in the UI (post-acceptance analysis status).
+export type OutboxJobType = 'llm_wiki_ingest' | 'consistency_analysis' | 'writeback_analysis'
+
+export type OutboxJobStatus = 'pending' | 'processing' | 'succeeded' | 'failed'
+
+export type OutboxJob = {
+  id: string
+  project_id: string
+  job_type: OutboxJobType
+  aggregate_type: string
+  aggregate_id: string
+  payload: Record<string, unknown>
+  status: OutboxJobStatus
+  attempt_count: number
+  last_error: string
+  created_at: string
+  completed_at: string
+}
+
 export type FindingSeverity = 'info' | 'warning' | 'critical'
 
 export type ConsistencyFinding = {

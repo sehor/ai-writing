@@ -10,9 +10,9 @@ import MemoryWorkspace from './components/MemoryWorkspace.vue'
 import GraphWorkspace from './components/GraphWorkspace.vue'
 import ManuscriptWorkspace from './components/ManuscriptWorkspace.vue'
 
-const store = useWorkspaceStore()
-const { activeSection, activeProject, apiStatus, workflowRuntime, runtimeLabel, runtimeTitle } = storeToRefs(store)
-const { loadInitialData } = store
+const workspace = useWorkspaceStore()
+const { activeSection, activeProject, apiStatus, workflowRuntime, runtimeLabel, runtimeTitle } = storeToRefs(workspace)
+const { loadInitialData } = workspace
 
 onMounted(() => {
   loadInitialData()

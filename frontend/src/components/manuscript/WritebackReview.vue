@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
-import { useWorkspaceStore } from '../../stores/workspace'
+import { statusText } from '../../utils/format'
+import { useCanonStore } from '../../stores/canon'
+import { useManuscriptStore } from '../../stores/manuscript'
+import { useReviewsStore } from '../../stores/reviews'
 import type { CanonEntity, ManuscriptRevision, WritebackFieldChange } from '../../types'
 
-const store = useWorkspaceStore()
+const store = useReviewsStore()
 const {
   writebackProposals,
   hermesProcessReport,
@@ -14,10 +17,10 @@ const {
   writebackStatus,
   activeWritebackProposal,
   pendingWritebackCount,
-  canonEntities,
-  manuscriptRevisions,
 } = storeToRefs(store)
-const { loadWritebackProposals, updateWritebackStatus, statusText } = store
+const { canonEntities } = storeToRefs(useCanonStore())
+const { manuscriptRevisions } = storeToRefs(useManuscriptStore())
+const { loadWritebackProposals, updateWritebackStatus } = store
 
 const FIELD_LABELS: Record<string, string> = {
   entity_type: 'Entity type',

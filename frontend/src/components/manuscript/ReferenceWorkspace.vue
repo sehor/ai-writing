@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import { useWorkspaceStore } from '../../stores/workspace'
+import { statusText } from '../../utils/format'
+import { useReviewsStore } from '../../stores/reviews'
 
-const store = useWorkspaceStore()
+const store = useReviewsStore()
 const {
   referenceSuggestions,
   activeReferenceId,
@@ -19,8 +20,7 @@ const {
   loadReferenceSuggestions,
   generateReferenceSuggestion,
   updateReferenceStatus,
-  referenceWarnings,
-  statusText,
+  referenceWarnings
 } = store
 </script>
 

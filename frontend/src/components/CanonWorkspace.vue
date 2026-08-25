@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
-import { useWorkspaceStore } from '../stores/workspace'
+import { useCanonStore } from '../stores/canon'
 
-const store = useWorkspaceStore()
+const store = useCanonStore()
 const {
   canonEntities,
   activeCanonId,
