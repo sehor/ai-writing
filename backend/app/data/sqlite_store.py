@@ -4,6 +4,7 @@ from app.data.mixins.projects import ProjectsDataMixin
 from app.data.mixins.artifacts import ArtifactsDataMixin
 from app.data.mixins.canon import CanonDataMixin
 from app.data.mixins.scenes import ScenesDataMixin
+from app.data.mixins.scene_proposals import SceneProposalsDataMixin
 from app.data.mixins.manuscript import ManuscriptDataMixin
 from app.data.mixins.memory import MemoryDataMixin
 from app.data.mixins.wiki import WikiDataMixin
@@ -16,6 +17,7 @@ class SQLiteWritingDataStore(
     ArtifactsDataMixin,
     CanonDataMixin,
     ScenesDataMixin,
+    SceneProposalsDataMixin,
     ManuscriptDataMixin,
     MemoryDataMixin,
     WikiDataMixin,

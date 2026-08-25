@@ -9,6 +9,12 @@ from app.agents import (
     create_deepseek_workflow,
 )
 from app.data import WritingDataStore, get_data_store
+from app.data.mixins.scene_proposals import (
+    SceneChapterMissingError,
+    SceneProposalNotFoundError,
+    SceneProposalReviewedError,
+    SceneSequenceConflictError,
+)
 from app.dependencies import require_project
 from app.llm_wiki.dependencies import get_llm_wiki
 from app.llm_wiki.interfaces import LlmWiki, WikiSourceDocument
@@ -16,6 +22,12 @@ from app.outbox.handlers import snowflake_index_payload
 from app.outbox.http import apply_wiki_index_headers
 from app.outbox.service import OutboxService, get_outbox_service
 from app.models import (
+    CanonExtractionReport,
+    SceneParseReport,
+    SceneProposal,
+    SceneProposalAcceptanceReport,
+    SceneProposalAcceptRequest,
+    SceneProposalStatusUpdate,
     SnowflakeArtifact,
     SnowflakeArtifactUpdate,
     SnowflakeGenerationRequest,
@@ -23,6 +35,8 @@ from app.models import (
     SnowflakeStep,
     WorkflowRuntimeStatus,
 )
+from app.services.snowflake_compile_service import SnowflakeCompileService
+from app.snowflake_compiler import CANON_EXTRACT_STEP, SCENE_PARSE_STEP, ArtifactNotParseableError
 
 
 router = APIRouter(tags=["snowflake"])
@@ -261,3 +275,172 @@ def generate_snowflake_artifact(
 def snowflake_wiki_document(artifact: SnowflakeArtifact) -> WikiSourceDocument:
     """Kept for compatibility; the mapping now lives in app.outbox.handlers."""
     return WikiSourceDocument.model_validate(snowflake_index_payload(artifact))
+
+
+# ---------------------------------------------------------------------------
+# Structured compiler (P1-05): artifacts -> reviewable proposals
+# ---------------------------------------------------------------------------
+
+
+def get_snowflake_compile_service(
+    data_store: WritingDataStore = Depends(get_data_store),
+) -> SnowflakeCompileService:
+    return SnowflakeCompileService(data_store)
+
+
+def unprocessable_artifact(exc: ValueError) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail=str(exc),
+    )
+
+
+@router.post(
+    ("/projects/{project_id}/snowflake/artifacts/{step_number}/compile-canon-proposals"),
+    response_model=CanonExtractionReport,
+    status_code=status.HTTP_201_CREATED,
+)
+def compile_canon_proposals_from_artifact(
+    project_id: str,
+    step_number: int,
+    force: bool = False,
+    data_store: WritingDataStore = Depends(get_data_store),
+    service: SnowflakeCompileService = Depends(get_snowflake_compile_service),
+) -> CanonExtractionReport:
+    """Step 7 artifact -> Canon create / update write-back proposals."""
+    require_project(project_id, data_store)
+    if step_number != CANON_EXTRACT_STEP:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Canon extraction compiles Snowflake step 7 artifacts; "
+                f"step {step_number} is not compilable into Canon proposals."
+            ),
+        )
+    try:
+        return service.extract_canon_proposals(project_id, step_number, force=force)
+    except ArtifactNotParseableError as exc:
+        raise unprocessable_artifact(exc) from exc
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.post(
+    ("/projects/{project_id}/snowflake/artifacts/{step_number}/parse-scene-proposals"),
+    response_model=SceneParseReport,
+    status_code=status.HTTP_201_CREATED,
+)
+def parse_scene_proposals_from_artifact(
+    project_id: str,
+    step_number: int,
+    force: bool = False,
+    data_store: WritingDataStore = Depends(get_data_store),
+    service: SnowflakeCompileService = Depends(get_snowflake_compile_service),
+) -> SceneParseReport:
+    """Step 8 artifact -> structured Scene Contract proposals."""
+    require_project(project_id, data_store)
+    if step_number != SCENE_PARSE_STEP:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail=(
+                "Scene parsing compiles Snowflake step 8 artifacts; "
+                f"step {step_number} is not compilable into scene proposals."
+            ),
+        )
+    try:
+        return service.parse_scene_proposals(project_id, step_number, force=force)
+    except ArtifactNotParseableError as exc:
+        raise unprocessable_artifact(exc) from exc
+    except LookupError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+
+@router.get(
+    "/projects/{project_id}/snowflake/scene-proposals",
+    response_model=list[SceneProposal],
+)
+def list_scene_proposals(
+    project_id: str,
+    data_store: WritingDataStore = Depends(get_data_store),
+    service: SnowflakeCompileService = Depends(get_snowflake_compile_service),
+) -> list[SceneProposal]:
+    require_project(project_id, data_store)
+    return service.list_scene_proposals(project_id)
+
+
+@router.put(
+    "/projects/{project_id}/snowflake/scene-proposals/{proposal_id}/status",
+    response_model=SceneProposal,
+)
+def update_scene_proposal_status(
+    project_id: str,
+    proposal_id: str,
+    update: SceneProposalStatusUpdate,
+    data_store: WritingDataStore = Depends(get_data_store),
+    service: SnowflakeCompileService = Depends(get_snowflake_compile_service),
+) -> SceneProposal:
+    require_project(project_id, data_store)
+    try:
+        proposal = service.update_scene_proposal_status(project_id, proposal_id, update.status)
+    except ValueError as exc:
+        # Illegal review transitions share the unified 409 semantics.
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    if proposal is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Scene proposal not found.",
+        )
+    return proposal
+
+
+@router.post(
+    "/projects/{project_id}/snowflake/scene-proposals/accept",
+    response_model=SceneProposalAcceptanceReport,
+)
+def accept_scene_proposals(
+    project_id: str,
+    request: SceneProposalAcceptRequest | None = None,
+    data_store: WritingDataStore = Depends(get_data_store),
+    service: SnowflakeCompileService = Depends(get_snowflake_compile_service),
+) -> SceneProposalAcceptanceReport:
+    """Batch-accept parsed scene proposals into scene contracts.
+
+    Empty proposal_ids accepts every pending proposal. The whole batch is
+    created in one transaction; a single conflict rolls everything back.
+    """
+    require_project(project_id, data_store)
+    requested_ids = request.proposal_ids if request is not None else []
+    if not requested_ids:
+        requested_ids = [
+            proposal.id
+            for proposal in service.list_scene_proposals(project_id)
+            if proposal.status == "pending_review"
+        ]
+    try:
+        scenes, proposals = service.accept_scene_proposals(project_id, requested_ids)
+    except SceneProposalNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+    except SceneChapterMissingError as exc:
+        raise unprocessable_artifact(exc) from exc
+    except (SceneProposalReviewedError, SceneSequenceConflictError) as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=str(exc),
+        ) from exc
+    return SceneProposalAcceptanceReport(
+        project_id=project_id,
+        scenes=scenes,
+        proposals=proposals,
+    )

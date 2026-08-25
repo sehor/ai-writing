@@ -24,6 +24,9 @@ from app.models import (
     SceneContract,
     SceneContractCreate,
     SceneContractUpdate,
+    SceneProposal,
+    SceneProposalCreate,
+    SceneProposalStatus,
     SnowflakeArtifact,
     WritebackProposal,
     WritebackProposalCreate,
@@ -229,4 +232,38 @@ class WritingDataStore(Protocol):
         suggestion_id: str,
         suggestion_status: ReferenceSuggestionStatus,
     ) -> ReferenceSuggestion | None:
+        pass
+
+    def list_scene_proposals(
+        self, project_id: str, status: str | None = None
+    ) -> list[SceneProposal]:
+        pass
+
+    def get_scene_proposal(
+        self,
+        project_id: str,
+        proposal_id: str,
+        connection: object | None = None,
+    ) -> SceneProposal | None:
+        pass
+
+    def create_scene_proposals(
+        self,
+        project_id: str,
+        proposals: list[SceneProposalCreate],
+        connection: object | None = None,
+    ) -> list[SceneProposal]:
+        pass
+
+    def update_scene_proposal_status(
+        self,
+        project_id: str,
+        proposal_id: str,
+        proposal_status: SceneProposalStatus,
+    ) -> SceneProposal | None:
+        pass
+
+    def accept_scene_proposals(
+        self, project_id: str, proposal_ids: list[str]
+    ) -> tuple[list[SceneContract], list[SceneProposal]]:
         pass

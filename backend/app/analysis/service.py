@@ -77,12 +77,18 @@ class AnalysisService:
         fingerprint: dict,
         generate: Callable[[], list],
         force: bool = False,
+        extra_result: dict | None = None,
+        supersede_all_pending_for_source: bool = False,
     ) -> WritebackAnalysisOutcome:
         """Generate write-back proposals at most once per exact input.
 
-        ``generate`` must return ``WritebackProposalCreate`` items and may
-        raise; failures are recorded on the run row and retried on the
-        next request.
+        The 'generate' callable must return WritebackProposalCreate items
+        and may raise; failures are recorded on the run row and retried on
+        the next request. 'extra_result' is merged into the stored result
+        so callers (P1-05 canon extraction) can persist parse warnings.
+        'supersede_all_pending_for_source' extends a forced re-run to every
+        still-pending proposal of the same source_ref, not only those of
+        the previous run with identical input.
         """
         input_hash = compute_input_hash(fingerprint)
         if not force:
@@ -114,9 +120,18 @@ class AnalysisService:
                 )
                 if prior is not None and prior.status == "succeeded":
                     self._supersede_prior_proposals(connection, prior)
+                if supersede_all_pending_for_source:
+                    self.data_store.supersede_pending_writebacks_for_source(
+                        connection,
+                        project_id=project_id,
+                        source_ref=source_ref,
+                    )
             created = self.data_store.create_writeback_proposals(
                 project_id, candidates, connection=connection
             )
+            result_json = {"proposal_ids": [proposal.id for proposal in created]}
+            if extra_result:
+                result_json.update(extra_result)
             run = self.data_store.record_analysis_run(
                 connection,
                 project_id=project_id,
@@ -124,7 +139,7 @@ class AnalysisService:
                 processor=processor,
                 input_hash=input_hash,
                 status="succeeded",
-                result_json={"proposal_ids": [proposal.id for proposal in created]},
+                result_json=result_json,
             )
         return WritebackAnalysisOutcome(proposals=created, run=run, cached=False)
 

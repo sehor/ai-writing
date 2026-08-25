@@ -493,3 +493,106 @@ class GraphAnalysisResponse(BaseModel):
     nodes: list[GraphNode] = Field(default_factory=list)
     edges: list[GraphEdge] = Field(default_factory=list)
     risks: list[GraphRisk] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# Structured Snowflake compiler (P1-05)
+# ---------------------------------------------------------------------------
+
+
+SceneProposalStatus = ManuscriptProposalStatus
+
+
+class SceneProposalCreate(BaseModel):
+    """A parsed Step 8 scene awaiting batch review."""
+
+    sequence: int = Field(ge=1, le=999)
+    chapter_id: str = Field(default="", max_length=160)
+    chapter_hint: str = Field(default="", max_length=160)
+    title: str = Field(min_length=1, max_length=160)
+    pov: str = Field(default="", max_length=120)
+    goal: str = Field(default="", max_length=1000)
+    conflict: str = Field(default="", max_length=1000)
+    turning_point: str = Field(default="", max_length=1000)
+    required_canon_ids: str = Field(default="", max_length=2000)
+    required_canon_raw: str = Field(default="", max_length=4000)
+    forbidden_fact_refs: str = Field(default="", max_length=4000)
+    open_threads: str = Field(default="", max_length=4000)
+    source_ref: str = Field(default="", max_length=160)
+    source_excerpt: str = Field(default="", max_length=2000)
+    warnings: list[str] = Field(default_factory=list)
+
+    @field_validator(
+        "chapter_id",
+        "chapter_hint",
+        "title",
+        "pov",
+        "goal",
+        "conflict",
+        "turning_point",
+        "required_canon_ids",
+        "required_canon_raw",
+        "forbidden_fact_refs",
+        "open_threads",
+        "source_ref",
+    )
+    @classmethod
+    def normalize_scene_proposal_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class SceneProposal(SceneProposalCreate):
+    id: str
+    project_id: str
+    status: SceneProposalStatus = "pending_review"
+    applied_scene_id: str = ""
+    created_at: str
+    reviewed_at: str = ""
+
+
+class SceneProposalStatusUpdate(BaseModel):
+    status: SceneProposalStatus
+
+
+class SceneProposalAcceptRequest(BaseModel):
+    """Empty proposal_ids accepts every pending proposal for the project."""
+
+    proposal_ids: list[str] = Field(default_factory=list)
+
+
+class CompileRunInfo(BaseModel):
+    run_id: str
+    run_version: int
+    cached: bool
+
+
+class CanonExtractionReport(BaseModel):
+    """Step 7 artifact compiled into Canon create / update proposals."""
+
+    project_id: str
+    step_number: int
+    processor: str
+    cached: bool
+    run_id: str
+    run_version: int
+    warnings: list[str] = Field(default_factory=list)
+    proposals: list[WritebackProposal] = Field(default_factory=list)
+
+
+class SceneParseReport(BaseModel):
+    """Step 8 artifact parsed into reviewable Scene Contract proposals."""
+
+    project_id: str
+    step_number: int
+    processor: str
+    cached: bool
+    run_id: str
+    run_version: int
+    warnings: list[str] = Field(default_factory=list)
+    proposals: list[SceneProposal] = Field(default_factory=list)
+
+
+class SceneProposalAcceptanceReport(BaseModel):
+    project_id: str
+    scenes: list[SceneContract] = Field(default_factory=list)
+    proposals: list[SceneProposal] = Field(default_factory=list)

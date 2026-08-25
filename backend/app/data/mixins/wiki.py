@@ -237,6 +237,27 @@ class WikiDataMixin:
         )
         return cursor.rowcount
 
+    def supersede_pending_writebacks_for_source(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        project_id: str,
+        source_ref: str,
+    ) -> int:
+        """Force re-run (P1-05): all pending proposals of one source go stale."""
+        cursor = connection.execute(
+            """
+            UPDATE writeback_proposals
+            SET status = 'superseded',
+                reviewed_at = ?
+            WHERE project_id = ?
+              AND source_ref = ?
+              AND status = 'pending_review'
+            """,
+            (utc_now(), project_id, source_ref),
+        )
+        return cursor.rowcount
+
     def update_writeback_proposal_status(
         self,
         project_id: str,

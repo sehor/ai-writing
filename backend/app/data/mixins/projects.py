@@ -219,6 +219,32 @@ class ProjectsDataMixin:
                     FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
                 );
                 CREATE INDEX IF NOT EXISTS idx_analysis_runs_project_id ON analysis_runs(project_id);
+
+                CREATE TABLE IF NOT EXISTS scene_proposals (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    sequence INTEGER NOT NULL,
+                    chapter_id TEXT NOT NULL DEFAULT '',
+                    chapter_hint TEXT NOT NULL DEFAULT '',
+                    title TEXT NOT NULL,
+                    pov TEXT NOT NULL DEFAULT '',
+                    goal TEXT NOT NULL DEFAULT '',
+                    conflict TEXT NOT NULL DEFAULT '',
+                    turning_point TEXT NOT NULL DEFAULT '',
+                    required_canon_ids TEXT NOT NULL DEFAULT '',
+                    required_canon_raw TEXT NOT NULL DEFAULT '',
+                    forbidden_fact_refs TEXT NOT NULL DEFAULT '',
+                    open_threads TEXT NOT NULL DEFAULT '',
+                    source_ref TEXT NOT NULL DEFAULT '',
+                    source_excerpt TEXT NOT NULL DEFAULT '',
+                    warnings_json TEXT NOT NULL DEFAULT '[]',
+                    status TEXT NOT NULL,
+                    applied_scene_id TEXT NOT NULL DEFAULT '',
+                    created_at TEXT NOT NULL,
+                    reviewed_at TEXT NOT NULL DEFAULT '',
+                    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+                );
+                CREATE INDEX IF NOT EXISTS idx_scene_proposals_project_id ON scene_proposals(project_id);
                 """
             )
             ensure_column(

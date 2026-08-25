@@ -39,7 +39,11 @@ import type {
   ConsistencyReport,
   GraphAnalysisResponse,
   WorkflowRuntimeStatus,
-  ActiveSection
+  ActiveSection,
+  CanonExtractionReport,
+  SceneParseReport,
+  SceneProposal,
+  SceneProposalAcceptanceReport
 } from "../types"
 
 type ApiStatus = 'checking' | 'ok' | 'offline'
@@ -57,6 +61,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const manuscriptRevisions = ref<ManuscriptRevision[]>([])
   const writebackProposals = ref<WritebackProposal[]>([])
   const referenceSuggestions = ref<ReferenceSuggestion[]>([])
+  const sceneProposals = ref<SceneProposal[]>([])
+  const canonExtractionReport = ref<CanonExtractionReport | null>(null)
+  const sceneParseReport = ref<SceneParseReport | null>(null)
+  const selectedSceneProposalIds = ref<string[]>([])
   const hermesProcessReport = ref<HermesRevisionProcessResponse | null>(null)
   const consistencyReport = ref<ConsistencyReport | null>(null)
   const consistencyRevisionId = ref('')
@@ -100,6 +108,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const isProcessingHermesRevision = ref(false)
   const isRunningConsistencyCheck = ref(false)
   const isUpdatingWriteback = ref(false)
+  const isCompilingArtifact = ref(false)
   const isGeneratingReference = ref(false)
   const isGeneratingProviderReference = ref(false)
   const isUpdatingReference = ref(false)
@@ -123,6 +132,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const consistencyStatus = ref('')
   const referenceError = ref('')
   const referenceStatus = ref('')
+  const sceneProposalError = ref('')
+  const sceneProposalStatus = ref('')
   const artifactDraft = ref('')
   const workflowTrace = ref<WorkflowAgentTrace[]>([])
   const manuscriptEditTitle = ref('')
@@ -579,6 +590,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     manuscriptRevisions.value = []
     writebackProposals.value = []
     referenceSuggestions.value = []
+    sceneProposals.value = []
+    canonExtractionReport.value = null
+    sceneParseReport.value = null
+    selectedSceneProposalIds.value = []
+    sceneProposalError.value = ''
+    sceneProposalStatus.value = ''
     hermesProcessReport.value = null
     consistencyReport.value = null
     consistencyRevisionId.value = ''
@@ -1324,6 +1341,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
   
+
   async function readErrorDetail(response: Response): Promise<{
     message?: string
     workflow_trace?: WorkflowAgentTrace[]
@@ -1336,6 +1354,221 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       return payload.detail ?? {}
     } catch {
       return {}
+    }
+  }
+
+  // ---- Structured Snowflake compiler (P1-05): Step 7/8 -> proposals ----
+
+  async function loadSceneProposals(projectId = activeProject.value?.id) {
+    sceneProposalError.value = ''
+    if (!projectId) {
+      sceneProposals.value = []
+      return
+    }
+
+    try {
+      const response = await fetch(`/api/projects/${projectId}/snowflake/scene-proposals`)
+      if (!response.ok) {
+        throw new Error('Could not load scene proposals')
+      }
+      const loaded = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      sceneProposals.value = loaded
+      selectedSceneProposalIds.value = loaded
+        .filter((proposal: SceneProposal) => proposal.status === 'pending_review')
+        .map((proposal: SceneProposal) => proposal.id)
+    } catch {
+      if (isActiveProject(projectId)) {
+        sceneProposalError.value = 'Scene proposals could not be loaded.'
+      }
+    }
+  }
+
+  async function compileStepArtifact() {
+    artifactError.value = ''
+    artifactStatus.value = ''
+    sceneProposalError.value = ''
+    sceneProposalStatus.value = ''
+    const projectId = activeProject.value?.id
+    const step = activeStepNumber.value
+
+    if (!projectId || !activeStep.value) {
+      sceneProposalError.value = 'Create or select a project first.'
+      return
+    }
+    if (step !== 7 && step !== 8) {
+      return
+    }
+
+    isCompilingArtifact.value = true
+    try {
+      const action = step === 7 ? 'compile-canon-proposals' : 'parse-scene-proposals'
+      const response = await fetch(
+        `/api/projects/${projectId}/snowflake/artifacts/${step}/${action}`,
+        { method: 'POST' }
+      )
+      if (!response.ok) {
+        const detail = await readErrorDetail(response)
+        throw new Error(detail.message || 'Compile failed')
+      }
+      if (!isActiveProject(projectId)) {
+        return
+      }
+
+      if (step === 7) {
+        const report: CanonExtractionReport = await response.json()
+        canonExtractionReport.value = report
+        await loadWritebackProposals(projectId)
+        const updateCount = report.proposals.filter(
+          (proposal) => proposal.action === 'update'
+        ).length
+        const cachedNote = report.cached ? `Cached run v${report.run_version}. ` : ''
+        sceneProposalStatus.value =
+          cachedNote +
+          `Extracted ${report.proposals.length} Canon proposal(s) ` +
+          `(${report.proposals.length - updateCount} create, ${updateCount} update). ` +
+          'Review them in Manuscript > Write-backs before anything touches Canon.'
+      } else {
+        const report: SceneParseReport = await response.json()
+        sceneParseReport.value = report
+        sceneProposals.value = report.proposals
+        selectedSceneProposalIds.value = report.proposals
+          .filter((proposal) => proposal.status === 'pending_review')
+          .map((proposal) => proposal.id)
+        const warningCount = report.warnings.length
+        const cachedNote = report.cached ? `Cached run v${report.run_version}. ` : ''
+        sceneProposalStatus.value =
+          cachedNote +
+          `Parsed ${report.proposals.length} scene proposal(s)` +
+          (warningCount > 0 ? `, ${warningCount} parse warning(s).` : '.')
+      }
+    } catch (error) {
+      sceneProposalError.value =
+        error instanceof Error
+          ? `Compile failed. ${error.message}`
+          : 'Compile failed. Check that the API is running.'
+    } finally {
+      isCompilingArtifact.value = false
+    }
+  }
+
+  function toggleSceneProposalSelection(proposalId: string) {
+    const current = selectedSceneProposalIds.value
+    selectedSceneProposalIds.value = current.includes(proposalId)
+      ? current.filter((id) => id !== proposalId)
+      : [...current, proposalId]
+  }
+
+  async function refreshSceneContracts(projectId: string) {
+    const response = await fetch(`/api/projects/${projectId}/scene-contracts`)
+    if (!response.ok) {
+      return
+    }
+    const contracts = await response.json()
+    if (!isActiveProject(projectId)) {
+      return
+    }
+    sceneContracts.value = [...contracts].sort(
+      (left, right) => left.sequence - right.sequence
+    )
+  }
+
+  async function acceptSceneProposalBatch(acceptAll: boolean) {
+    sceneProposalError.value = ''
+    sceneProposalStatus.value = ''
+    const projectId = activeProject.value?.id
+    if (!projectId) {
+      sceneProposalError.value = 'Create or select a project first.'
+      return
+    }
+
+    const ids = acceptAll
+      ? []
+      : sceneProposals.value
+          .filter(
+            (proposal) =>
+              proposal.status === 'pending_review' &&
+              selectedSceneProposalIds.value.includes(proposal.id)
+          )
+          .map((proposal) => proposal.id)
+    if (!acceptAll && ids.length === 0) {
+      sceneProposalError.value = 'Select at least one pending scene proposal.'
+      return
+    }
+
+    isCompilingArtifact.value = true
+    try {
+      const response = await fetch(
+        `/api/projects/${projectId}/snowflake/scene-proposals/accept`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ proposal_ids: ids }),
+        }
+      )
+      if (!response.ok) {
+        const detail = await readErrorDetail(response)
+        throw new Error(detail.message || 'Batch acceptance failed')
+      }
+      const report: SceneProposalAcceptanceReport = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      await loadSceneProposals(projectId)
+      await refreshSceneContracts(projectId)
+      sceneProposalStatus.value = `Created ${report.scenes.length} scene contract(s) from parsed proposals.`
+      await loadGraphAnalysis(projectId)
+    } catch (error) {
+      sceneProposalError.value =
+        error instanceof Error
+          ? error.message
+          : 'Batch acceptance failed. Check that the API is running.'
+    } finally {
+      isCompilingArtifact.value = false
+    }
+  }
+
+  async function rejectSceneProposal(proposalId: string) {
+    sceneProposalError.value = ''
+    sceneProposalStatus.value = ''
+    const projectId = activeProject.value?.id
+    if (!projectId) {
+      sceneProposalError.value = 'Create or select a project first.'
+      return
+    }
+
+    isCompilingArtifact.value = true
+    try {
+      const response = await fetch(
+        `/api/projects/${projectId}/snowflake/scene-proposals/${proposalId}/status`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ status: 'rejected' }),
+        }
+      )
+      if (!response.ok) {
+        const detail = await readErrorDetail(response)
+        throw new Error(detail.message || 'Could not reject the proposal')
+      }
+      const updated: SceneProposal = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      sceneProposals.value = sceneProposals.value.map((proposal) =>
+        proposal.id === updated.id ? updated : proposal
+      )
+      selectedSceneProposalIds.value = selectedSceneProposalIds.value.filter(
+        (id) => id !== proposalId
+      )
+      sceneProposalStatus.value = `Scene proposal ${updated.sequence} rejected.`
+    } catch (error) {
+      sceneProposalError.value =
+        error instanceof Error ? error.message : 'Reject failed. Check that the API is running.'
+    } finally {
+      isCompilingArtifact.value = false
     }
   }
   
@@ -2393,6 +2626,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     manuscriptRevisions,
     writebackProposals,
     referenceSuggestions,
+    sceneProposals,
+    canonExtractionReport,
+    sceneParseReport,
+    selectedSceneProposalIds,
     hermesProcessReport,
     activeProjectId,
     activeStepNumber,
@@ -2434,6 +2671,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     isProcessingHermesRevision,
     isRunningConsistencyCheck,
     isUpdatingWriteback,
+    isCompilingArtifact,
     isGeneratingReference,
     isGeneratingProviderReference,
     isUpdatingReference,
@@ -2457,6 +2695,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     consistencyStatus,
     referenceError,
     referenceStatus,
+    sceneProposalError,
+    sceneProposalStatus,
     artifactDraft,
     workflowTrace,
     manuscriptEditTitle,
@@ -2513,6 +2753,11 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     loadManuscriptRevisions,
     loadWritebackProposals,
     loadReferenceSuggestions,
+    loadSceneProposals,
+    compileStepArtifact,
+    toggleSceneProposalSelection,
+    acceptSceneProposalBatch,
+    rejectSceneProposal,
     syncRevisionCompareSelection,
     startNewCanonEntity,
     startNewChapter,

@@ -62,47 +62,68 @@ class ScenesDataMixin:
             ).fetchall()
         return [scene_contract_from_row(row) for row in rows]
 
-    def get_scene_contract(self, project_id: str, scene_id: str) -> SceneContract | None:
-        with self.connect() as connection:
-            row = connection.execute(
-                """
-                SELECT id, project_id, chapter_id, sequence, title, pov, goal, conflict,
-                       turning_point, required_canon, forbidden_facts, open_threads,
-                       source_artifact_step
-                FROM scene_contracts
-                WHERE project_id = ? AND id = ?
-                """,
-                (project_id, scene_id),
-            ).fetchone()
+    def get_scene_contract(
+        self,
+        project_id: str,
+        scene_id: str,
+        connection: sqlite3.Connection | None = None,
+    ) -> SceneContract | None:
+        if connection is None:
+            with self.connect() as owned:
+                return self.get_scene_contract(project_id, scene_id, owned)
+        row = connection.execute(
+            """
+            SELECT id, project_id, chapter_id, sequence, title, pov, goal, conflict,
+                   turning_point, required_canon, forbidden_facts, open_threads,
+                   source_artifact_step
+            FROM scene_contracts
+            WHERE project_id = ? AND id = ?
+            """,
+            (project_id, scene_id),
+        ).fetchone()
         return scene_contract_from_row(row) if row else None
 
     def create_scene_contract(self, project_id: str, scene: SceneContractCreate) -> SceneContract:
         with self.connect() as connection:
-            existing_ids = {
-                row["id"]
-                for row in connection.execute(
-                    "SELECT id FROM scene_contracts",
-                ).fetchall()
-            }
-            created = SceneContract(
-                id=make_record_id(
-                    f"{project_id}-s{scene.sequence}-{scene.title}",
-                    existing_ids,
-                ),
-                project_id=project_id,
-                **scene.model_dump(),
+            created = self.insert_scene_contract(project_id, scene, connection)
+        return created
+
+    def insert_scene_contract(
+        self,
+        project_id: str,
+        scene: SceneContractCreate,
+        connection: sqlite3.Connection,
+    ) -> SceneContract:
+        """Create one contract inside the caller's transaction.
+
+        Shared by the plain CRUD route and the P1-05 batch acceptance of
+        parsed Step 8 scene proposals.
+        """
+        existing_ids = {
+            row["id"]
+            for row in connection.execute(
+                "SELECT id FROM scene_contracts",
+            ).fetchall()
+        }
+        created = SceneContract(
+            id=make_record_id(
+                f"{project_id}-s{scene.sequence}-{scene.title}",
+                existing_ids,
+            ),
+            project_id=project_id,
+            **scene.model_dump(),
+        )
+        connection.execute(
+            """
+            INSERT INTO scene_contracts (
+                id, project_id, chapter_id, sequence, title, pov, goal, conflict,
+                turning_point, required_canon, forbidden_facts, open_threads,
+                source_artifact_step
             )
-            connection.execute(
-                """
-                INSERT INTO scene_contracts (
-                    id, project_id, chapter_id, sequence, title, pov, goal, conflict,
-                    turning_point, required_canon, forbidden_facts, open_threads,
-                    source_artifact_step
-                )
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                scene_contract_to_params(created),
-            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            scene_contract_to_params(created),
+        )
         return created
 
     def update_scene_contract(

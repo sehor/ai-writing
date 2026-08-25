@@ -1,0 +1,332 @@
+"""Structured Snowflake compiler service (P1-05).
+
+Orchestrates the two compile paths from the improvement plan:
+
+- Step 7: artifact -> Canon Extractor -> Canon create / update
+  write-back proposals (reviewed through the existing write-back flow).
+- Step 8: artifact -> Scene Contract Parser -> persisted Scene
+  Proposals with parse warnings, batch-accepted into scene contracts.
+
+Both paths are idempotent through the P1-04 analysis_runs table: an
+unchanged input replays stored proposals instead of duplicating them,
+and an explicit re-run supersedes stale pending proposals.
+"""
+
+from dataclasses import dataclass
+
+from app.analysis.service import AnalysisService, compute_input_hash
+from app.data import WritingDataStore
+from app.models import (
+    CanonExtractionReport,
+    SceneContract,
+    SceneParseReport,
+    SceneProposal,
+    SceneProposalCreate,
+    SceneProposalStatus,
+)
+from app.snowflake_compiler import (
+    CANON_EXTRACT_STEP,
+    SCENE_PARSE_STEP,
+    ArtifactNotParseableError,
+    extract_canon_proposals,
+    parse_scene_artifact,
+)
+
+
+CANON_EXTRACTOR_PROCESSOR = "local_canon_extractor"
+SCENE_PARSER_PROCESSOR = "local_scene_parser"
+
+
+@dataclass
+class _RunInfo:
+    run_id: str
+    run_version: int
+    cached: bool
+
+
+def _canon_fingerprint(entities) -> list[str]:
+    return sorted(f"{entity.entity_type}:{entity.name}:v{entity.version}" for entity in entities)
+
+
+def _canon_candidate_key(proposal) -> tuple:
+    """Stable identity of a parsed canon proposal for dedupe checks."""
+    if proposal.action == "update":
+        return (
+            "update",
+            proposal.target_record_id,
+            tuple(
+                sorted(
+                    (field, change.get("after", "")) for field, change in proposal.changes.items()
+                )
+            ),
+        )
+    return (
+        "create",
+        str(proposal.payload.get("entity_type", "")).strip().lower(),
+        str(proposal.payload.get("name", "")).strip().lower(),
+    )
+
+
+class SnowflakeCompileService:
+    def __init__(self, data_store: WritingDataStore):
+        self.data_store = data_store
+        self.analysis = AnalysisService(data_store)
+
+    # ------------------------------------------------------------------
+    # Step 7: canon extraction
+    # ------------------------------------------------------------------
+
+    def extract_canon_proposals(
+        self,
+        project_id: str,
+        step_number: int = CANON_EXTRACT_STEP,
+        *,
+        force: bool = False,
+    ) -> CanonExtractionReport:
+        artifact = self.data_store.get_snowflake_artifact(project_id, step_number)
+        if artifact is None:
+            raise LookupError(f"Snowflake artifact for step {step_number} not found.")
+
+        canon_entities = self.data_store.list_canon_entities(project_id)
+        source_ref = f"snowflake_artifact:{project_id}:{step_number}"
+        fingerprint = {
+            "content": artifact.content,
+            "canon": _canon_fingerprint(canon_entities),
+            "step": step_number,
+        }
+
+        def _generate() -> list:
+            extraction = extract_canon_proposals(
+                artifact.content,
+                canon_entities,
+                source_ref=source_ref,
+            )
+            # The holder list is shared with extra_result below, so the
+            # warnings are persisted on the very same run row.
+            warnings_holder.extend(extraction.warnings)
+            if force:
+                # A forced re-run supersedes every pending proposal of this
+                # source inside the accept transaction, so nothing here can
+                # be a duplicate afterwards.
+                return extraction.proposals
+
+            # Idempotency guard: an identical proposal that is still
+            # pending for this artifact must not be created twice, even
+            # when the Canon context changed enough to miss the cached
+            # run (for example right after accepting a sibling proposal).
+            pending_keys = {
+                _canon_candidate_key(proposal)
+                for proposal in self.data_store.list_writeback_proposals(project_id)
+                if proposal.status == "pending_review" and proposal.source_ref == source_ref
+            }
+            fresh = []
+            for proposal in extraction.proposals:
+                if _canon_candidate_key(proposal) in pending_keys:
+                    warnings_holder.append(
+                        f"Proposal '{proposal.title}' is already pending review; "
+                        "skipped as a duplicate."
+                    )
+                    continue
+                fresh.append(proposal)
+            return fresh
+
+        warnings_holder: list[str] = []
+        outcome = self.analysis.run_writeback_generation(
+            project_id=project_id,
+            source_ref=source_ref,
+            processor=CANON_EXTRACTOR_PROCESSOR,
+            fingerprint=fingerprint,
+            generate=_generate,
+            force=force,
+            extra_result={"warnings": warnings_holder},
+            supersede_all_pending_for_source=force,
+        )
+        return CanonExtractionReport(
+            project_id=project_id,
+            step_number=step_number,
+            processor=CANON_EXTRACTOR_PROCESSOR,
+            cached=outcome.cached,
+            run_id=outcome.run.id,
+            run_version=outcome.run.run_version,
+            warnings=self._stored_warnings(
+                outcome.run.result_json, outcome.cached, warnings_holder
+            ),
+            proposals=outcome.proposals,
+        )
+
+    # ------------------------------------------------------------------
+    # Step 8: scene parsing
+    # ------------------------------------------------------------------
+
+    def parse_scene_proposals(
+        self,
+        project_id: str,
+        step_number: int = SCENE_PARSE_STEP,
+        *,
+        force: bool = False,
+    ) -> SceneParseReport:
+        artifact = self.data_store.get_snowflake_artifact(project_id, step_number)
+        if artifact is None:
+            raise LookupError(f"Snowflake artifact for step {step_number} not found.")
+
+        source_ref = f"snowflake_artifact:{project_id}:{step_number}"
+        fingerprint = {
+            "content": artifact.content,
+            "canon": _canon_fingerprint(self.data_store.list_canon_entities(project_id)),
+            "chapters": sorted(
+                f"{chapter.id}:{chapter.title}"
+                for chapter in self.data_store.list_manuscript_chapters(project_id)
+            ),
+            "step": step_number,
+        }
+        input_hash = compute_input_hash(fingerprint)
+
+        if not force:
+            replayed = self._replay_scene_run(project_id, source_ref, input_hash)
+            if replayed is not None:
+                proposals, run = replayed
+                return SceneParseReport(
+                    project_id=project_id,
+                    step_number=step_number,
+                    processor=SCENE_PARSER_PROCESSOR,
+                    cached=True,
+                    run_id=run.id,
+                    run_version=run.run_version,
+                    warnings=run.result_json.get("warnings", []),
+                    proposals=proposals,
+                )
+
+        try:
+            outcome = parse_scene_artifact(
+                artifact.content,
+                canon_entities=self.data_store.list_canon_entities(project_id),
+                chapters=self.data_store.list_manuscript_chapters(project_id),
+            )
+        except ArtifactNotParseableError:
+            # Record the failed attempt; nothing was written anywhere else.
+            with self.data_store.connect() as connection:
+                self.data_store.record_analysis_run(
+                    connection,
+                    project_id=project_id,
+                    source_ref=source_ref,
+                    processor=SCENE_PARSER_PROCESSOR,
+                    input_hash=input_hash,
+                    status="failed",
+                    result_json={"error": "ArtifactNotParseableError"},
+                )
+            raise
+
+        creates = [
+            SceneProposalCreate(
+                sequence=scene.sequence,
+                chapter_id=getattr(scene, "resolved_chapter_id", ""),
+                chapter_hint=scene.chapter_hint,
+                title=scene.title,
+                pov=scene.pov,
+                goal=scene.goal,
+                conflict=scene.conflict,
+                turning_point=scene.turning_point,
+                required_canon_ids=",".join(getattr(scene, "resolved_canon_ids", [])),
+                required_canon_raw="\n".join(scene.required_canon_names),
+                forbidden_fact_refs=scene.forbidden_fact_refs,
+                open_threads=scene.open_threads,
+                source_ref=source_ref,
+                source_excerpt=scene.source_excerpt,
+                warnings=scene.warnings,
+            )
+            for scene in outcome.scenes
+        ]
+
+        with self.data_store.connect() as connection:
+            if force:
+                self.data_store.supersede_pending_scene_proposals(
+                    connection,
+                    project_id=project_id,
+                    source_ref=source_ref,
+                )
+            created = self.data_store.create_scene_proposals(
+                project_id, creates, connection=connection
+            )
+            run = self.data_store.record_analysis_run(
+                connection,
+                project_id=project_id,
+                source_ref=source_ref,
+                processor=SCENE_PARSER_PROCESSOR,
+                input_hash=input_hash,
+                status="succeeded",
+                result_json={
+                    "proposal_ids": [proposal.id for proposal in created],
+                    "warnings": outcome.warnings,
+                },
+            )
+
+        return SceneParseReport(
+            project_id=project_id,
+            step_number=step_number,
+            processor=SCENE_PARSER_PROCESSOR,
+            cached=False,
+            run_id=run.id,
+            run_version=run.run_version,
+            warnings=outcome.warnings,
+            proposals=created,
+        )
+
+    # ------------------------------------------------------------------
+    # Review of parsed scene proposals
+    # ------------------------------------------------------------------
+
+    def list_scene_proposals(self, project_id: str) -> list[SceneProposal]:
+        return self.data_store.list_scene_proposals(project_id)
+
+    def update_scene_proposal_status(
+        self,
+        project_id: str,
+        proposal_id: str,
+        new_status: SceneProposalStatus,
+    ) -> SceneProposal | None:
+        return self.data_store.update_scene_proposal_status(project_id, proposal_id, new_status)
+
+    def accept_scene_proposals(
+        self,
+        project_id: str,
+        proposal_ids: list[str],
+    ) -> tuple[list[SceneContract], list[SceneProposal]]:
+        return self.data_store.accept_scene_proposals(project_id, proposal_ids)
+
+    # ------------------------------------------------------------------
+    # Internals
+    # ------------------------------------------------------------------
+
+    def _replay_scene_run(self, project_id: str, source_ref: str, input_hash: str):
+        run = self.data_store.get_analysis_run(
+            project_id, source_ref, SCENE_PARSER_PROCESSOR, input_hash=input_hash
+        )
+        if run is None or run.status != "succeeded":
+            return None
+        proposal_ids = run.result_json.get("proposal_ids", [])
+        proposals = [
+            proposal
+            for proposal in (
+                self.data_store.get_scene_proposal(project_id, proposal_id)
+                for proposal_id in proposal_ids
+            )
+            if proposal is not None
+        ]
+        if len(proposals) != len(proposal_ids) or not proposals:
+            # The stored result no longer resolves; regenerate instead of
+            # returning a partial answer.
+            return None
+        return proposals, run
+
+    def _stored_warnings(self, result_json: dict, cached: bool, fresh: list[str]) -> list[str]:
+        if not cached:
+            return list(fresh)
+        stored = result_json.get("warnings", [])
+        return list(stored) if isinstance(stored, list) else []
+
+
+__all__ = [
+    "CANON_EXTRACTOR_PROCESSOR",
+    "SCENE_PARSER_PROCESSOR",
+    "SnowflakeCompileService",
+]
