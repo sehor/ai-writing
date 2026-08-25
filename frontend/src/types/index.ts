@@ -201,6 +201,42 @@ export type WritebackProposal = {
   applied_record_id: string
 }
 
+export type FindingSeverity = 'info' | 'warning' | 'critical'
+
+export type ConsistencyFinding = {
+  id: string
+  severity: FindingSeverity
+  rule_code: string
+  title: string
+  description: string
+  manuscript_source_ref: string
+  manuscript_excerpt: string
+  canon_entity_id: string | null
+  canon_field: string | null
+  expected_value: string
+  observed_value: string
+  suggested_action: string
+  confidence: 'exact' | 'heuristic'
+}
+
+export type ConsistencyReportSummary = {
+  finding_count: number
+  critical_count: number
+  warning_count: number
+  info_count: number
+}
+
+export type ConsistencyReport = {
+  project_id: string
+  source_ref: string
+  processor: string
+  cached: boolean
+  run_id: string
+  run_version: number
+  summary: ConsistencyReportSummary
+  findings: ConsistencyFinding[]
+}
+
 export type ReferenceSuggestion = {
   id: string
   project_id: string

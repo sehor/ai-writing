@@ -1,11 +1,21 @@
 """HTTP headers that surface analysis outcomes without changing bodies."""
 
+from typing import Protocol
+
 from fastapi import Response
 
-from app.analysis.service import WritebackAnalysisOutcome
+
+class AnalysisOutcome(Protocol):
+    """Minimal shape shared by every analysis outcome."""
+
+    @property
+    def cached(self) -> bool: ...
+
+    @property
+    def run(self): ...
 
 
-def apply_analysis_headers(response: Response, outcome: WritebackAnalysisOutcome) -> None:
+def apply_analysis_headers(response: Response, outcome: AnalysisOutcome) -> None:
     response.headers["X-Analysis-Cached"] = "true" if outcome.cached else "false"
     response.headers["X-Analysis-Run-Id"] = outcome.run.id
     response.headers["X-Analysis-Run-Version"] = str(outcome.run.run_version)

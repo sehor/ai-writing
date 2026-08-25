@@ -12,7 +12,10 @@ from hashlib import sha256
 import json
 from typing import Callable
 
-from app.analysis.models import AnalysisRun
+from pydantic import ValidationError
+
+from app.analysis.consistency import CONSISTENCY_PROCESSOR
+from app.analysis.models import AnalysisRun, ConsistencyFinding
 from app.models import ManuscriptRevision
 from app.review.service import ensure_writeback_proposals_acceptable
 
@@ -20,6 +23,13 @@ from app.review.service import ensure_writeback_proposals_acceptable
 @dataclass
 class WritebackAnalysisOutcome:
     proposals: list
+    run: AnalysisRun
+    cached: bool
+
+
+@dataclass
+class ConsistencyAnalysisOutcome:
+    findings: list[ConsistencyFinding]
     run: AnalysisRun
     cached: bool
 
@@ -117,6 +127,75 @@ class AnalysisService:
                 result_json={"proposal_ids": [proposal.id for proposal in created]},
             )
         return WritebackAnalysisOutcome(proposals=created, run=run, cached=False)
+
+    def run_consistency_analysis(
+        self,
+        *,
+        project_id: str,
+        source_ref: str,
+        fingerprint: dict,
+        check: Callable[[], list],
+        force: bool = False,
+    ) -> ConsistencyAnalysisOutcome:
+        """Run the deterministic consistency checker once per exact input.
+
+        Findings are stored on the run row itself (no proposals are created),
+        so a cached replay deserialises them instead of re-checking. Failed
+        checks are recorded and retried on the next request.
+        """
+        input_hash = compute_input_hash(fingerprint)
+        if not force:
+            replayed = self._replay_findings(project_id, source_ref, input_hash)
+            if replayed is not None:
+                findings, run = replayed
+                return ConsistencyAnalysisOutcome(findings=findings, run=run, cached=True)
+
+        try:
+            findings = list(check())
+        except Exception as exc:
+            with self.data_store.connect() as connection:
+                self.data_store.record_analysis_run(
+                    connection,
+                    project_id=project_id,
+                    source_ref=source_ref,
+                    processor=CONSISTENCY_PROCESSOR,
+                    input_hash=input_hash,
+                    status="failed",
+                    result_json={"error": f"{type(exc).__name__}: {exc}"},
+                )
+            raise
+
+        payload = {"findings": [finding.model_dump(mode="json") for finding in findings]}
+        with self.data_store.connect() as connection:
+            run = self.data_store.record_analysis_run(
+                connection,
+                project_id=project_id,
+                source_ref=source_ref,
+                processor=CONSISTENCY_PROCESSOR,
+                input_hash=input_hash,
+                status="succeeded",
+                result_json=payload,
+            )
+        return ConsistencyAnalysisOutcome(findings=findings, run=run, cached=False)
+
+    def latest_consistency_run(self, project_id: str, source_ref: str) -> AnalysisRun | None:
+        return self.data_store.get_analysis_run(project_id, source_ref, CONSISTENCY_PROCESSOR)
+
+    def _replay_findings(self, project_id: str, source_ref: str, input_hash: str):
+        run = self.data_store.get_analysis_run(
+            project_id, source_ref, CONSISTENCY_PROCESSOR, input_hash=input_hash
+        )
+        if run is None or run.status != "succeeded":
+            return None
+        try:
+            findings = [
+                ConsistencyFinding.model_validate(item)
+                for item in run.result_json.get("findings", [])
+            ]
+        except (ValidationError, AttributeError, TypeError):
+            # Stored result no longer parses; regenerate instead of failing.
+            return None
+        return findings, run
 
     def _replay(self, project_id: str, source_ref: str, processor: str, input_hash: str):
         run = self.data_store.get_analysis_run(

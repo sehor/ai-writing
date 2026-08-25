@@ -36,6 +36,7 @@ import type {
   ReferenceSuggestion,
   ReferenceDraft,
   HermesRevisionProcessResponse,
+  ConsistencyReport,
   GraphAnalysisResponse,
   WorkflowRuntimeStatus,
   ActiveSection
@@ -57,6 +58,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const writebackProposals = ref<WritebackProposal[]>([])
   const referenceSuggestions = ref<ReferenceSuggestion[]>([])
   const hermesProcessReport = ref<HermesRevisionProcessResponse | null>(null)
+  const consistencyReport = ref<ConsistencyReport | null>(null)
+  const consistencyRevisionId = ref('')
   const activeProjectId = ref('')
   const activeStepNumber = ref(1)
   const activeSection = ref<ActiveSection>('snowflake')
@@ -95,6 +98,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const isCreatingWriteback = ref(false)
   const isCreatingProviderWriteback = ref(false)
   const isProcessingHermesRevision = ref(false)
+  const isRunningConsistencyCheck = ref(false)
   const isUpdatingWriteback = ref(false)
   const isGeneratingReference = ref(false)
   const isGeneratingProviderReference = ref(false)
@@ -115,6 +119,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const manuscriptStatus = ref('')
   const writebackError = ref('')
   const writebackStatus = ref('')
+  const consistencyError = ref('')
+  const consistencyStatus = ref('')
   const referenceError = ref('')
   const referenceStatus = ref('')
   const artifactDraft = ref('')
@@ -559,6 +565,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     manuscriptStatus.value = ''
     writebackError.value = ''
     writebackStatus.value = ''
+    consistencyError.value = ''
+    consistencyStatus.value = ''
     referenceError.value = ''
     referenceStatus.value = ''
     artifacts.value = []
@@ -572,6 +580,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     writebackProposals.value = []
     referenceSuggestions.value = []
     hermesProcessReport.value = null
+    consistencyReport.value = null
+    consistencyRevisionId.value = ''
     graphAnalysis.value = null
     revisionDiff.value = null
     manuscriptExport.value = null
@@ -2112,6 +2122,53 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     }
   }
   
+  async function runConsistencyCheck(revisionId: string, force = false) {
+    consistencyError.value = ''
+    consistencyStatus.value = ''
+    const projectId = activeProject.value?.id
+
+    if (!projectId) {
+      consistencyError.value = 'Create or select a project first.'
+      return
+    }
+
+    isRunningConsistencyCheck.value = true
+    try {
+      const forceParam = force ? '?force=true' : ''
+      const response = await fetch(
+        `/api/projects/${projectId}/analysis/consistency/from-revision/${revisionId}${forceParam}`,
+        { method: 'POST' }
+      )
+      if (!response.ok) {
+        const detail = await readErrorDetail(response)
+        throw new Error(detail.message || 'Could not run the consistency check')
+      }
+      const report: ConsistencyReport = await response.json()
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      consistencyReport.value = report
+      consistencyRevisionId.value = revisionId
+      const { finding_count, critical_count, warning_count } = report.summary
+      if (finding_count === 0) {
+        consistencyStatus.value = 'Consistency check passed with no findings.'
+      } else {
+        consistencyStatus.value =
+          `${finding_count} finding${finding_count === 1 ? '' : 's'}` +
+          (critical_count ? `, ${critical_count} critical` : '') +
+          (warning_count ? `, ${warning_count} warning${warning_count === 1 ? '' : 's'}` : '') +
+          (report.cached ? ' (replayed cached run).' : '.')
+      }
+    } catch (error) {
+      consistencyError.value =
+        error instanceof Error
+          ? `Consistency check failed. ${error.message}`
+          : 'Consistency check failed. Check that the API is running.'
+    } finally {
+      isRunningConsistencyCheck.value = false
+    }
+  }
+  
   async function updateWritebackStatus(proposalId: string, status: WritebackProposalStatus) {
     writebackError.value = ''
     writebackStatus.value = ''
@@ -2375,6 +2432,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     isCreatingWriteback,
     isCreatingProviderWriteback,
     isProcessingHermesRevision,
+    isRunningConsistencyCheck,
     isUpdatingWriteback,
     isGeneratingReference,
     isGeneratingProviderReference,
@@ -2395,6 +2453,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     manuscriptStatus,
     writebackError,
     writebackStatus,
+    consistencyError,
+    consistencyStatus,
     referenceError,
     referenceStatus,
     artifactDraft,
@@ -2410,6 +2470,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     graphAnalysis,
     revisionDiff,
     manuscriptExport,
+    consistencyReport,
+    consistencyRevisionId,
     newProject,
     runtimeLabel,
     runtimeTitle,
@@ -2478,6 +2540,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     saveManuscriptSceneEdit,
     createWritebackFromRevision,
     processRevisionWithHermes,
+    runConsistencyCheck,
     updateWritebackStatus,
     refreshCanonAndMemory,
     scenesForChapter,
