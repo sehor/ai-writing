@@ -1,21 +1,21 @@
+"""Pure HTTP layer for reference / copilot suggestion routes."""
+
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.agents import DeepSeekSettings, WorkflowNotConfiguredError
-from app.agents.reference_workflow import (
-    build_local_reference_suggestion,
-    build_provider_reference_suggestion,
-    build_reference_context,
-    scope_for_request,
-)
-from app.cognition.registry import CognitionRegistry, get_cognition_registry
-from app.cognition.snapshots import build_project_snapshot
 from app.data import WritingDataStore, get_data_store
 from app.dependencies import require_project
+from app.integrations.provider_registry import (
+    ProviderConfigurationError,
+    ProviderExecutionError,
+    ProviderNotConfiguredError,
+    ProviderUnavailableError,
+)
 from app.models import (
     ReferenceGenerationRequest,
     ReferenceSuggestion,
     ReferenceSuggestionStatusUpdate,
 )
+from app.services.reference_service import ReferenceService, get_reference_service
 
 
 router = APIRouter(tags=["references"])
@@ -41,20 +41,10 @@ def list_reference_suggestions(
 def generate_reference_suggestion(
     project_id: str,
     request: ReferenceGenerationRequest,
-    data_store: WritingDataStore = Depends(get_data_store),
-    cognition: CognitionRegistry = Depends(get_cognition_registry),
+    service: ReferenceService = Depends(get_reference_service),
 ) -> ReferenceSuggestion:
-    require_project(project_id, data_store)
-    snapshot = build_project_snapshot(project_id, data_store)
-    cognition_context = cognition.prepare_context(snapshot, scope_for_request(request))
-    context = build_reference_context(snapshot, request, cognition_context)
-    suggestion = build_local_reference_suggestion(
-        request,
-        context,
-        snapshot,
-        cognition_context,
-    )
-    return data_store.create_reference_suggestion(project_id, suggestion)
+    require_project(project_id, service.data_store)
+    return service.generate_local(project_id, request)
 
 
 @router.post(
@@ -65,44 +55,30 @@ def generate_reference_suggestion(
 def generate_provider_reference_suggestion(
     project_id: str,
     request: ReferenceGenerationRequest,
-    data_store: WritingDataStore = Depends(get_data_store),
-    cognition: CognitionRegistry = Depends(get_cognition_registry),
+    service: ReferenceService = Depends(get_reference_service),
 ) -> ReferenceSuggestion:
-    require_project(project_id, data_store)
+    require_project(project_id, service.data_store)
     try:
-        settings = DeepSeekSettings.from_env()
-    except ValueError as exc:
+        return service.generate_provider(project_id, request)
+    except ProviderConfigurationError as exc:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail=f"DeepSeek env invalid: {exc}",
         ) from exc
-    if settings is None:
+    except (ProviderNotConfiguredError, ProviderUnavailableError) as exc:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail="DeepSeek provider is not configured.",
-        )
-    snapshot = build_project_snapshot(project_id, data_store)
-    cognition_context = cognition.prepare_context(snapshot, scope_for_request(request))
-    context = build_reference_context(snapshot, request, cognition_context)
-    try:
-        suggestion = build_provider_reference_suggestion(
-            settings,
-            request,
-            context,
-            snapshot,
-            cognition_context,
-        )
-    except WorkflowNotConfiguredError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail=str(exc),
+            detail=(
+                "DeepSeek provider is not configured."
+                if isinstance(exc, ProviderNotConfiguredError)
+                else str(exc)
+            ),
         ) from exc
-    except Exception as exc:
+    except ProviderExecutionError as exc:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Provider reference generation failed: {exc}",
+            detail=str(exc),
         ) from exc
-    return data_store.create_reference_suggestion(project_id, suggestion)
 
 
 @router.put(
@@ -113,15 +89,11 @@ def update_reference_suggestion_status(
     project_id: str,
     suggestion_id: str,
     update: ReferenceSuggestionStatusUpdate,
-    data_store: WritingDataStore = Depends(get_data_store),
+    service: ReferenceService = Depends(get_reference_service),
 ) -> ReferenceSuggestion:
-    require_project(project_id, data_store)
+    require_project(project_id, service.data_store)
     try:
-        suggestion = data_store.update_reference_suggestion_status(
-            project_id,
-            suggestion_id,
-            update.status,
-        )
+        suggestion = service.update_status(project_id, suggestion_id, update.status)
     except ValueError as exc:
         # Illegal review transition: already reviewed, cannot change again.
         raise HTTPException(

@@ -2,17 +2,24 @@
 
 from fastapi import Depends
 
+from app.cognition.registry import CognitionRegistry, get_cognition_registry
 from app.data import WritingDataStore, get_data_store
 from app.llm_wiki.dependencies import get_llm_wiki
 from app.llm_wiki.interfaces import LlmWiki
-from app.outbox.handlers import OUTBOX_HANDLERS
+from app.outbox.handlers import OUTBOX_HANDLERS, OutboxJobContext
 from app.outbox.models import OutboxJob
 
 
 class OutboxService:
-    def __init__(self, data_store: WritingDataStore, wiki: LlmWiki):
+    def __init__(
+        self,
+        data_store: WritingDataStore,
+        wiki: LlmWiki,
+        cognition: CognitionRegistry | None = None,
+    ):
         self.data_store = data_store
         self.wiki = wiki
+        self.cognition = cognition
 
     def process_pending(self, project_id: str) -> list[OutboxJob]:
         """Run every pending job for a project; never raises.
@@ -49,10 +56,15 @@ class OutboxService:
         if claimed is None:
             return job
         handler = OUTBOX_HANDLERS.get(job.job_type)
+        context = OutboxJobContext(
+            wiki=self.wiki,
+            data_store=self.data_store,
+            cognition=self.cognition,
+        )
         try:
             if handler is None:
                 raise ValueError(f"No handler registered for job type '{job.job_type}'.")
-            handler(self.wiki, job.payload)
+            handler(context, job.payload)
         except Exception as exc:  # isolate handler failures on the job record
             return (
                 self.data_store.transition_outbox_job(
@@ -72,5 +84,6 @@ class OutboxService:
 def get_outbox_service(
     data_store: WritingDataStore = Depends(get_data_store),
     llm_wiki: LlmWiki = Depends(get_llm_wiki),
+    cognition: CognitionRegistry = Depends(get_cognition_registry),
 ) -> OutboxService:
-    return OutboxService(data_store=data_store, wiki=llm_wiki)
+    return OutboxService(data_store=data_store, wiki=llm_wiki, cognition=cognition)

@@ -1,11 +1,18 @@
 from difflib import unified_diff
 from fastapi import Depends, HTTPException, status
 
-from app.agents import DeepSeekSettings, WorkflowNotConfiguredError, build_provider_scene_draft
+from app.agents.writing_workflow import WorkflowNotConfiguredError
 from app.cognition.interfaces import WritingScope
 from app.cognition.registry import CognitionRegistry, get_cognition_registry
 from app.cognition.snapshots import build_project_snapshot
 from app.data import WritingDataStore, get_data_store, utc_now
+from app.integrations.provider_registry import (
+    ProviderConfigurationError,
+    ProviderDependencies,
+    ProviderNotConfiguredError,
+    ProviderRegistry,
+    default_provider_registry,
+)
 from app.llm_wiki.dependencies import get_llm_wiki
 from app.llm_wiki.interfaces import LlmWiki, WikiContextQuery
 from app.manuscript_export import build_export_markdown
@@ -35,6 +42,9 @@ class ManuscriptService:
         self.data_store = data_store
         self.llm_wiki = llm_wiki
         self.cognition = cognition
+        # Constructor params double as FastAPI DI defaults, so provider
+        # resolution stays a plain attribute instead of an injected argument.
+        self.registry: ProviderRegistry = default_provider_registry
 
     def update_scene(
         self, project_id: str, scene_id: str, update: ManuscriptSceneUpdate
@@ -119,12 +129,12 @@ class ManuscriptService:
     def generate_provider_proposal(self, project_id: str, scene_id: str) -> ManuscriptProposal:
         scene, project = self._get_scene_and_project(project_id, scene_id)
         try:
-            settings = DeepSeekSettings.from_env()
-        except ValueError as exc:
+            provider = self.registry.create("deepseek", ProviderDependencies())
+        except ProviderConfigurationError as exc:
             raise HTTPException(
                 status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=f"DeepSeek env invalid: {exc}"
             )
-        if not settings:
+        except ProviderNotConfiguredError:
             raise HTTPException(
                 status_code=status.HTTP_501_NOT_IMPLEMENTED,
                 detail="DeepSeek provider not configured.",
@@ -132,7 +142,7 @@ class ManuscriptService:
 
         context = self._build_context(project_id, project, scene)
         try:
-            content = build_provider_scene_draft(settings, context)
+            content = provider.generate_manuscript(scene, context)
         except WorkflowNotConfiguredError as exc:
             raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc))
         except Exception as exc:

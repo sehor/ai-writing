@@ -68,6 +68,7 @@ class AnalysisIdempotencyTests(unittest.TestCase):
         )
 
     def test_repeated_request_replays_cached_result_without_duplicates(self) -> None:
+        """P1-07: the acceptance-time run is replayed, never duplicated."""
         with TemporaryDirectory() as temp_dir:
             store = SQLiteWritingDataStore(Path(temp_dir) / "app.db")
             store.init()
@@ -82,7 +83,11 @@ class AnalysisIdempotencyTests(unittest.TestCase):
                     first_ids = [item["id"] for item in first.json()]
                     second_ids = [item["id"] for item in second.json()]
 
-                    runs = store.list_analysis_runs(project_id)
+                    runs = [
+                        run
+                        for run in store.list_analysis_runs(project_id)
+                        if run.processor == "local_writeback"
+                    ]
                     stored_proposals = store.list_writeback_proposals(project_id)
             finally:
                 app.dependency_overrides.clear()
@@ -90,7 +95,9 @@ class AnalysisIdempotencyTests(unittest.TestCase):
         self.assertEqual(first.status_code, 201)
         self.assertEqual(second.status_code, 201)
         self.assertTrue(first_ids, "local analysis should produce at least one proposal")
-        self.assertEqual(first.headers.get("X-Analysis-Cached"), "false")
+        # Both manual requests replay the run the acceptance transaction
+        # scheduled automatically, so neither generates anything new.
+        self.assertEqual(first.headers.get("X-Analysis-Cached"), "true")
         self.assertEqual(second.headers.get("X-Analysis-Cached"), "true")
         self.assertEqual(
             second.headers.get("X-Analysis-Run-Id"), first.headers.get("X-Analysis-Run-Id")
@@ -112,7 +119,11 @@ class AnalysisIdempotencyTests(unittest.TestCase):
                     first = self._post_writebacks(client, project_id, revision_id)
                     rerun = self._post_writebacks(client, project_id, revision_id, force=True)
 
-                    runs = store.list_analysis_runs(project_id)
+                    runs = [
+                        run
+                        for run in store.list_analysis_runs(project_id)
+                        if run.processor == "local_writeback"
+                    ]
                     statuses = {item.status for item in store.list_writeback_proposals(project_id)}
             finally:
                 app.dependency_overrides.clear()
@@ -130,28 +141,37 @@ class AnalysisIdempotencyTests(unittest.TestCase):
         self.assertIn("pending_review", statuses)
 
     def test_failed_run_is_recorded_and_next_request_regenerates(self) -> None:
+        """A cognition outage fails the automatic job without losing core data."""
         with TemporaryDirectory() as temp_dir:
             store = SQLiteWritingDataStore(Path(temp_dir) / "app.db")
             store.init()
             app.dependency_overrides[get_data_store] = lambda: store
+            # The outage is active before acceptance, so the P1-07 automatic
+            # write-back job already fails; the manual request below must
+            # fail the same way until cognition recovers.
+            app.dependency_overrides[get_cognition_registry] = lambda: FailingCognitionRegistry()
 
             try:
                 with TestClient(app, raise_server_exceptions=False) as client:
                     project_id, revision_id = self._setup_revision(store, client)
 
-                    app.dependency_overrides[get_cognition_registry] = lambda: (
-                        FailingCognitionRegistry()
-                    )
+                    failed_jobs = store.list_outbox_jobs(project_id, job_status="failed")
                     failed = self._post_writebacks(client, project_id, revision_id)
 
                     app.dependency_overrides.pop(get_cognition_registry, None)
                     recovered = self._post_writebacks(client, project_id, revision_id)
 
-                    runs = store.list_analysis_runs(project_id)
+                    runs = [
+                        run
+                        for run in store.list_analysis_runs(project_id)
+                        if run.processor == "local_writeback"
+                    ]
                     proposals = store.list_writeback_proposals(project_id)
             finally:
                 app.dependency_overrides.clear()
 
+        self.assertTrue(failed_jobs, "acceptance schedules a write-back analysis job")
+        self.assertIn("RuntimeError", failed_jobs[0].last_error)
         self.assertEqual(failed.status_code, 500)
         self.assertEqual(recovered.status_code, 201)
         self.assertEqual(recovered.headers.get("X-Analysis-Cached"), "false")

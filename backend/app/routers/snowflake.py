@@ -1,12 +1,17 @@
+"""Pure HTTP layer for Snowflake routes.
+
+Parses requests, delegates to application services, and maps domain
+errors onto HTTP status codes. No provider runtime types are imported
+here; workflow resolution happens behind the app-owned interface in
+app.services.snowflake_service.
+"""
+
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
-from app.agents import (
-    DeepSeekSettings,
-    LocalDraftWritingWorkflow,
+from app.agents.writing_workflow import (
     WorkflowNotConfiguredError,
     WorkflowProviderError,
     WritingWorkflow,
-    create_deepseek_workflow,
 )
 from app.data import WritingDataStore, get_data_store
 from app.data.mixins.scene_proposals import (
@@ -16,11 +21,6 @@ from app.data.mixins.scene_proposals import (
     SceneSequenceConflictError,
 )
 from app.dependencies import require_project
-from app.llm_wiki.dependencies import get_llm_wiki
-from app.llm_wiki.interfaces import LlmWiki, WikiSourceDocument
-from app.outbox.handlers import snowflake_index_payload
-from app.outbox.http import apply_wiki_index_headers
-from app.outbox.service import OutboxService, get_outbox_service
 from app.models import (
     CanonExtractionReport,
     SceneParseReport,
@@ -35,74 +35,23 @@ from app.models import (
     SnowflakeStep,
     WorkflowRuntimeStatus,
 )
+from app.outbox.http import apply_wiki_index_headers
 from app.services.snowflake_compile_service import SnowflakeCompileService
+
+# Re-exported so tests can keep importing these symbols from the router.
+from app.services.snowflake_service import (  # noqa: F401
+    SNOWFLAKE_STEPS as SNOWFLAKE_STEPS,
+    ArtifactNotFoundError as ArtifactNotFoundError,
+    StepNotFoundError as StepNotFoundError,
+    SnowflakeService as SnowflakeService,
+    get_snowflake_service as get_snowflake_service,
+    get_writing_workflow as get_writing_workflow,
+    snowflake_wiki_document as snowflake_wiki_document,
+)
 from app.snowflake_compiler import CANON_EXTRACT_STEP, SCENE_PARSE_STEP, ArtifactNotParseableError
 
 
 router = APIRouter(tags=["snowflake"])
-
-SNOWFLAKE_STEPS = [
-    SnowflakeStep(
-        number=1,
-        title="One Sentence",
-        artifact="story_contract",
-        description="Distill the novel into a single sentence promise.",
-    ),
-    SnowflakeStep(
-        number=2,
-        title="One Paragraph",
-        artifact="plot_seed",
-        description="Expand the story promise into a compact beginning, middle, and end.",
-    ),
-    SnowflakeStep(
-        number=3,
-        title="Character Summary",
-        artifact="character_seeds",
-        description="Create initial goals, conflicts, secrets, and arcs for major characters.",
-    ),
-    SnowflakeStep(
-        number=4,
-        title="One Page Synopsis",
-        artifact="plot_synopsis",
-        description="Compile the story into a one-page plot outline.",
-    ),
-    SnowflakeStep(
-        number=5,
-        title="Character Viewpoints",
-        artifact="character_pov_lines",
-        description="Describe the story from each major character's perspective.",
-    ),
-    SnowflakeStep(
-        number=6,
-        title="Expanded Synopsis",
-        artifact="expanded_plot",
-        description="Expand the plot into a multi-page causal outline.",
-    ),
-    SnowflakeStep(
-        number=7,
-        title="Character Bible",
-        artifact="canon_entities",
-        description="Commit character, location, item, and faction facts into Canon.",
-    ),
-    SnowflakeStep(
-        number=8,
-        title="Scene List",
-        artifact="scene_contracts",
-        description="Compile the plot into scene contracts with goals, conflicts, turns, and constraints.",
-    ),
-    SnowflakeStep(
-        number=9,
-        title="Scene Expansion",
-        artifact="expanded_scenes",
-        description="Expand each scene contract into detailed beats and chapter plans.",
-    ),
-    SnowflakeStep(
-        number=10,
-        title="Draft Manuscript",
-        artifact="manuscript",
-        description="Draft prose from scene contracts, Canon constraints, memory, and style samples.",
-    ),
-]
 
 
 @router.get("/snowflake/steps", response_model=list[SnowflakeStep])
@@ -111,41 +60,10 @@ def list_snowflake_steps() -> list[SnowflakeStep]:
 
 
 @router.get("/snowflake/workflow/status", response_model=WorkflowRuntimeStatus)
-def get_workflow_runtime_status() -> WorkflowRuntimeStatus:
-    try:
-        settings = DeepSeekSettings.from_env()
-    except ValueError as exc:
-        return WorkflowRuntimeStatus(
-            runtime="local_deterministic",
-            provider="local",
-            provider_configured=False,
-            details=f"DeepSeek environment is invalid: {exc}",
-        )
-    if settings is None:
-        return WorkflowRuntimeStatus(
-            runtime="local_deterministic",
-            provider="local",
-            provider_configured=False,
-            details="DEEPSEEK_API_KEY is not configured; using deterministic local drafts.",
-        )
-    return WorkflowRuntimeStatus(
-        runtime="provider_deepseek",
-        provider="deepseek",
-        provider_configured=True,
-        model=settings.model,
-        base_url=settings.base_url,
-        details="DeepSeek provider runtime is configured for Snowflake draft generation.",
-    )
-
-
-def get_snowflake_step(step_number: int) -> SnowflakeStep:
-    for step in SNOWFLAKE_STEPS:
-        if step.number == step_number:
-            return step
-    raise HTTPException(
-        status_code=status.HTTP_404_NOT_FOUND,
-        detail="Snowflake step not found.",
-    )
+def get_workflow_runtime_status(
+    service: SnowflakeService = Depends(get_snowflake_service),
+) -> WorkflowRuntimeStatus:
+    return service.runtime_status()
 
 
 @router.get(
@@ -168,16 +86,18 @@ def get_snowflake_artifact(
     project_id: str,
     step_number: int,
     data_store: WritingDataStore = Depends(get_data_store),
+    service: SnowflakeService = Depends(get_snowflake_service),
 ) -> SnowflakeArtifact:
     require_project(project_id, data_store)
-    get_snowflake_step(step_number)
-    artifact = data_store.get_snowflake_artifact(project_id, step_number)
-    if artifact is None:
+    try:
+        return service.get_artifact(project_id, step_number)
+    except StepNotFoundError as exc:
+        raise not_found_step() from exc
+    except ArtifactNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Snowflake artifact not found.",
-        )
-    return artifact
+        ) from exc
 
 
 @router.put(
@@ -190,39 +110,16 @@ def save_snowflake_artifact(
     update: SnowflakeArtifactUpdate,
     response: Response,
     data_store: WritingDataStore = Depends(get_data_store),
-    outbox: OutboxService = Depends(get_outbox_service),
+    service: SnowflakeService = Depends(get_snowflake_service),
 ) -> SnowflakeArtifact:
     require_project(project_id, data_store)
-    step = get_snowflake_step(step_number)
-    artifact = SnowflakeArtifact(
-        project_id=project_id,
-        step_number=step_number,
-        artifact=step.artifact,
-        content=update.content,
-    )
-    # One transaction: artifact + project step + index job.
-    saved, job_id = data_store.enqueue_snowflake_index_job(artifact, advance_step_to=step_number)
-    processed = outbox.process_job(project_id, job_id)
+    try:
+        saved, processed = service.save_artifact(project_id, step_number, update.content)
+    except StepNotFoundError as exc:
+        raise not_found_step() from exc
     if processed is not None:
         apply_wiki_index_headers(response, [processed])
     return saved
-
-
-def get_writing_workflow(
-    data_store: WritingDataStore = Depends(get_data_store),
-    llm_wiki: LlmWiki = Depends(get_llm_wiki),
-) -> WritingWorkflow:
-    try:
-        deepseek_workflow = create_deepseek_workflow(
-            data_store,
-            SNOWFLAKE_STEPS,
-            llm_wiki,
-        )
-    except ValueError:
-        deepseek_workflow = None
-    if deepseek_workflow is not None:
-        return deepseek_workflow
-    return LocalDraftWritingWorkflow(data_store, SNOWFLAKE_STEPS, llm_wiki)
 
 
 @router.post(
@@ -234,12 +131,13 @@ def generate_snowflake_artifact(
     response: Response,
     data_store: WritingDataStore = Depends(get_data_store),
     workflow: WritingWorkflow = Depends(get_writing_workflow),
-    outbox: OutboxService = Depends(get_outbox_service),
+    service: SnowflakeService = Depends(get_snowflake_service),
 ) -> SnowflakeGenerationResponse:
     require_project(request.project_id, data_store)
-    get_snowflake_step(request.step_number)
     try:
-        generated = workflow.run_snowflake_generation(request)
+        generated, processed = service.generate(request, workflow)
+    except StepNotFoundError as exc:
+        raise not_found_step() from exc
     except WorkflowNotConfiguredError as exc:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
@@ -256,25 +154,16 @@ def generate_snowflake_artifact(
                 "workflow_trace": [trace.model_dump() for trace in exc.trace],
             },
         ) from exc
-    # One transaction: artifact + project step + index job.
-    _, job_id = data_store.enqueue_snowflake_index_job(
-        SnowflakeArtifact(
-            project_id=generated.project_id,
-            step_number=generated.step_number,
-            artifact=generated.artifact,
-            content=generated.content,
-        ),
-        advance_step_to=request.step_number,
-    )
-    processed = outbox.process_job(request.project_id, job_id)
     if processed is not None:
         apply_wiki_index_headers(response, [processed])
     return generated
 
 
-def snowflake_wiki_document(artifact: SnowflakeArtifact) -> WikiSourceDocument:
-    """Kept for compatibility; the mapping now lives in app.outbox.handlers."""
-    return WikiSourceDocument.model_validate(snowflake_index_payload(artifact))
+def not_found_step() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_404_NOT_FOUND,
+        detail="Snowflake step not found.",
+    )
 
 
 # ---------------------------------------------------------------------------

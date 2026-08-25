@@ -13,7 +13,7 @@ from app.analysis.consistency import (
     build_consistency_fingerprint,
     check_revision,
 )
-from app.analysis.http import apply_analysis_headers
+from app.analysis.http import apply_analysis_headers, get_analysis_service
 from app.analysis.models import (
     ConsistencyFinding,
     ConsistencyReport,
@@ -25,12 +25,6 @@ from app.dependencies import require_project
 
 
 router = APIRouter(tags=["analysis"])
-
-
-def get_analysis_service(
-    data_store: WritingDataStore = Depends(get_data_store),
-) -> AnalysisService:
-    return AnalysisService(data_store=data_store)
 
 
 def _report_from_run(

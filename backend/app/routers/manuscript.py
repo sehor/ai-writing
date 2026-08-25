@@ -3,7 +3,10 @@ import sqlite3
 
 from app.data import WritingDataStore, get_data_store
 from app.dependencies import require_project
-from app.outbox.http import apply_wiki_index_headers
+from app.outbox.http import (
+    apply_post_accept_analysis_headers,
+    apply_wiki_index_headers,
+)
 from app.outbox.service import OutboxService, get_outbox_service
 from app.models import (
     ManuscriptExportResponse,
@@ -245,5 +248,9 @@ def update_manuscript_proposal_status(
 ) -> ManuscriptProposal:
     require_project(project_id, data_store)
     proposal = service.update_proposal_status(project_id, proposal_id, update.status)
-    apply_wiki_index_headers(response, outbox.process_pending(project_id))
+    processed_jobs = outbox.process_pending(project_id)
+    apply_wiki_index_headers(response, processed_jobs)
+    # P1-07: acceptance also dispatched the consistency / write-back analysis
+    # jobs; their outcome rides the headers so the UI can refresh its panels.
+    apply_post_accept_analysis_headers(response, processed_jobs)
     return proposal

@@ -1,8 +1,17 @@
-"""HTTP headers that surface analysis outcomes without changing bodies."""
+"""HTTP helpers that surface analysis outcomes without changing bodies."""
 
 from typing import Protocol
 
-from fastapi import Response
+from fastapi import Depends, Response
+
+from app.analysis.service import AnalysisService
+from app.data import WritingDataStore, get_data_store
+
+
+def get_analysis_service(
+    data_store: WritingDataStore = Depends(get_data_store),
+) -> AnalysisService:
+    return AnalysisService(data_store=data_store)
 
 
 class AnalysisOutcome(Protocol):

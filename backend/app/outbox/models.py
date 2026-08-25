@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
-OutboxJobType = Literal["llm_wiki_ingest"]
+OutboxJobType = Literal["llm_wiki_ingest", "consistency_analysis", "writeback_analysis"]
 OutboxJobStatus = Literal["pending", "processing", "succeeded", "failed"]
 
 

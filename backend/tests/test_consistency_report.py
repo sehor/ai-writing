@@ -179,7 +179,8 @@ class ConsistencyReportRouteTests(unittest.TestCase):
             params=params,
         )
 
-    def test_report_replays_cached_run_and_force_bumps_version(self) -> None:
+    def test_report_exists_after_acceptance_and_force_bumps_version(self) -> None:
+        """P1-07: acceptance produces a report without a manual trigger."""
         with TemporaryDirectory() as temp_dir:
             store = SQLiteWritingDataStore(Path(temp_dir) / "app.db")
             store.init()
@@ -188,31 +189,37 @@ class ConsistencyReportRouteTests(unittest.TestCase):
                 with TestClient(app) as client:
                     project_id, revision_id = self._setup(store, client)
 
+                    automatic = client.get(
+                        f"/api/projects/{project_id}/analysis/consistency"
+                        f"/from-revision/{revision_id}"
+                    )
                     first = self._post_report(client, project_id, revision_id)
-                    replayed = self._post_report(client, project_id, revision_id)
                     forced = self._post_report(client, project_id, revision_id, force=True)
                     latest = client.get(
                         f"/api/projects/{project_id}/analysis/consistency"
                         f"/from-revision/{revision_id}"
                     )
-                    runs = store.list_analysis_runs(project_id)
+                    runs = [
+                        run
+                        for run in store.list_analysis_runs(project_id)
+                        if run.processor == "consistency_checker"
+                    ]
             finally:
                 app.dependency_overrides.clear()
 
-        self.assertEqual(first.status_code, 200)
-        body = first.json()
-        self.assertFalse(body["cached"])
+        # The report already exists before anybody asked for it.
+        self.assertEqual(automatic.status_code, 200)
+        body = automatic.json()
         self.assertEqual(body["summary"]["finding_count"], 1)
         self.assertEqual(body["summary"]["critical_count"], 1)
         self.assertEqual(body["findings"][0]["rule_code"], RULE_FORBIDDEN_FACT_MENTION)
         self.assertIn("the archive burned down", body["findings"][0]["manuscript_excerpt"])
-        self.assertEqual(first.headers.get("X-Analysis-Cached"), "false")
 
-        self.assertTrue(replayed.json()["cached"])
-        self.assertEqual(
-            replayed.headers.get("X-Analysis-Run-Id"),
-            first.headers.get("X-Analysis-Run-Id"),
-        )
+        # An unchanged manual request replays the automatic run.
+        self.assertEqual(first.status_code, 200)
+        self.assertTrue(first.json()["cached"])
+        self.assertEqual(first.headers.get("X-Analysis-Cached"), "true")
+        self.assertEqual(first.headers.get("X-Analysis-Run-Id"), body["run_id"])
 
         self.assertEqual(forced.headers.get("X-Analysis-Run-Version"), "2")
         self.assertEqual(forced.json()["summary"]["finding_count"], 1)
@@ -248,7 +255,11 @@ class ConsistencyReportRouteTests(unittest.TestCase):
                         },
                     )
                     second = self._post_report(client, project_id, revision_id)
-                    runs = store.list_analysis_runs(project_id)
+                    runs = [
+                        run
+                        for run in store.list_analysis_runs(project_id)
+                        if run.processor == "consistency_checker"
+                    ]
             finally:
                 app.dependency_overrides.clear()
 
@@ -262,7 +273,8 @@ class ConsistencyReportRouteTests(unittest.TestCase):
         self.assertEqual(second.json()["summary"]["finding_count"], 0)
         self.assertEqual(len(runs), 2)
 
-    def test_get_without_any_run_returns_404_and_unknown_revision_404(self) -> None:
+    def test_unknown_revision_and_project_return_404(self) -> None:
+        """Unknown sources stay 404; accepted revisions have a report (P1-07)."""
         with TemporaryDirectory() as temp_dir:
             store = SQLiteWritingDataStore(Path(temp_dir) / "app.db")
             store.init()
@@ -271,16 +283,18 @@ class ConsistencyReportRouteTests(unittest.TestCase):
                 with TestClient(app) as client:
                     project_id, revision_id = self._setup(store, client)
 
-                    missing = client.get(
+                    existing = client.get(
                         f"/api/projects/{project_id}/analysis/consistency"
                         f"/from-revision/{revision_id}"
                     )
-                    unknown_revision = self._post_report(client, project_id, "nope")
+                    unknown_revision = client.get(
+                        f"/api/projects/{project_id}/analysis/consistency/from-revision/nope"
+                    )
                     unknown_project = self._post_report(client, "ghost", revision_id)
             finally:
                 app.dependency_overrides.clear()
 
-        self.assertEqual(missing.status_code, 404)
+        self.assertEqual(existing.status_code, 200)
         self.assertEqual(unknown_revision.status_code, 404)
         self.assertEqual(unknown_project.status_code, 404)
 

@@ -13,7 +13,7 @@ from app.agents.deepseek_workflow import (
 )
 from app.agents.manuscript_workflow import build_provider_scene_draft
 from app.agents.writeback_workflow import build_provider_writeback_proposals
-from app.agents.hermes_client import HermesAgentClient, VirtualHermesAgentServer
+from app.integrations.hermes import HermesAgentClient, VirtualHermesAgentServer
 
 __all__ = [
     "DeepSeekSettings",
