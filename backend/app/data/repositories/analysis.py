@@ -1,8 +1,8 @@
-"""Idempotent analysis runs (P1-04).
+"""Analysis repository: idempotent analysis runs (P1-04).
 
-One row per ``(project_id, source_ref, processor, input_hash)``. Repeating
+One row per (project_id, source_ref, processor, input_hash). Repeating
 an unchanged request replays the stored result instead of generating
-duplicate proposals. An explicit re-run bumps ``run_version`` on the same
+duplicate proposals. An explicit re-run bumps run_version on the same
 row; a failed run is retried on the next request.
 """
 
@@ -34,8 +34,13 @@ def analysis_run_from_row(row: sqlite3.Row) -> AnalysisRun:
     )
 
 
-class AnalysisDataMixin:
-    def get_analysis_run(
+class AnalysisRepository:
+    """SQL for the analysis_runs table, bound to one connection."""
+
+    def __init__(self, connection: sqlite3.Connection):
+        self.connection = connection
+
+    def get(
         self,
         project_id: str,
         source_ref: str,
@@ -44,7 +49,7 @@ class AnalysisDataMixin:
     ) -> AnalysisRun | None:
         """Latest run for a source/processor pair.
 
-        Without ``input_hash`` the newest run of any input is returned;
+        Without input_hash the newest run of any input is returned;
         with it, only the run matching that exact input matches.
         """
         query = f"{ANALYSIS_RUN_COLUMNS} WHERE project_id = ? AND source_ref = ? AND processor = ?"
@@ -53,26 +58,23 @@ class AnalysisDataMixin:
             query += " AND input_hash = ?"
             params.append(input_hash)
         query += " ORDER BY created_at DESC, run_version DESC LIMIT 1"
-        with self.connect() as connection:
-            row = connection.execute(query, params).fetchone()
+        row = self.connection.execute(query, params).fetchone()
         return analysis_run_from_row(row) if row else None
 
-    def list_analysis_runs(self, project_id: str, limit: int = 100) -> list[AnalysisRun]:
-        with self.connect() as connection:
-            rows = connection.execute(
-                f"""
-                {ANALYSIS_RUN_COLUMNS}
-                WHERE project_id = ?
-                ORDER BY created_at DESC, rowid DESC
-                LIMIT ?
-                """,
-                (project_id, limit),
-            ).fetchall()
+    def list_runs(self, project_id: str, limit: int = 100) -> list[AnalysisRun]:
+        rows = self.connection.execute(
+            f"""
+            {ANALYSIS_RUN_COLUMNS}
+            WHERE project_id = ?
+            ORDER BY created_at DESC, rowid DESC
+            LIMIT ?
+            """,
+            (project_id, limit),
+        ).fetchall()
         return [analysis_run_from_row(row) for row in rows]
 
-    def record_analysis_run(
+    def record(
         self,
-        connection: sqlite3.Connection,
         *,
         project_id: str,
         source_ref: str,
@@ -88,7 +90,7 @@ class AnalysisDataMixin:
         input instead of stacking duplicate rows.
         """
         now = utc_now()
-        existing = connection.execute(
+        existing = self.connection.execute(
             """
             SELECT id, run_version FROM analysis_runs
             WHERE project_id = ? AND source_ref = ? AND processor = ? AND input_hash = ?
@@ -96,7 +98,7 @@ class AnalysisDataMixin:
             (project_id, source_ref, processor, input_hash),
         ).fetchone()
         if existing is not None:
-            connection.execute(
+            self.connection.execute(
                 """
                 UPDATE analysis_runs
                 SET status = ?,
@@ -112,7 +114,7 @@ class AnalysisDataMixin:
                     existing["id"],
                 ),
             )
-            row = connection.execute(
+            row = self.connection.execute(
                 f"{ANALYSIS_RUN_COLUMNS} WHERE id = ?",
                 (existing["id"],),
             ).fetchone()
@@ -120,9 +122,12 @@ class AnalysisDataMixin:
 
         run_id = make_record_id(
             f"analysis-{processor}-{source_ref}",
-            {row["id"] for row in connection.execute("SELECT id FROM analysis_runs").fetchall()},
+            {
+                row["id"]
+                for row in self.connection.execute("SELECT id FROM analysis_runs").fetchall()
+            },
         )
-        connection.execute(
+        self.connection.execute(
             """
             INSERT INTO analysis_runs (
                 id, project_id, source_ref, processor, input_hash, status,
@@ -142,7 +147,7 @@ class AnalysisDataMixin:
                 now,
             ),
         )
-        row = connection.execute(
+        row = self.connection.execute(
             f"{ANALYSIS_RUN_COLUMNS} WHERE id = ?",
             (run_id,),
         ).fetchone()

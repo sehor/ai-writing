@@ -1,5 +1,6 @@
 from pathlib import Path
 
+from app.config import resolve_data_root
 from app.cognition.interfaces import (
     CommittedContentEvent,
     ContextPacket,
@@ -34,7 +35,7 @@ class CognitionRegistry:
         return [module.ingest_committed_content(snapshot, event) for module in self.modules]
 
 
-modules_root = Path(__file__).resolve().parent.parent.parent / "data" / "projects"
+modules_root = resolve_data_root() / "projects"
 cognition_registry = CognitionRegistry(modules_root)
 
 

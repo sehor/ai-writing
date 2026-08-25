@@ -1,10 +1,9 @@
-from pathlib import Path
-
+from app.config import resolve_data_root
 from app.llm_wiki.interfaces import LlmWiki
 from app.llm_wiki.local_backend import LocalFileLlmWiki
 
 
-projects_root = Path(__file__).resolve().parents[2] / "data" / "projects"
+projects_root = resolve_data_root() / "projects"
 llm_wiki: LlmWiki = LocalFileLlmWiki(projects_root)
 
 

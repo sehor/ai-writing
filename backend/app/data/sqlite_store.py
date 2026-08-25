@@ -1,28 +1,653 @@
+"""SQLiteWritingDataStore: the public facade of the persistence layer.
+
+Since P2-03 the SQL lives in per-aggregate repositories
+(app.data.repositories); this class only coordinates them. Every public
+method name and signature is unchanged from the mixin-based store:
+
+- Single-aggregate operations open a short SqliteUnitOfWork internally.
+- Multi-step transactional flows (acceptance, restore, batch accept,
+  write-back apply, outbox enqueueing) run inside ONE unit of work and
+  delegate to app.data.flows.
+- Methods that historically accepted a trailing (or leading) connection
+  argument still do; the connection-scoped repository is constructed on
+  the spot so callers can keep composing transactions via connect().
+"""
+
+from contextlib import contextmanager
 from pathlib import Path
+import sqlite3
+from typing import Iterator
 
-from app.data.mixins.projects import ProjectsDataMixin
-from app.data.mixins.artifacts import ArtifactsDataMixin
-from app.data.mixins.canon import CanonDataMixin
-from app.data.mixins.scenes import ScenesDataMixin
-from app.data.mixins.scene_proposals import SceneProposalsDataMixin
-from app.data.mixins.manuscript import ManuscriptDataMixin
-from app.data.mixins.memory import MemoryDataMixin
-from app.data.mixins.wiki import WikiDataMixin
-from app.data.mixins.outbox import OutboxDataMixin
-from app.data.mixins.analysis import AnalysisDataMixin
+from app.data.flows import (
+    accept_manuscript_proposal,
+    accept_scene_proposals,
+    accept_writeback_proposal,
+    enqueue_manuscript_revision_analysis_jobs,
+    enqueue_manuscript_revision_index_job,
+    enqueue_snowflake_index_job,
+    restore_manuscript_revision,
+    update_manuscript_scene,
+)
+from app.data.repositories.analysis import AnalysisRepository
+from app.data.repositories.canon import CanonRepository
+from app.data.repositories.memory import MemoryRepository
+from app.data.repositories.outbox import OutboxRepository
+from app.data.repositories.projects import ProjectRepository
+from app.data.repositories.review import ReviewRepository
+from app.data.repositories.scene_proposals import SceneProposalRepository
+from app.data.repositories.scenes import SceneRepository
+from app.data.repositories.snowflake import SnowflakeRepository
+from app.data.schema import initialize_schema
+from app.data.unit_of_work import SqliteUnitOfWork, open_connection
+from app.models import (
+    CanonEntity,
+    CanonEntityCreate,
+    CanonEntityUpdate,
+    MemoryRecord,
+    MemoryRecordCreate,
+    MemoryRecordUpdate,
+    ManuscriptChapter,
+    ManuscriptChapterCreate,
+    ManuscriptChapterUpdate,
+    ManuscriptProposal,
+    ManuscriptProposalCreate,
+    ManuscriptProposalStatus,
+    ManuscriptRevision,
+    ManuscriptScene,
+    ManuscriptSceneUpdate,
+    ProjectCreate,
+    ProjectSummary,
+    ReferenceSuggestion,
+    ReferenceSuggestionCreate,
+    ReferenceSuggestionStatus,
+    SceneContract,
+    SceneContractCreate,
+    SceneContractUpdate,
+    SceneProposal,
+    SceneProposalCreate,
+    SceneProposalStatus,
+    SnowflakeArtifact,
+    WritebackProposal,
+    WritebackProposalCreate,
+    WritebackProposalStatus,
+)
+from app.outbox.models import OutboxJob, OutboxJobStatus
 
 
-class SQLiteWritingDataStore(
-    ProjectsDataMixin,
-    ArtifactsDataMixin,
-    CanonDataMixin,
-    ScenesDataMixin,
-    SceneProposalsDataMixin,
-    ManuscriptDataMixin,
-    MemoryDataMixin,
-    WikiDataMixin,
-    OutboxDataMixin,
-    AnalysisDataMixin,
-):
+class SQLiteWritingDataStore:
+    """Facade over the repositories; owns the database path only."""
+
     def __init__(self, database_path: Path):
         self.database_path = database_path
+
+    # ------------------------------------------------------------------
+    # Lifecycle / connections
+    # ------------------------------------------------------------------
+
+    def init(self) -> None:
+        self.database_path.parent.mkdir(parents=True, exist_ok=True)
+        connection = open_connection(self.database_path)
+        try:
+            with connection:
+                initialize_schema(connection)
+        finally:
+            connection.close()
+
+    @contextmanager
+    def connect(self) -> Iterator[sqlite3.Connection]:
+        connection = open_connection(self.database_path)
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
+
+    # ------------------------------------------------------------------
+    # Projects
+    # ------------------------------------------------------------------
+
+    def list_projects(self) -> list[ProjectSummary]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.projects.list()
+
+    def create_project(self, project: ProjectCreate) -> ProjectSummary:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.projects.create(project)
+
+    def get_project(self, project_id: str) -> ProjectSummary | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.projects.get(project_id)
+
+    def project_exists(self, project_id: str) -> bool:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.projects.exists(project_id)
+
+    def advance_project_current_step(
+        self,
+        project_id: str,
+        completed_step: int,
+        connection: sqlite3.Connection | None = None,
+    ) -> ProjectSummary | None:
+        if connection is not None:
+            return ProjectRepository(connection).advance_current_step(project_id, completed_step)
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.projects.advance_current_step(project_id, completed_step)
+
+    # ------------------------------------------------------------------
+    # Snowflake artifacts
+    # ------------------------------------------------------------------
+
+    def list_snowflake_artifacts(self, project_id: str) -> list[SnowflakeArtifact]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.snowflake.list_by_project(project_id)
+
+    def get_snowflake_artifact(self, project_id: str, step_number: int) -> SnowflakeArtifact | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.snowflake.get(project_id, step_number)
+
+    def save_snowflake_artifact(
+        self,
+        artifact: SnowflakeArtifact,
+        connection: sqlite3.Connection | None = None,
+    ) -> SnowflakeArtifact:
+        if connection is not None:
+            return SnowflakeRepository(connection).save(artifact)
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.snowflake.save(artifact)
+
+    def enqueue_snowflake_index_job(
+        self,
+        artifact: SnowflakeArtifact,
+        advance_step_to: int | None = None,
+    ) -> tuple[SnowflakeArtifact, str]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return enqueue_snowflake_index_job(uow.connection, artifact, advance_step_to)
+
+    # ------------------------------------------------------------------
+    # Canon entities
+    # ------------------------------------------------------------------
+
+    def list_canon_entities(self, project_id: str) -> list[CanonEntity]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.canon.list(project_id)
+
+    def get_canon_entity(
+        self,
+        project_id: str,
+        entity_id: str,
+        connection: sqlite3.Connection | None = None,
+    ) -> CanonEntity | None:
+        if connection is not None:
+            return CanonRepository(connection).get(project_id, entity_id)
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.canon.get(project_id, entity_id)
+
+    def create_canon_entity(
+        self,
+        project_id: str,
+        entity: CanonEntityCreate,
+        connection: sqlite3.Connection | None = None,
+    ) -> CanonEntity:
+        if connection is not None:
+            return CanonRepository(connection).create(project_id, entity)
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.canon.create(project_id, entity)
+
+    def update_canon_entity(
+        self, project_id: str, entity_id: str, entity: CanonEntityUpdate
+    ) -> CanonEntity | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.canon.update(project_id, entity_id, entity)
+
+    def delete_canon_entity(self, project_id: str, entity_id: str) -> bool:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.canon.delete(project_id, entity_id)
+
+    # ------------------------------------------------------------------
+    # Scene contracts
+    # ------------------------------------------------------------------
+
+    def list_scene_contracts(self, project_id: str) -> list[SceneContract]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.scenes.list(project_id)
+
+    def get_scene_contract(
+        self,
+        project_id: str,
+        scene_id: str,
+        connection: sqlite3.Connection | None = None,
+    ) -> SceneContract | None:
+        if connection is not None:
+            return SceneRepository(connection).get(project_id, scene_id)
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.scenes.get(project_id, scene_id)
+
+    def create_scene_contract(self, project_id: str, scene: SceneContractCreate) -> SceneContract:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.scenes.insert(project_id, scene)
+
+    def insert_scene_contract(
+        self,
+        project_id: str,
+        scene: SceneContractCreate,
+        connection: sqlite3.Connection,
+    ) -> SceneContract:
+        """Legacy helper kept for callers composing their own transaction."""
+        return SceneRepository(connection).insert(project_id, scene)
+
+    def update_scene_contract(
+        self, project_id: str, scene_id: str, scene: SceneContractUpdate
+    ) -> SceneContract | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.scenes.update(project_id, scene_id, scene)
+
+    def delete_scene_contract(self, project_id: str, scene_id: str) -> bool:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.scenes.delete(project_id, scene_id)
+
+    # ------------------------------------------------------------------
+    # Parsed scene proposals (P1-05)
+    # ------------------------------------------------------------------
+
+    def list_scene_proposals(
+        self,
+        project_id: str,
+        status: str | None = None,
+    ) -> list[SceneProposal]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.scene_proposals.list(project_id, status)
+
+    def get_scene_proposal(
+        self,
+        project_id: str,
+        proposal_id: str,
+        connection: sqlite3.Connection | None = None,
+    ) -> SceneProposal | None:
+        if connection is not None:
+            return SceneProposalRepository(connection).get(project_id, proposal_id)
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.scene_proposals.get(project_id, proposal_id)
+
+    def create_scene_proposals(
+        self,
+        project_id: str,
+        proposals: list[SceneProposalCreate],
+        connection: sqlite3.Connection | None = None,
+    ) -> list[SceneProposal]:
+        if connection is not None:
+            return SceneProposalRepository(connection).create_batch(project_id, proposals)
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.scene_proposals.create_batch(project_id, proposals)
+
+    def supersede_pending_scene_proposals(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        project_id: str,
+        source_ref: str,
+        except_ids: set[str] | None = None,
+    ) -> int:
+        return SceneProposalRepository(connection).supersede_pending(
+            project_id=project_id,
+            source_ref=source_ref,
+            except_ids=except_ids,
+        )
+
+    def update_scene_proposal_status(
+        self,
+        project_id: str,
+        proposal_id: str,
+        proposal_status: SceneProposalStatus,
+    ) -> SceneProposal | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.scene_proposals.update_status(project_id, proposal_id, proposal_status)
+
+    def accept_scene_proposals(
+        self, project_id: str, proposal_ids: list[str]
+    ) -> tuple[list[SceneContract], list[SceneProposal]]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return accept_scene_proposals(
+                uow.connection, project_id=project_id, proposal_ids=proposal_ids
+            )
+
+    # ------------------------------------------------------------------
+    # Manuscript chapters
+    # ------------------------------------------------------------------
+
+    def list_manuscript_chapters(self, project_id: str) -> list[ManuscriptChapter]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.manuscripts.list_chapters(project_id)
+
+    def create_manuscript_chapter(
+        self, project_id: str, chapter: ManuscriptChapterCreate
+    ) -> ManuscriptChapter:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.manuscripts.create_chapter(project_id, chapter)
+
+    def update_manuscript_chapter(
+        self, project_id: str, chapter_id: str, chapter: ManuscriptChapterUpdate
+    ) -> ManuscriptChapter | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.manuscripts.update_chapter(project_id, chapter_id, chapter)
+
+    def delete_manuscript_chapter(self, project_id: str, chapter_id: str) -> bool:
+        """Delete a chapter and detach its contracts inside one transaction."""
+        with SqliteUnitOfWork(self.database_path) as uow:
+            deleted = uow.manuscripts.delete_chapter(project_id, chapter_id)
+            if deleted:
+                uow.scenes.clear_chapter_reference(project_id, chapter_id)
+        return deleted
+
+    # ------------------------------------------------------------------
+    # Manuscript proposals / scenes / revisions
+    # ------------------------------------------------------------------
+
+    def list_manuscript_proposals(self, project_id: str) -> list[ManuscriptProposal]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.manuscripts.list_proposals(project_id)
+
+    def create_manuscript_proposal(
+        self, project_id: str, proposal: ManuscriptProposalCreate
+    ) -> ManuscriptProposal:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.manuscripts.create_proposal(project_id, proposal)
+
+    def get_manuscript_proposal(
+        self, project_id: str, proposal_id: str
+    ) -> ManuscriptProposal | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.manuscripts.get_proposal(project_id, proposal_id)
+
+    def update_manuscript_proposal_status(
+        self,
+        project_id: str,
+        proposal_id: str,
+        proposal_status: ManuscriptProposalStatus,
+    ) -> ManuscriptProposal | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.manuscripts.update_proposal_status(project_id, proposal_id, proposal_status)
+
+    def list_manuscript_scenes(self, project_id: str) -> list[ManuscriptScene]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.manuscripts.list_scenes(project_id)
+
+    def get_manuscript_scene(self, project_id: str, scene_id: str) -> ManuscriptScene | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.manuscripts.get_scene(project_id, scene_id)
+
+    def list_manuscript_revisions(self, project_id: str) -> list[ManuscriptRevision]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.manuscripts.list_revisions(project_id)
+
+    def get_manuscript_revision(
+        self, project_id: str, revision_id: str
+    ) -> ManuscriptRevision | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.manuscripts.get_revision(project_id, revision_id)
+
+    def accept_manuscript_proposal(
+        self, project_id: str, proposal_id: str
+    ) -> ManuscriptScene | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return accept_manuscript_proposal(
+                uow.connection, project_id=project_id, proposal_id=proposal_id
+            )
+
+    def restore_manuscript_revision(
+        self, project_id: str, revision_id: str
+    ) -> ManuscriptScene | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return restore_manuscript_revision(
+                uow.connection, project_id=project_id, revision_id=revision_id
+            )
+
+    def update_manuscript_scene(
+        self, project_id: str, scene_id: str, update: ManuscriptSceneUpdate
+    ) -> ManuscriptScene | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return update_manuscript_scene(
+                uow.connection, project_id=project_id, scene_id=scene_id, update=update
+            )
+
+    # ------------------------------------------------------------------
+    # Memory records
+    # ------------------------------------------------------------------
+
+    def list_memory_records(self, project_id: str) -> list[MemoryRecord]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.memory.list(project_id)
+
+    def create_memory_record(
+        self,
+        project_id: str,
+        record: MemoryRecordCreate,
+        connection: sqlite3.Connection | None = None,
+    ) -> MemoryRecord:
+        if connection is not None:
+            return MemoryRepository(connection).create(project_id, record)
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.memory.create(project_id, record)
+
+    def update_memory_record(
+        self, project_id: str, record_id: str, record: MemoryRecordUpdate
+    ) -> MemoryRecord | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.memory.update(project_id, record_id, record)
+
+    def delete_memory_record(self, project_id: str, record_id: str) -> bool:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.memory.delete(project_id, record_id)
+
+    # ------------------------------------------------------------------
+    # Review records: write-back proposals and reference suggestions
+    # ------------------------------------------------------------------
+
+    def list_writeback_proposals(self, project_id: str) -> list[WritebackProposal]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.review.list_writebacks(project_id)
+
+    def get_writeback_proposal(
+        self,
+        project_id: str,
+        proposal_id: str,
+        connection: sqlite3.Connection | None = None,
+    ) -> WritebackProposal | None:
+        if connection is not None:
+            return ReviewRepository(connection).get_writeback(project_id, proposal_id)
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.review.get_writeback(project_id, proposal_id)
+
+    def create_writeback_proposal(
+        self, project_id: str, proposal: WritebackProposalCreate
+    ) -> WritebackProposal:
+        created_list = self.create_writeback_proposals(project_id, [proposal])
+        return created_list[0]
+
+    def create_writeback_proposals(
+        self,
+        project_id: str,
+        proposals: list[WritebackProposalCreate],
+        connection: sqlite3.Connection | None = None,
+    ) -> list[WritebackProposal]:
+        if connection is not None:
+            return ReviewRepository(connection).create_writeback_batch(project_id, proposals)
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.review.create_writeback_batch(project_id, proposals)
+
+    def supersede_pending_writebacks_for_target(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        project_id: str,
+        keep_proposal_id: str,
+        target_record_id: str,
+        reviewed_at: str,
+    ) -> int:
+        return ReviewRepository(connection).supersede_pending_for_target(
+            project_id=project_id,
+            keep_proposal_id=keep_proposal_id,
+            target_record_id=target_record_id,
+            reviewed_at=reviewed_at,
+        )
+
+    def supersede_pending_writebacks_for_source(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        project_id: str,
+        source_ref: str,
+    ) -> int:
+        return ReviewRepository(connection).supersede_pending_for_source(
+            project_id=project_id,
+            source_ref=source_ref,
+        )
+
+    def update_writeback_proposal_status(
+        self,
+        project_id: str,
+        proposal_id: str,
+        proposal_status: WritebackProposalStatus,
+    ) -> WritebackProposal | None:
+        if proposal_status == "accepted":
+            return self.accept_writeback_proposal(project_id, proposal_id)
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.review.update_writeback_status(project_id, proposal_id, proposal_status)
+
+    def accept_writeback_proposal(
+        self, project_id: str, proposal_id: str
+    ) -> WritebackProposal | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return accept_writeback_proposal(
+                uow.connection, project_id=project_id, proposal_id=proposal_id
+            )
+
+    def list_reference_suggestions(self, project_id: str) -> list[ReferenceSuggestion]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.review.list_references(project_id)
+
+    def get_reference_suggestion(
+        self, project_id: str, suggestion_id: str
+    ) -> ReferenceSuggestion | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.review.get_reference(project_id, suggestion_id)
+
+    def create_reference_suggestion(
+        self, project_id: str, suggestion: ReferenceSuggestionCreate
+    ) -> ReferenceSuggestion:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.review.create_reference(project_id, suggestion)
+
+    def update_reference_suggestion_status(
+        self,
+        project_id: str,
+        suggestion_id: str,
+        suggestion_status: ReferenceSuggestionStatus,
+    ) -> ReferenceSuggestion | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.review.update_reference_status(project_id, suggestion_id, suggestion_status)
+
+    # ------------------------------------------------------------------
+    # Outbox jobs
+    # ------------------------------------------------------------------
+
+    def insert_outbox_job(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        project_id: str,
+        job_type: str,
+        aggregate_type: str,
+        aggregate_id: str,
+        payload: dict,
+        idempotency_key: str,
+    ) -> str:
+        """Insert a job inside the caller's transaction (legacy entry point)."""
+        return OutboxRepository(connection).insert(
+            project_id=project_id,
+            job_type=job_type,
+            aggregate_type=aggregate_type,
+            aggregate_id=aggregate_id,
+            payload=payload,
+            idempotency_key=idempotency_key,
+        )
+
+    def enqueue_manuscript_revision_index_job(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        revision: ManuscriptRevision,
+    ) -> str:
+        """Enqueue the wiki index job inside the caller's transaction."""
+        return enqueue_manuscript_revision_index_job(connection, revision=revision)
+
+    def enqueue_manuscript_revision_analysis_jobs(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        revision: ManuscriptRevision,
+    ) -> tuple[str, str]:
+        """Enqueue both analysis jobs inside the caller's transaction."""
+        return enqueue_manuscript_revision_analysis_jobs(connection, revision=revision)
+
+    def get_outbox_job(self, project_id: str, job_id: str) -> OutboxJob | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.outbox.get(project_id, job_id)
+
+    def list_outbox_jobs(
+        self,
+        project_id: str,
+        job_status: OutboxJobStatus | None = None,
+        limit: int = 100,
+    ) -> list[OutboxJob]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.outbox.list_jobs(project_id, job_status, limit)
+
+    def transition_outbox_job(
+        self,
+        project_id: str,
+        job_id: str,
+        *,
+        job_status: OutboxJobStatus,
+        error: str | None = None,
+    ) -> OutboxJob | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.outbox.transition(project_id, job_id, job_status=job_status, error=error)
+
+    # ------------------------------------------------------------------
+    # Analysis runs (P1-04)
+    # ------------------------------------------------------------------
+
+    def get_analysis_run(
+        self,
+        project_id: str,
+        source_ref: str,
+        processor: str,
+        input_hash: str | None = None,
+    ):
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.analysis.get(project_id, source_ref, processor, input_hash)
+
+    def list_analysis_runs(self, project_id: str, limit: int = 100):
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.analysis.list_runs(project_id, limit)
+
+    def record_analysis_run(
+        self,
+        connection: sqlite3.Connection,
+        *,
+        project_id: str,
+        source_ref: str,
+        processor: str,
+        input_hash: str,
+        status: str,
+        result_json: dict,
+    ):
+        """Record a run inside the caller's transaction (legacy entry point)."""
+        return AnalysisRepository(connection).record(
+            project_id=project_id,
+            source_ref=source_ref,
+            processor=processor,
+            input_hash=input_hash,
+            status=status,
+            result_json=result_json,
+        )
