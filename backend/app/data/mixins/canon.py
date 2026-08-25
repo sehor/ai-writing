@@ -1,42 +1,12 @@
-from pathlib import Path
-from re import sub
-from contextlib import contextmanager
-from datetime import UTC, datetime
-import json
 import sqlite3
-from typing import Iterator, Protocol
 
 from app.models import (
     CanonEntity,
     CanonEntityCreate,
     CanonEntityUpdate,
-    MemoryRecord,
-    MemoryRecordCreate,
-    MemoryRecordUpdate,
-    ManuscriptChapter,
-    ManuscriptChapterCreate,
-    ManuscriptChapterUpdate,
-    ManuscriptProposal,
-    ManuscriptProposalCreate,
-    ManuscriptProposalStatus,
-    ManuscriptRevision,
-    ManuscriptScene,
-    ManuscriptSceneUpdate,
-    ProjectCreate,
-    ProjectSummary,
-    ReferenceSuggestion,
-    ReferenceSuggestionCreate,
-    ReferenceSuggestionStatus,
-    SceneContract,
-    SceneContractCreate,
-    SceneContractUpdate,
-    SnowflakeArtifact,
-    WorkflowAgentTrace,
-    WritebackProposal,
-    WritebackProposalCreate,
-    WritebackProposalStatus,
 )
-from app.data.helpers import ensure_column, make_record_id, utc_now
+from app.data.helpers import make_record_id
+
 
 def canon_entity_from_row(row: sqlite3.Row) -> CanonEntity:
     return CanonEntity(
@@ -50,7 +20,11 @@ def canon_entity_from_row(row: sqlite3.Row) -> CanonEntity:
         last_seen=row["last_seen"],
         timeline_notes=row["timeline_notes"],
     )
-def canon_entity_to_params(entity: CanonEntity) -> tuple[str, str, str, str, str, str, str, str, str]:
+
+
+def canon_entity_to_params(
+    entity: CanonEntity,
+) -> tuple[str, str, str, str, str, str, str, str, str]:
     return (
         entity.id,
         entity.project_id,
@@ -62,6 +36,7 @@ def canon_entity_to_params(entity: CanonEntity) -> tuple[str, str, str, str, str
         entity.last_seen,
         entity.timeline_notes,
     )
+
 
 class CanonDataMixin:
     def list_canon_entities(self, project_id: str) -> list[CanonEntity]:
@@ -77,6 +52,7 @@ class CanonDataMixin:
                 (project_id,),
             ).fetchall()
         return [canon_entity_from_row(row) for row in rows]
+
     def create_canon_entity(
         self,
         project_id: str,
@@ -111,6 +87,7 @@ class CanonDataMixin:
             canon_entity_to_params(created),
         )
         return created
+
     def update_canon_entity(
         self, project_id: str, entity_id: str, entity: CanonEntityUpdate
     ) -> CanonEntity | None:
@@ -145,6 +122,7 @@ class CanonDataMixin:
                 ),
             )
         return updated if cursor.rowcount else None
+
     def delete_canon_entity(self, project_id: str, entity_id: str) -> bool:
         with self.connect() as connection:
             cursor = connection.execute(

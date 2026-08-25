@@ -1,42 +1,9 @@
-from pathlib import Path
-from re import sub
-from contextlib import contextmanager
-from datetime import UTC, datetime
-import json
 import sqlite3
-from typing import Iterator, Protocol
 
 from app.models import (
-    CanonEntity,
-    CanonEntityCreate,
-    CanonEntityUpdate,
-    MemoryRecord,
-    MemoryRecordCreate,
-    MemoryRecordUpdate,
-    ManuscriptChapter,
-    ManuscriptChapterCreate,
-    ManuscriptChapterUpdate,
-    ManuscriptProposal,
-    ManuscriptProposalCreate,
-    ManuscriptProposalStatus,
-    ManuscriptRevision,
-    ManuscriptScene,
-    ManuscriptSceneUpdate,
-    ProjectCreate,
-    ProjectSummary,
-    ReferenceSuggestion,
-    ReferenceSuggestionCreate,
-    ReferenceSuggestionStatus,
-    SceneContract,
-    SceneContractCreate,
-    SceneContractUpdate,
     SnowflakeArtifact,
-    WorkflowAgentTrace,
-    WritebackProposal,
-    WritebackProposalCreate,
-    WritebackProposalStatus,
 )
-from app.data.helpers import ensure_column, make_record_id, utc_now
+
 
 def artifact_from_row(row: sqlite3.Row) -> SnowflakeArtifact:
     return SnowflakeArtifact(
@@ -45,6 +12,7 @@ def artifact_from_row(row: sqlite3.Row) -> SnowflakeArtifact:
         artifact=row["artifact"],
         content=row["content"],
     )
+
 
 class ArtifactsDataMixin:
     def list_snowflake_artifacts(self, project_id: str) -> list[SnowflakeArtifact]:
@@ -59,9 +27,8 @@ class ArtifactsDataMixin:
                 (project_id,),
             ).fetchall()
         return [artifact_from_row(row) for row in rows]
-    def get_snowflake_artifact(
-        self, project_id: str, step_number: int
-    ) -> SnowflakeArtifact | None:
+
+    def get_snowflake_artifact(self, project_id: str, step_number: int) -> SnowflakeArtifact | None:
         with self.connect() as connection:
             row = connection.execute(
                 """
@@ -72,6 +39,7 @@ class ArtifactsDataMixin:
                 (project_id, step_number),
             ).fetchone()
         return artifact_from_row(row) if row else None
+
     def save_snowflake_artifact(self, artifact: SnowflakeArtifact) -> SnowflakeArtifact:
         with self.connect() as connection:
             connection.execute(

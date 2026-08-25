@@ -117,6 +117,7 @@ class DeepSeekDraftGenerator:
     def client(self) -> Any:
         if self._client is None:
             from app.agents.client_factory import get_openai_client
+
             self._client = get_openai_client(
                 api_key=self.settings.api_key,
                 base_url=self.settings.base_url,

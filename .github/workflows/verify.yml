@@ -1,0 +1,79 @@
+name: verify
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  backend:
+    name: Backend (compileall, unittest, ruff)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Byte-compile backend sources
+        run: python -m compileall backend/app
+
+      - name: Install ruff
+        run: python -m pip install ruff==0.16.4
+
+      - name: Ruff lint
+        run: |
+          ruff check backend
+          ruff format --check backend
+
+      - name: Unit tests
+        working-directory: backend
+        run: python -m unittest discover -s tests -v
+
+  frontend:
+    name: Frontend (lint, test, build)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+  repository:
+    name: Repository hygiene (git diff --check)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Check changed lines for whitespace errors
+        run: |
+          if [ -n "${{ github.event.pull_request.base.sha }}" ]; then
+            git diff --check "${{ github.event.pull_request.base.sha }}..HEAD"
+          else
+            git diff --check "HEAD~1..HEAD"
+          fi

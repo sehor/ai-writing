@@ -1,5 +1,4 @@
 from app.agents.deepseek_workflow import DeepSeekSettings
-from app.agents.writing_workflow import WorkflowNotConfiguredError
 from app.cognition.interfaces import ContextPacket, ProjectCognitionSnapshot, WritingScope
 from app.models import (
     CanonEntity,
@@ -105,6 +104,7 @@ def build_provider_reference_suggestion(
     cognition_context: list[ContextPacket],
 ) -> ReferenceSuggestionCreate:
     from app.agents.client_factory import get_openai_client
+
     client = get_openai_client(api_key=settings.api_key, base_url=settings.base_url)
     response = client.chat.completions.create(
         model=settings.model,
@@ -189,15 +189,22 @@ def describe_scope(
                 ]
             )
     if request.scope_type == "canon_entity" and request.scope_ref:
-        entity = next((item for item in snapshot.canon_entities if item.id == request.scope_ref), None)
+        entity = next(
+            (item for item in snapshot.canon_entities if item.id == request.scope_ref), None
+        )
         if entity:
             return f"{entity.entity_type}: {entity.name}\nState: {entity.current_state}\nConstraints: {entity.constraints}"
     if request.scope_type == "memory_record" and request.scope_ref:
-        record = next((item for item in snapshot.memory_records if item.id == request.scope_ref), None)
+        record = next(
+            (item for item in snapshot.memory_records if item.id == request.scope_ref), None
+        )
         if record:
             return f"{record.record_type}: {record.title}\nScope: {record.scope}\n{truncate(record.content, 2000)}"
     if request.scope_type == "manuscript_scene" and request.scope_ref:
-        scene = next((item for item in snapshot.manuscript_scenes if item.scene_id == request.scope_ref), None)
+        scene = next(
+            (item for item in snapshot.manuscript_scenes if item.scene_id == request.scope_ref),
+            None,
+        )
         if scene:
             return f"{scene.title} v{scene.version}\n{truncate(scene.content, 2000)}"
     return "Project-level reference generation."
@@ -258,7 +265,9 @@ def build_canon_warnings(
 ) -> list[str]:
     warnings: list[str] = []
     if not canon_entities:
-        warnings.append("No Canon entities are recorded; keep all new facts tentative until reviewed.")
+        warnings.append(
+            "No Canon entities are recorded; keep all new facts tentative until reviewed."
+        )
     if request.scope_type == "scene" and request.scope_ref:
         scene = next((item for item in scenes if item.id == request.scope_ref), None)
         if scene and not scene.required_canon:
@@ -270,7 +279,9 @@ def build_canon_warnings(
 
 def build_style_notes(memory_records: list[MemoryRecord]) -> list[str]:
     if not memory_records:
-        return ["No Memory / Style records are available; keep prose samples neutral and provisional."]
+        return [
+            "No Memory / Style records are available; keep prose samples neutral and provisional."
+        ]
     return [
         f"Use `{record.title}` as {record.record_type} guidance for scope `{record.scope or 'global'}`."
         for record in memory_records[:4]
@@ -281,9 +292,13 @@ def build_graph_warnings(cognition_context: list[ContextPacket]) -> list[str]:
     warnings: list[str] = []
     for packet in cognition_context:
         if packet.module == "llm_wiki" and "## Structure Notes" in packet.content:
-            warnings.append("Review LLM Wiki structure notes for unresolved threads and isolated entities.")
+            warnings.append(
+                "Review LLM Wiki structure notes for unresolved threads and isolated entities."
+            )
         if packet.module == "memplace":
-            warnings.append("Review Memplace continuity context before turning reference text into manuscript.")
+            warnings.append(
+                "Review Memplace continuity context before turning reference text into manuscript."
+            )
     return warnings
 
 
@@ -319,7 +334,5 @@ def reference_type_title(suggestion_type: str) -> str:
 
 
 def parse_proposals(content: str) -> list[str]:
-    lines = content.splitlines()
-    proposals = []
-    current: list[str] = []
+    # Scaffold: proposal parsing is not implemented yet.
     return []

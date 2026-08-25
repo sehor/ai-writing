@@ -97,15 +97,11 @@ class DataIntegrityTests(unittest.TestCase):
                 ),
             )
 
-            accepted = store.update_writeback_proposal_status(
-                project.id, proposal.id, "accepted"
-            )
+            accepted = store.update_writeback_proposal_status(project.id, proposal.id, "accepted")
 
             self.assertEqual(accepted.status, "accepted")
             with self.assertRaises(ValueError):
-                store.update_writeback_proposal_status(
-                    project.id, proposal.id, "rejected"
-                )
+                store.update_writeback_proposal_status(project.id, proposal.id, "rejected")
             self.assertEqual(
                 store.get_writeback_proposal(project.id, proposal.id).status,
                 "accepted",
@@ -144,9 +140,7 @@ class DataIntegrityTests(unittest.TestCase):
                 )
 
             with self.assertRaises(sqlite3.IntegrityError):
-                store.update_writeback_proposal_status(
-                    project.id, proposal.id, "accepted"
-                )
+                store.update_writeback_proposal_status(project.id, proposal.id, "accepted")
 
             self.assertEqual(store.list_memory_records(project.id), [])
             self.assertEqual(
@@ -171,9 +165,7 @@ class DataIntegrityTests(unittest.TestCase):
                     },
                 ),
             )
-            store.update_writeback_proposal_status(
-                project.id, proposal.id, "accepted"
-            )
+            store.update_writeback_proposal_status(project.id, proposal.id, "accepted")
             app.dependency_overrides[get_data_store] = lambda: store
             try:
                 with TestClient(app) as client:
@@ -195,9 +187,7 @@ class DataIntegrityTests(unittest.TestCase):
             store = SQLiteWritingDataStore(Path(temp_dir) / "app.db")
             store.init()
             project = store.create_project(ProjectCreate(title="Scene", premise="One."))
-            other_project = store.create_project(
-                ProjectCreate(title="Other Scene", premise="Two.")
-            )
+            other_project = store.create_project(ProjectCreate(title="Other Scene", premise="Two."))
             other_chapter = store.create_manuscript_chapter(
                 other_project.id,
                 ManuscriptChapterCreate(sequence=1, title="Other Chapter"),

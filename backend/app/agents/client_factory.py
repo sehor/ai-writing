@@ -1,6 +1,7 @@
 from typing import Any
 from app.agents.writing_workflow import WorkflowNotConfiguredError
 
+
 def get_openai_client(api_key: str, base_url: str | None = None) -> Any:
     try:
         from openai import OpenAI

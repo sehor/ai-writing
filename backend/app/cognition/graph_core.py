@@ -9,6 +9,7 @@ from app.models import (
 )
 from app.text_utils import truncate
 
+
 def build_graph_nodes(
     project_id: str,
     project_title: str,
@@ -63,6 +64,7 @@ def build_graph_nodes(
     )
     return nodes
 
+
 def build_graph_edges(
     project_id: str,
     artifacts: list[SnowflakeArtifact],
@@ -73,48 +75,95 @@ def build_graph_edges(
     project_node = f"project:{project_id}"
     edges: list[GraphEdge] = []
     edges.extend(
-        GraphEdge(source=project_node, target=f"artifact:{artifact.step_number}", edge_type="contains", label="Snowflake")
+        GraphEdge(
+            source=project_node,
+            target=f"artifact:{artifact.step_number}",
+            edge_type="contains",
+            label="Snowflake",
+        )
         for artifact in artifacts
     )
     edges.extend(
-        GraphEdge(source=project_node, target=f"canon:{entity.id}", edge_type="contains", label=entity.entity_type)
+        GraphEdge(
+            source=project_node,
+            target=f"canon:{entity.id}",
+            edge_type="contains",
+            label=entity.entity_type,
+        )
         for entity in canon_entities
     )
     edges.extend(
-        GraphEdge(source=project_node, target=f"scene:{scene.id}", edge_type="contains", label="Scene contract")
+        GraphEdge(
+            source=project_node,
+            target=f"scene:{scene.id}",
+            edge_type="contains",
+            label="Scene contract",
+        )
         for scene in scenes
     )
     edges.extend(
-        GraphEdge(source=project_node, target=f"memory:{record.id}", edge_type="contains", label=record.record_type)
+        GraphEdge(
+            source=project_node,
+            target=f"memory:{record.id}",
+            edge_type="contains",
+            label=record.record_type,
+        )
         for record in memory_records
     )
-    
+
     artifact_steps = {artifact.step_number for artifact in artifacts}
     edges.extend(
-        GraphEdge(source=f"scene:{scene.id}", target=f"artifact:{scene.source_artifact_step}", edge_type="depends_on", label="source artifact")
+        GraphEdge(
+            source=f"scene:{scene.id}",
+            target=f"artifact:{scene.source_artifact_step}",
+            edge_type="depends_on",
+            label="source artifact",
+        )
         for scene in scenes
         if scene.source_artifact_step in artifact_steps
     )
-    
+
     for scene in scenes:
         scene_text = searchable_scene_text(scene)
         for entity in canon_entities:
             if entity.name and entity.name.lower() in scene_text:
-                edges.append(GraphEdge(source=f"scene:{scene.id}", target=f"canon:{entity.id}", edge_type="references", label="mentions Canon"))
-                
+                edges.append(
+                    GraphEdge(
+                        source=f"scene:{scene.id}",
+                        target=f"canon:{entity.id}",
+                        edge_type="references",
+                        label="mentions Canon",
+                    )
+                )
+
     for record in memory_records:
         source_ref = record.source_ref.strip().lower()
         if not source_ref:
             continue
         for scene in scenes:
             if source_ref in scene.id.lower() or source_ref in scene.title.lower():
-                edges.append(GraphEdge(source=f"memory:{record.id}", target=f"scene:{scene.id}", edge_type="informs", label="source ref"))
+                edges.append(
+                    GraphEdge(
+                        source=f"memory:{record.id}",
+                        target=f"scene:{scene.id}",
+                        edge_type="informs",
+                        label="source ref",
+                    )
+                )
         for artifact in artifacts:
             artifact_ref = f"step {artifact.step_number}"
             if source_ref == artifact.artifact.lower() or source_ref == artifact_ref:
-                edges.append(GraphEdge(source=f"memory:{record.id}", target=f"artifact:{artifact.step_number}", edge_type="informs", label="source ref"))
-                
+                edges.append(
+                    GraphEdge(
+                        source=f"memory:{record.id}",
+                        target=f"artifact:{artifact.step_number}",
+                        edge_type="informs",
+                        label="source ref",
+                    )
+                )
+
     return dedupe_edges(edges)
+
 
 def build_graph_risks(
     artifacts: list[SnowflakeArtifact],
@@ -124,7 +173,7 @@ def build_graph_risks(
 ) -> list[GraphRisk]:
     risks: list[GraphRisk] = []
     artifact_steps = {artifact.step_number for artifact in artifacts}
-    
+
     if 8 in artifact_steps and not scenes:
         risks.append(
             GraphRisk(
@@ -135,7 +184,7 @@ def build_graph_risks(
                 source_id="artifact:8",
             )
         )
-        
+
     for scene in scenes:
         required_fields = [
             ("pov", "POV"),
@@ -164,7 +213,7 @@ def build_graph_risks(
                     source_id=f"scene:{scene.id}",
                 )
             )
-            
+
         if scene.source_artifact_step not in artifact_steps:
             risks.append(
                 GraphRisk(
@@ -185,14 +234,14 @@ def build_graph_risks(
                     source_id=f"scene:{scene.id}",
                 )
             )
-            
+
     referenced_canon_ids = {
         entity.id
         for scene in scenes
         for entity in canon_entities
         if entity.name and entity.name.lower() in searchable_scene_text(scene)
     }
-    
+
     for entity in canon_entities:
         if entity.id not in referenced_canon_ids and scenes:
             risks.append(
@@ -214,7 +263,7 @@ def build_graph_risks(
                     source_id=f"canon:{entity.id}",
                 )
             )
-            
+
     for record in memory_records:
         if not record.scope and not record.tags:
             risks.append(
@@ -226,8 +275,9 @@ def build_graph_risks(
                     source_id=f"memory:{record.id}",
                 )
             )
-            
+
     return risks
+
 
 def searchable_scene_text(scene: SceneContract) -> str:
     return " ".join(
@@ -243,6 +293,7 @@ def searchable_scene_text(scene: SceneContract) -> str:
             scene.open_threads,
         ]
     ).lower()
+
 
 def dedupe_edges(edges: list[GraphEdge]) -> list[GraphEdge]:
     seen: set[tuple[str, str, str, str]] = set()

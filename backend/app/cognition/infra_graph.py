@@ -2,17 +2,9 @@ from pathlib import Path
 
 from app.cognition.interfaces import ProjectCognitionSnapshot
 from app.models import (
-    CanonEntity,
     GraphAnalysisResponse,
     GraphAnalysisSummary,
-    GraphEdge,
-    GraphNode,
-    GraphRisk,
-    MemoryRecord,
-    SceneContract,
-    SnowflakeArtifact,
 )
-from app.text_utils import truncate
 from app.cognition.graph_core import build_graph_nodes, build_graph_edges, build_graph_risks
 
 
@@ -55,7 +47,9 @@ class LocalInfraGraphModule:
             warning_count=sum(1 for risk in risks if risk.severity == "warning"),
             unresolved_thread_count=sum(1 for scene in snapshot.scenes if scene.open_threads),
             canon_reference_count=sum(
-                1 for edge in edges if edge.edge_type == "references" and edge.target.startswith("canon:")
+                1
+                for edge in edges
+                if edge.edge_type == "references" and edge.target.startswith("canon:")
             ),
         )
         return GraphAnalysisResponse(
@@ -65,6 +59,3 @@ class LocalInfraGraphModule:
             edges=edges,
             risks=risks,
         )
-
-
-

@@ -24,20 +24,14 @@ class CognitionRegistry:
         snapshot: ProjectCognitionSnapshot,
         scope: WritingScope,
     ) -> list[ContextPacket]:
-        return [
-            module.prepare_context(snapshot, scope)
-            for module in self.modules
-        ]
+        return [module.prepare_context(snapshot, scope) for module in self.modules]
 
     def ingest_committed_content(
         self,
         snapshot: ProjectCognitionSnapshot,
         event: CommittedContentEvent,
     ) -> list[ModuleReport]:
-        return [
-            module.ingest_committed_content(snapshot, event)
-            for module in self.modules
-        ]
+        return [module.ingest_committed_content(snapshot, event) for module in self.modules]
 
 
 modules_root = Path(__file__).resolve().parent.parent.parent / "data" / "projects"

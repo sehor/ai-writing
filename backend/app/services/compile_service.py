@@ -83,8 +83,7 @@ def build_compile_context(
         for entity in canon_entities
     ]
     memory_lines = [
-        f"- {record.record_type}: {record.title} | {record.content}"
-        for record in memory_records
+        f"- {record.record_type}: {record.title} | {record.content}" for record in memory_records
     ]
     sections = [
         f"Project: {project_title}",
@@ -110,7 +109,9 @@ def build_compile_context(
     if memory_lines:
         sections.extend(["", "Memory / Style:", "\n".join(memory_lines)])
     if cognition_context:
-        sections.extend(["", "Cognition Module Context:", format_context_packets(cognition_context)])
+        sections.extend(
+            ["", "Cognition Module Context:", format_context_packets(cognition_context)]
+        )
     if llm_wiki_context and llm_wiki_context.evidence:
         sections.extend(
             [

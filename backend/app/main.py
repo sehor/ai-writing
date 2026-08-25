@@ -4,7 +4,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.data import data_store
-from app.routers import canon, graph, health, manuscript, memory, projects, references, scenes, snowflake, wiki, writeback
+from app.routers import (
+    canon,
+    graph,
+    health,
+    manuscript,
+    memory,
+    projects,
+    references,
+    scenes,
+    snowflake,
+    wiki,
+    writeback,
+)
 
 
 @asynccontextmanager

@@ -1,9 +1,9 @@
 from app.agents.deepseek_workflow import DeepSeekSettings
-from app.agents.writing_workflow import WorkflowNotConfiguredError
 
 
 def build_provider_scene_draft(settings: DeepSeekSettings, context: str) -> str:
     from app.agents.client_factory import get_openai_client
+
     client = get_openai_client(api_key=settings.api_key, base_url=settings.base_url)
     response = client.chat.completions.create(
         model=settings.model,

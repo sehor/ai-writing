@@ -1,45 +1,18 @@
-from pathlib import Path
-from re import sub
 from contextlib import contextmanager
-from datetime import UTC, datetime
-import json
 import sqlite3
-from typing import Iterator, Protocol
+from typing import Iterator
 
 from app.models import (
-    CanonEntity,
-    CanonEntityCreate,
-    CanonEntityUpdate,
-    MemoryRecord,
-    MemoryRecordCreate,
-    MemoryRecordUpdate,
-    ManuscriptChapter,
-    ManuscriptChapterCreate,
-    ManuscriptChapterUpdate,
-    ManuscriptProposal,
-    ManuscriptProposalCreate,
-    ManuscriptProposalStatus,
-    ManuscriptRevision,
-    ManuscriptScene,
-    ManuscriptSceneUpdate,
     ProjectCreate,
     ProjectSummary,
-    ReferenceSuggestion,
-    ReferenceSuggestionCreate,
-    ReferenceSuggestionStatus,
-    SceneContract,
-    SceneContractCreate,
-    SceneContractUpdate,
-    SnowflakeArtifact,
-    WorkflowAgentTrace,
-    WritebackProposal,
-    WritebackProposalCreate,
-    WritebackProposalStatus,
 )
-from app.data.helpers import ensure_column, make_record_id, utc_now
+from app.data.helpers import ensure_column, make_record_id
+
 
 def make_project_id(title: str, existing_ids: set[str]) -> str:
     return make_record_id(title, existing_ids)
+
+
 def project_from_row(row: sqlite3.Row) -> ProjectSummary:
     return ProjectSummary(
         id=row["id"],
@@ -47,6 +20,7 @@ def project_from_row(row: sqlite3.Row) -> ProjectSummary:
         premise=row["premise"],
         current_step=row["current_step"],
     )
+
 
 class ProjectsDataMixin:
     def init(self) -> None:
@@ -228,6 +202,7 @@ class ProjectsDataMixin:
                         1,
                     ),
                 )
+
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.database_path)
@@ -239,6 +214,7 @@ class ProjectsDataMixin:
                 yield connection
         finally:
             connection.close()
+
     def list_projects(self) -> list[ProjectSummary]:
         with self.connect() as connection:
             rows = connection.execute(
@@ -249,6 +225,7 @@ class ProjectsDataMixin:
                 """
             ).fetchall()
         return [project_from_row(row) for row in rows]
+
     def create_project(self, project: ProjectCreate) -> ProjectSummary:
         with self.connect() as connection:
             existing_ids = {
@@ -273,6 +250,7 @@ class ProjectsDataMixin:
                 ),
             )
         return created
+
     def get_project(self, project_id: str) -> ProjectSummary | None:
         with self.connect() as connection:
             row = connection.execute(
@@ -284,6 +262,7 @@ class ProjectsDataMixin:
                 (project_id,),
             ).fetchone()
         return project_from_row(row) if row else None
+
     def project_exists(self, project_id: str) -> bool:
         with self.connect() as connection:
             row = connection.execute(
@@ -291,6 +270,7 @@ class ProjectsDataMixin:
                 (project_id,),
             ).fetchone()
         return row is not None
+
     def advance_project_current_step(
         self, project_id: str, completed_step: int
     ) -> ProjectSummary | None:

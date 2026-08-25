@@ -175,15 +175,9 @@ class LlmWikiIntegrationTests(unittest.TestCase):
             finally:
                 app.dependency_overrides.clear()
 
-        planned = [
-            document
-            for document in wiki.documents
-            if document.knowledge_class == "planned"
-        ]
+        planned = [document for document in wiki.documents if document.knowledge_class == "planned"]
         observed = [
-            document
-            for document in wiki.documents
-            if document.knowledge_class == "observed"
+            document for document in wiki.documents if document.knowledge_class == "observed"
         ]
         self.assertEqual({document.snowflake_step for document in planned}, {1, 2})
         self.assertEqual(len(observed), 1)

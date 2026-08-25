@@ -106,21 +106,9 @@ class LlmWikiInterfaceTests(unittest.TestCase):
                 )
             )
 
-            planned_path = (
-                Path(temp_dir)
-                / "novel"
-                / "modules"
-                / "llm_wiki"
-                / "sources"
-                / "planned"
-            )
+            planned_path = Path(temp_dir) / "novel" / "modules" / "llm_wiki" / "sources" / "planned"
             observed_path = (
-                Path(temp_dir)
-                / "novel"
-                / "modules"
-                / "llm_wiki"
-                / "sources"
-                / "observed"
+                Path(temp_dir) / "novel" / "modules" / "llm_wiki" / "sources" / "observed"
             )
             self.assertTrue(any(planned_path.glob("*.json")))
             self.assertTrue(any(observed_path.glob("*.json")))
@@ -149,14 +137,7 @@ class LlmWikiInterfaceTests(unittest.TestCase):
                 )
             )
 
-            markdown_dir = (
-                Path(temp_dir)
-                / "novel"
-                / "modules"
-                / "llm_wiki"
-                / "sources"
-                / "planned"
-            )
+            markdown_dir = Path(temp_dir) / "novel" / "modules" / "llm_wiki" / "sources" / "planned"
             markdown_files = list(markdown_dir.glob("*.md"))
             self.assertEqual(len(markdown_files), 1)
             markdown_path = markdown_files[0]
@@ -182,14 +163,7 @@ class LlmWikiInterfaceTests(unittest.TestCase):
                 )
             )
 
-            concepts_dir = (
-                Path(temp_dir)
-                / "novel"
-                / "modules"
-                / "llm_wiki"
-                / "wiki"
-                / "concepts"
-            )
+            concepts_dir = Path(temp_dir) / "novel" / "modules" / "llm_wiki" / "wiki" / "concepts"
             pages = list(concepts_dir.glob("*.md"))
             self.assertEqual(len(pages), 1)
             content = pages[0].read_text(encoding="utf-8")
@@ -304,9 +278,7 @@ class LlmWikiInterfaceTests(unittest.TestCase):
                 )
             )
 
-            result = wiki.retrieve_context(
-                WikiContextQuery(project_id="novel", snowflake_step=2)
-            )
+            result = wiki.retrieve_context(WikiContextQuery(project_id="novel", snowflake_step=2))
 
             self.assertEqual(
                 result.evidence[0].excerpt,

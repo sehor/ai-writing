@@ -2,7 +2,6 @@ import json
 from typing import Any
 
 from app.agents.deepseek_workflow import DeepSeekSettings
-from app.agents.writing_workflow import WorkflowNotConfiguredError
 from app.models import (
     CanonEntity,
     CanonEntityCreate,
@@ -20,6 +19,7 @@ def build_provider_writeback_proposals(
     memory_records: list[MemoryRecord],
 ) -> list[WritebackProposalCreate]:
     from app.agents.client_factory import get_openai_client
+
     client = get_openai_client(api_key=settings.api_key, base_url=settings.base_url)
     response = client.chat.completions.create(
         model=settings.model,
@@ -77,14 +77,14 @@ def build_provider_context(
     canon_entities: list[CanonEntity],
     memory_records: list[MemoryRecord],
 ) -> str:
-    existing_canon = "\n".join(
-        f"- {entity.entity_type}: {entity.name}"
-        for entity in canon_entities[:40]
-    ) or "No Canon entities recorded."
-    existing_memory = "\n".join(
-        f"- {record.record_type}: {record.title}"
-        for record in memory_records[:40]
-    ) or "No Memory records recorded."
+    existing_canon = (
+        "\n".join(f"- {entity.entity_type}: {entity.name}" for entity in canon_entities[:40])
+        or "No Canon entities recorded."
+    )
+    existing_memory = (
+        "\n".join(f"- {record.record_type}: {record.title}" for record in memory_records[:40])
+        or "No Memory records recorded."
+    )
     return "\n".join(
         [
             f"Source ref: manuscript_revision:{revision.id}",

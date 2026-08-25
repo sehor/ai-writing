@@ -1,5 +1,6 @@
 import re
 
+
 def truncate(value: str, limit: int = 2000, *, collapse_whitespace: bool = False) -> str:
     """
     Truncates a string to the given limit.
@@ -11,6 +12,7 @@ def truncate(value: str, limit: int = 2000, *, collapse_whitespace: bool = False
     if len(text) <= limit:
         return text
     return f"{text[: limit - 3].rstrip()}..."
+
 
 def one_line(value: str, limit: int = 120, fallback: str = "") -> str:
     """
@@ -25,6 +27,7 @@ def one_line(value: str, limit: int = 120, fallback: str = "") -> str:
         return text
     return f"{text[: limit - 3]}..."
 
+
 def slugify(value: str, fallback: str = "page") -> str:
     """
     Creates a slug by replacing non-alphanumeric characters with hyphens.
@@ -32,12 +35,14 @@ def slugify(value: str, fallback: str = "page") -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
     return slug or fallback
 
+
 def safe_slug(value: str, fallback: str = "scene") -> str:
     """
     Creates a simple slug, stripping out non-alphanumeric characters.
     """
     cleaned = "".join(char.lower() if char.isalnum() else "-" for char in value)
     return "-".join(part for part in cleaned.split("-") if part) or fallback
+
 
 def slug_with_id(label: str, record_id: str) -> str:
     """

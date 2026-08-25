@@ -86,7 +86,7 @@ class WikiExportTests(unittest.TestCase):
                 ),
             )
             store.accept_manuscript_proposal(project.id, proposal.id)
-            revision = store.list_manuscript_revisions(project.id)[0]
+            store.list_manuscript_revisions(project.id)
 
             export = build_wiki_export(
                 project,
@@ -186,11 +186,7 @@ class WikiExportTests(unittest.TestCase):
             llm_wiki_path = root / "projects" / project.id / "modules" / "llm_wiki"
             self.assertFalse(llm_wiki_path.exists())
             self.assertTrue((memplace_path / "prose_samples").is_dir())
-            proposals = [
-                proposal
-                for report in reports
-                for proposal in report.writeback_proposals
-            ]
+            proposals = [proposal for report in reports for proposal in report.writeback_proposals]
             self.assertEqual({proposal.target for proposal in proposals}, {"memory_record"})
 
 

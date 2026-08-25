@@ -203,13 +203,23 @@ Open the frontend at `http://127.0.0.1:5173`.
 
 ## Verification
 
-Use these checks after relevant changes:
+Use these checks after relevant changes (CI runs the same gates via [.github/workflows/verify.yml](.github/workflows/verify.yml)):
 
 ```bash
-python -m compileall backend\app
+# Backend
+python -m compileall backend/app
+pip install ruff==0.16.4
+ruff check backend
+ruff format --check backend
 cd backend
-uv run --with-requirements requirements.txt python -m unittest discover -s tests
+python -m unittest discover -s tests
+cd ..
+
+# Frontend
 cd frontend
+pnpm install --frozen-lockfile
+pnpm lint
+pnpm test
 pnpm build
 ```
 

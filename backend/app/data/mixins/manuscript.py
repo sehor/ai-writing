@@ -1,18 +1,7 @@
-from pathlib import Path
-from re import sub
-from contextlib import contextmanager
-from datetime import UTC, datetime
 import json
 import sqlite3
-from typing import Iterator, Protocol
 
 from app.models import (
-    CanonEntity,
-    CanonEntityCreate,
-    CanonEntityUpdate,
-    MemoryRecord,
-    MemoryRecordCreate,
-    MemoryRecordUpdate,
     ManuscriptChapter,
     ManuscriptChapterCreate,
     ManuscriptChapterUpdate,
@@ -22,21 +11,9 @@ from app.models import (
     ManuscriptRevision,
     ManuscriptScene,
     ManuscriptSceneUpdate,
-    ProjectCreate,
-    ProjectSummary,
-    ReferenceSuggestion,
-    ReferenceSuggestionCreate,
-    ReferenceSuggestionStatus,
-    SceneContract,
-    SceneContractCreate,
-    SceneContractUpdate,
-    SnowflakeArtifact,
-    WorkflowAgentTrace,
-    WritebackProposal,
-    WritebackProposalCreate,
-    WritebackProposalStatus,
 )
-from app.data.helpers import ensure_column, make_record_id, utc_now
+from app.data.helpers import make_record_id, utc_now
+
 
 def manuscript_chapter_from_row(row: sqlite3.Row) -> ManuscriptChapter:
     return ManuscriptChapter(
@@ -46,6 +23,8 @@ def manuscript_chapter_from_row(row: sqlite3.Row) -> ManuscriptChapter:
         title=row["title"],
         summary=row["summary"],
     )
+
+
 def manuscript_chapter_to_params(
     chapter: ManuscriptChapter,
 ) -> tuple[str, str, int, str, str]:
@@ -56,6 +35,8 @@ def manuscript_chapter_to_params(
         chapter.title,
         chapter.summary,
     )
+
+
 def manuscript_proposal_from_row(row: sqlite3.Row) -> ManuscriptProposal:
     return ManuscriptProposal(
         id=row["id"],
@@ -70,6 +51,8 @@ def manuscript_proposal_from_row(row: sqlite3.Row) -> ManuscriptProposal:
         created_at=row["created_at"],
         reviewed_at=row["reviewed_at"],
     )
+
+
 def manuscript_proposal_to_params(
     proposal: ManuscriptProposal,
 ) -> tuple[str, str, str, str, str, str, str, str, str, str, str]:
@@ -86,6 +69,8 @@ def manuscript_proposal_to_params(
         proposal.created_at,
         proposal.reviewed_at,
     )
+
+
 def manuscript_scene_from_row(row: sqlite3.Row) -> ManuscriptScene:
     return ManuscriptScene(
         id=row["id"],
@@ -97,6 +82,8 @@ def manuscript_scene_from_row(row: sqlite3.Row) -> ManuscriptScene:
         version=row["version"],
         accepted_at=row["accepted_at"],
     )
+
+
 def manuscript_scene_to_params(
     scene: ManuscriptScene,
 ) -> tuple[str, str, str, str, str, str, int, str]:
@@ -110,6 +97,8 @@ def manuscript_scene_to_params(
         scene.version,
         scene.accepted_at,
     )
+
+
 def manuscript_revision_from_row(row: sqlite3.Row) -> ManuscriptRevision:
     return ManuscriptRevision(
         id=row["id"],
@@ -121,6 +110,8 @@ def manuscript_revision_from_row(row: sqlite3.Row) -> ManuscriptRevision:
         version=row["version"],
         created_at=row["created_at"],
     )
+
+
 def manuscript_revision_to_params(
     revision: ManuscriptRevision,
 ) -> tuple[str, str, str, str, str, str, int, str]:
@@ -135,6 +126,7 @@ def manuscript_revision_to_params(
         revision.created_at,
     )
 
+
 class ManuscriptDataMixin:
     def list_manuscript_chapters(self, project_id: str) -> list[ManuscriptChapter]:
         with self.connect() as connection:
@@ -148,6 +140,7 @@ class ManuscriptDataMixin:
                 (project_id,),
             ).fetchall()
         return [manuscript_chapter_from_row(row) for row in rows]
+
     def create_manuscript_chapter(
         self, project_id: str, chapter: ManuscriptChapterCreate
     ) -> ManuscriptChapter:
@@ -176,6 +169,7 @@ class ManuscriptDataMixin:
                 manuscript_chapter_to_params(created),
             )
         return created
+
     def update_manuscript_chapter(
         self, project_id: str, chapter_id: str, chapter: ManuscriptChapterUpdate
     ) -> ManuscriptChapter | None:
@@ -202,6 +196,7 @@ class ManuscriptDataMixin:
                 ),
             )
         return updated if cursor.rowcount else None
+
     def delete_manuscript_chapter(self, project_id: str, chapter_id: str) -> bool:
         with self.connect() as connection:
             cursor = connection.execute(
@@ -218,6 +213,7 @@ class ManuscriptDataMixin:
                     (project_id, chapter_id),
                 )
         return cursor.rowcount > 0
+
     def list_manuscript_proposals(self, project_id: str) -> list[ManuscriptProposal]:
         with self.connect() as connection:
             rows = connection.execute(
@@ -231,6 +227,7 @@ class ManuscriptDataMixin:
                 (project_id,),
             ).fetchall()
         return [manuscript_proposal_from_row(row) for row in rows]
+
     def create_manuscript_proposal(
         self, project_id: str, proposal: ManuscriptProposalCreate
     ) -> ManuscriptProposal:
@@ -264,6 +261,7 @@ class ManuscriptDataMixin:
                 manuscript_proposal_to_params(created),
             )
         return created
+
     def update_manuscript_proposal_status(
         self,
         project_id: str,
@@ -309,6 +307,7 @@ class ManuscriptDataMixin:
                 (project_id, proposal_id),
             ).fetchone()
         return manuscript_proposal_from_row(row) if row else None
+
     def get_manuscript_proposal(
         self, project_id: str, proposal_id: str
     ) -> ManuscriptProposal | None:
@@ -323,6 +322,7 @@ class ManuscriptDataMixin:
                 (project_id, proposal_id),
             ).fetchone()
         return manuscript_proposal_from_row(row) if row else None
+
     def list_manuscript_scenes(self, project_id: str) -> list[ManuscriptScene]:
         with self.connect() as connection:
             rows = connection.execute(
@@ -336,6 +336,7 @@ class ManuscriptDataMixin:
                 (project_id,),
             ).fetchall()
         return [manuscript_scene_from_row(row) for row in rows]
+
     def list_manuscript_revisions(self, project_id: str) -> list[ManuscriptRevision]:
         with self.connect() as connection:
             rows = connection.execute(
@@ -349,6 +350,7 @@ class ManuscriptDataMixin:
                 (project_id,),
             ).fetchall()
         return [manuscript_revision_from_row(row) for row in rows]
+
     def get_manuscript_revision(
         self, project_id: str, revision_id: str
     ) -> ManuscriptRevision | None:
@@ -363,6 +365,7 @@ class ManuscriptDataMixin:
                 (project_id, revision_id),
             ).fetchone()
         return manuscript_revision_from_row(row) if row else None
+
     def accept_manuscript_proposal(
         self, project_id: str, proposal_id: str
     ) -> ManuscriptScene | None:
@@ -467,9 +470,8 @@ class ManuscriptDataMixin:
                 ("accepted", now, project_id, proposal_id),
             )
         return self.get_manuscript_scene(project_id, proposal.scene_id)
-    def get_manuscript_scene(
-        self, project_id: str, scene_id: str
-    ) -> ManuscriptScene | None:
+
+    def get_manuscript_scene(self, project_id: str, scene_id: str) -> ManuscriptScene | None:
         with self.connect() as connection:
             row = connection.execute(
                 """
@@ -481,6 +483,7 @@ class ManuscriptDataMixin:
                 (project_id, scene_id),
             ).fetchone()
         return manuscript_scene_from_row(row) if row else None
+
     def restore_manuscript_revision(
         self, project_id: str, revision_id: str
     ) -> ManuscriptScene | None:
@@ -572,6 +575,7 @@ class ManuscriptDataMixin:
                 manuscript_revision_to_params(restored_revision),
             )
         return self.get_manuscript_scene(project_id, source_revision.scene_id)
+
     def update_manuscript_scene(
         self, project_id: str, scene_id: str, update: ManuscriptSceneUpdate
     ) -> ManuscriptScene | None:

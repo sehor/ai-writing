@@ -42,9 +42,7 @@ class WritingWorkflowState:
     trace: list[WorkflowAgentTrace] = field(default_factory=list)
 
     def record(self, stage: str, agent_name: str, status: str) -> None:
-        self.trace.append(
-            WorkflowAgentTrace(stage=stage, agent_name=agent_name, status=status)
-        )
+        self.trace.append(WorkflowAgentTrace(stage=stage, agent_name=agent_name, status=status))
 
 
 class WorkflowAgent(Protocol):
@@ -94,9 +92,7 @@ class InterfaceOnlyWritingWorkflow:
     ) -> SnowflakeGenerationResponse:
         state = WritingWorkflowState(request=request)
         for agent in (
-            self.pre_generation_agents
-            + self.generation_agents
-            + self.post_generation_agents
+            self.pre_generation_agents + self.generation_agents + self.post_generation_agents
         ):
             state = agent.run(state)
 
@@ -122,9 +118,7 @@ class ProjectContextLoader:
         )
         state.previous_artifacts = [
             artifact
-            for artifact in self.data_store.list_snowflake_artifacts(
-                state.request.project_id
-            )
+            for artifact in self.data_store.list_snowflake_artifacts(state.request.project_id)
             if artifact.step_number < state.request.step_number
         ]
         state.artifact = state.step.artifact if state.step else ""
@@ -185,10 +179,7 @@ class LlmWikiContextCollector:
         state.record(
             self.stage,
             self.name,
-            (
-                f"loaded {len(state.llm_wiki_context.evidence)} "
-                "stage-aware evidence records"
-            ),
+            (f"loaded {len(state.llm_wiki_context.evidence)} stage-aware evidence records"),
         )
         return state
 
@@ -322,7 +313,7 @@ def draft_for_step(step_number: int, premise: str, user_input: str) -> str:
         return "\n".join(
             [
                 "Scene 1",
-                f"- POV: TBD",
+                "- POV: TBD",
                 f"- Goal: {single_line(source)}",
                 "- Conflict: Define the immediate opposition.",
                 "- Turning point: Define the irreversible change.",

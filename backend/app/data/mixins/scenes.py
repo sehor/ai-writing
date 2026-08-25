@@ -1,42 +1,12 @@
-from pathlib import Path
-from re import sub
-from contextlib import contextmanager
-from datetime import UTC, datetime
-import json
 import sqlite3
-from typing import Iterator, Protocol
 
 from app.models import (
-    CanonEntity,
-    CanonEntityCreate,
-    CanonEntityUpdate,
-    MemoryRecord,
-    MemoryRecordCreate,
-    MemoryRecordUpdate,
-    ManuscriptChapter,
-    ManuscriptChapterCreate,
-    ManuscriptChapterUpdate,
-    ManuscriptProposal,
-    ManuscriptProposalCreate,
-    ManuscriptProposalStatus,
-    ManuscriptRevision,
-    ManuscriptScene,
-    ManuscriptSceneUpdate,
-    ProjectCreate,
-    ProjectSummary,
-    ReferenceSuggestion,
-    ReferenceSuggestionCreate,
-    ReferenceSuggestionStatus,
     SceneContract,
     SceneContractCreate,
     SceneContractUpdate,
-    SnowflakeArtifact,
-    WorkflowAgentTrace,
-    WritebackProposal,
-    WritebackProposalCreate,
-    WritebackProposalStatus,
 )
-from app.data.helpers import ensure_column, make_record_id, utc_now
+from app.data.helpers import make_record_id
+
 
 def scene_contract_from_row(row: sqlite3.Row) -> SceneContract:
     return SceneContract(
@@ -54,6 +24,8 @@ def scene_contract_from_row(row: sqlite3.Row) -> SceneContract:
         open_threads=row["open_threads"],
         source_artifact_step=row["source_artifact_step"],
     )
+
+
 def scene_contract_to_params(
     scene: SceneContract,
 ) -> tuple[str, str, str, int, str, str, str, str, str, str, str, str, int]:
@@ -73,6 +45,7 @@ def scene_contract_to_params(
         scene.source_artifact_step,
     )
 
+
 class ScenesDataMixin:
     def list_scene_contracts(self, project_id: str) -> list[SceneContract]:
         with self.connect() as connection:
@@ -88,9 +61,8 @@ class ScenesDataMixin:
                 (project_id,),
             ).fetchall()
         return [scene_contract_from_row(row) for row in rows]
-    def get_scene_contract(
-        self, project_id: str, scene_id: str
-    ) -> SceneContract | None:
+
+    def get_scene_contract(self, project_id: str, scene_id: str) -> SceneContract | None:
         with self.connect() as connection:
             row = connection.execute(
                 """
@@ -103,9 +75,8 @@ class ScenesDataMixin:
                 (project_id, scene_id),
             ).fetchone()
         return scene_contract_from_row(row) if row else None
-    def create_scene_contract(
-        self, project_id: str, scene: SceneContractCreate
-    ) -> SceneContract:
+
+    def create_scene_contract(self, project_id: str, scene: SceneContractCreate) -> SceneContract:
         with self.connect() as connection:
             existing_ids = {
                 row["id"]
@@ -133,6 +104,7 @@ class ScenesDataMixin:
                 scene_contract_to_params(created),
             )
         return created
+
     def update_scene_contract(
         self, project_id: str, scene_id: str, scene: SceneContractUpdate
     ) -> SceneContract | None:
@@ -175,6 +147,7 @@ class ScenesDataMixin:
                 ),
             )
         return updated if cursor.rowcount else None
+
     def delete_scene_contract(self, project_id: str, scene_id: str) -> bool:
         with self.connect() as connection:
             cursor = connection.execute(

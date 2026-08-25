@@ -82,11 +82,7 @@ def create_writeback_proposals_from_revision(
             revision=revision,
         ),
     )
-    proposals = [
-        proposal
-        for report in reports
-        for proposal in report.writeback_proposals
-    ]
+    proposals = [proposal for report in reports for proposal in report.writeback_proposals]
     return data_store.create_writeback_proposals(project_id, proposals)
 
 

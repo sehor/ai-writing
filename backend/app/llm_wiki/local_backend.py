@@ -47,7 +47,9 @@ class LocalFileLlmWiki:
         documents = [
             document
             for document in self._load_documents(query.project_id)
-            if self._is_visible(document, query, policy.planned_source_steps, policy.include_observed)
+            if self._is_visible(
+                document, query, policy.planned_source_steps, policy.include_observed
+            )
         ]
         documents.sort(
             key=lambda item: (
@@ -88,14 +90,10 @@ class LocalFileLlmWiki:
     def analyze(self, query: WikiInsightQuery) -> WikiInsightResult:
         context = self.retrieve_context(WikiContextQuery(**query.model_dump()))
         planned_refs = [
-            item.source_ref
-            for item in context.evidence
-            if item.knowledge_class == "planned"
+            item.source_ref for item in context.evidence if item.knowledge_class == "planned"
         ]
         observed_refs = [
-            item.source_ref
-            for item in context.evidence
-            if item.knowledge_class == "observed"
+            item.source_ref for item in context.evidence if item.knowledge_class == "observed"
         ]
         if not context.evidence:
             insights = [
@@ -189,9 +187,7 @@ class LocalFileLlmWiki:
         documents: list[WikiSourceDocument] = []
         for path in sources_path.rglob("*.json"):
             documents.append(
-                WikiSourceDocument.model_validate_json(
-                    path.read_text(encoding="utf-8")
-                )
+                WikiSourceDocument.model_validate_json(path.read_text(encoding="utf-8"))
             )
         return documents
 
@@ -200,9 +196,7 @@ class LocalFileLlmWiki:
         if not sources_path.is_dir():
             return
         for path in sources_path.rglob("*.json"):
-            document = WikiSourceDocument.model_validate_json(
-                path.read_text(encoding="utf-8")
-            )
+            document = WikiSourceDocument.model_validate_json(path.read_text(encoding="utf-8"))
             if document.source_ref != source_ref:
                 continue
             updated = document.model_copy(update={"status": "superseded"})

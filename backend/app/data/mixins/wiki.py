@@ -1,42 +1,19 @@
-from pathlib import Path
-from re import sub
-from contextlib import contextmanager
-from datetime import UTC, datetime
 import json
 import sqlite3
-from typing import Iterator, Protocol
 
 from app.models import (
-    CanonEntity,
     CanonEntityCreate,
-    CanonEntityUpdate,
-    MemoryRecord,
     MemoryRecordCreate,
-    MemoryRecordUpdate,
-    ManuscriptChapter,
-    ManuscriptChapterCreate,
-    ManuscriptChapterUpdate,
-    ManuscriptProposal,
-    ManuscriptProposalCreate,
-    ManuscriptProposalStatus,
-    ManuscriptRevision,
-    ManuscriptScene,
-    ManuscriptSceneUpdate,
-    ProjectCreate,
-    ProjectSummary,
     ReferenceSuggestion,
     ReferenceSuggestionCreate,
     ReferenceSuggestionStatus,
-    SceneContract,
-    SceneContractCreate,
-    SceneContractUpdate,
-    SnowflakeArtifact,
     WorkflowAgentTrace,
     WritebackProposal,
     WritebackProposalCreate,
     WritebackProposalStatus,
 )
-from app.data.helpers import ensure_column, make_record_id, utc_now
+from app.data.helpers import make_record_id, utc_now
+
 
 def writeback_proposal_from_row(row: sqlite3.Row) -> WritebackProposal:
     return WritebackProposal(
@@ -53,6 +30,8 @@ def writeback_proposal_from_row(row: sqlite3.Row) -> WritebackProposal:
         reviewed_at=row["reviewed_at"],
         applied_record_id=row["applied_record_id"],
     )
+
+
 def writeback_proposal_to_params(
     proposal: WritebackProposal,
 ) -> tuple[str, str, str, str, str, str, str, str, str, str, str, str]:
@@ -70,6 +49,8 @@ def writeback_proposal_to_params(
         proposal.reviewed_at,
         proposal.applied_record_id,
     )
+
+
 def reference_suggestion_from_row(row: sqlite3.Row) -> ReferenceSuggestion:
     return ReferenceSuggestion(
         id=row["id"],
@@ -96,6 +77,8 @@ def reference_suggestion_from_row(row: sqlite3.Row) -> ReferenceSuggestion:
         created_at=row["created_at"],
         reviewed_at=row["reviewed_at"],
     )
+
+
 def reference_suggestion_to_params(
     suggestion: ReferenceSuggestion,
 ) -> tuple[str, str, str, str, str, str, str, str, str, str, str, str, str, str, str, str, str]:
@@ -119,6 +102,7 @@ def reference_suggestion_to_params(
         suggestion.reviewed_at,
     )
 
+
 class WikiDataMixin:
     def list_writeback_proposals(self, project_id: str) -> list[WritebackProposal]:
         with self.connect() as connection:
@@ -133,6 +117,7 @@ class WikiDataMixin:
                 (project_id,),
             ).fetchall()
         return [writeback_proposal_from_row(row) for row in rows]
+
     def create_writeback_proposal(
         self, project_id: str, proposal: WritebackProposalCreate
     ) -> WritebackProposal:
@@ -167,6 +152,7 @@ class WikiDataMixin:
                 writeback_proposal_to_params(created),
             )
         return created
+
     def create_writeback_proposals(
         self, project_id: str, proposals: list[WritebackProposalCreate]
     ) -> list[WritebackProposal]:
@@ -210,6 +196,7 @@ class WikiDataMixin:
                 params_list,
             )
         return created_list
+
     def update_writeback_proposal_status(
         self,
         project_id: str,
@@ -258,6 +245,7 @@ class WikiDataMixin:
                 (project_id, proposal_id),
             ).fetchone()
         return writeback_proposal_from_row(row) if row else None
+
     def accept_writeback_proposal(
         self, project_id: str, proposal_id: str
     ) -> WritebackProposal | None:
@@ -315,9 +303,8 @@ class WikiDataMixin:
                 (project_id, proposal_id),
             ).fetchone()
         return writeback_proposal_from_row(row) if row else None
-    def get_writeback_proposal(
-        self, project_id: str, proposal_id: str
-    ) -> WritebackProposal | None:
+
+    def get_writeback_proposal(self, project_id: str, proposal_id: str) -> WritebackProposal | None:
         with self.connect() as connection:
             row = connection.execute(
                 """
@@ -329,6 +316,7 @@ class WikiDataMixin:
                 (project_id, proposal_id),
             ).fetchone()
         return writeback_proposal_from_row(row) if row else None
+
     def list_reference_suggestions(self, project_id: str) -> list[ReferenceSuggestion]:
         with self.connect() as connection:
             rows = connection.execute(
@@ -345,6 +333,7 @@ class WikiDataMixin:
                 (project_id,),
             ).fetchall()
         return [reference_suggestion_from_row(row) for row in rows]
+
     def create_reference_suggestion(
         self, project_id: str, suggestion: ReferenceSuggestionCreate
     ) -> ReferenceSuggestion:
@@ -381,6 +370,7 @@ class WikiDataMixin:
                 reference_suggestion_to_params(created),
             )
         return created
+
     def update_reference_suggestion_status(
         self,
         project_id: str,
@@ -413,6 +403,7 @@ class WikiDataMixin:
                 (project_id, suggestion_id),
             ).fetchone()
         return reference_suggestion_from_row(row) if row else None
+
     def get_reference_suggestion(
         self, project_id: str, suggestion_id: str
     ) -> ReferenceSuggestion | None:

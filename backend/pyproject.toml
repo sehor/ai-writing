@@ -1,0 +1,25 @@
+[project]
+name = "ai-writing-backend"
+version = "0.1.0"
+description = "Local-first long-form fiction workspace backend (FastAPI + SQLite)"
+requires-python = ">=3.11"
+
+[project.optional-dependencies]
+dev = ["ruff==0.16.4"]
+
+[tool.ruff]
+# Baseline gate for Phase 1: high-signal correctness rules only.
+# Style families (I, UP, B, SIM, ...) can be adopted incrementally later.
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = [
+    "E4",  # pycodestyle imports/indentation errors
+    "E7",  # pycodestyle statement errors
+    "E9",  # pycodestyle runtime/syntax errors
+    "F",   # pyflakes (undefined names, unused imports/variables)
+]
+
+[tool.ruff.lint.per-file-ignores]
+"**/__init__.py" = ["F401"]  # package re-exports are intentional

@@ -1,42 +1,12 @@
-from pathlib import Path
-from re import sub
-from contextlib import contextmanager
-from datetime import UTC, datetime
-import json
 import sqlite3
-from typing import Iterator, Protocol
 
 from app.models import (
-    CanonEntity,
-    CanonEntityCreate,
-    CanonEntityUpdate,
     MemoryRecord,
     MemoryRecordCreate,
     MemoryRecordUpdate,
-    ManuscriptChapter,
-    ManuscriptChapterCreate,
-    ManuscriptChapterUpdate,
-    ManuscriptProposal,
-    ManuscriptProposalCreate,
-    ManuscriptProposalStatus,
-    ManuscriptRevision,
-    ManuscriptScene,
-    ManuscriptSceneUpdate,
-    ProjectCreate,
-    ProjectSummary,
-    ReferenceSuggestion,
-    ReferenceSuggestionCreate,
-    ReferenceSuggestionStatus,
-    SceneContract,
-    SceneContractCreate,
-    SceneContractUpdate,
-    SnowflakeArtifact,
-    WorkflowAgentTrace,
-    WritebackProposal,
-    WritebackProposalCreate,
-    WritebackProposalStatus,
 )
-from app.data.helpers import ensure_column, make_record_id, utc_now
+from app.data.helpers import make_record_id
+
 
 def memory_record_from_row(row: sqlite3.Row) -> MemoryRecord:
     return MemoryRecord(
@@ -49,6 +19,8 @@ def memory_record_from_row(row: sqlite3.Row) -> MemoryRecord:
         tags=row["tags"],
         source_ref=row["source_ref"],
     )
+
+
 def memory_record_to_params(
     record: MemoryRecord,
 ) -> tuple[str, str, str, str, str, str, str, str]:
@@ -63,6 +35,7 @@ def memory_record_to_params(
         record.source_ref,
     )
 
+
 class MemoryDataMixin:
     def list_memory_records(self, project_id: str) -> list[MemoryRecord]:
         with self.connect() as connection:
@@ -76,6 +49,7 @@ class MemoryDataMixin:
                 (project_id,),
             ).fetchall()
         return [memory_record_from_row(row) for row in rows]
+
     def create_memory_record(
         self,
         project_id: str,
@@ -109,6 +83,7 @@ class MemoryDataMixin:
             memory_record_to_params(created),
         )
         return created
+
     def update_memory_record(
         self, project_id: str, record_id: str, record: MemoryRecordUpdate
     ) -> MemoryRecord | None:
@@ -141,6 +116,7 @@ class MemoryDataMixin:
                 ),
             )
         return updated if cursor.rowcount else None
+
     def delete_memory_record(self, project_id: str, record_id: str) -> bool:
         with self.connect() as connection:
             cursor = connection.execute(

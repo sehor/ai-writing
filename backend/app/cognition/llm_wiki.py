@@ -1,5 +1,4 @@
 import json
-import re
 from pathlib import Path
 
 from app.cognition.interfaces import (
@@ -138,7 +137,9 @@ def build_wiki_export(
         for record in memory_records
     )
     files.extend(
-        wiki_file(paths.scene_path(scene), build_scene_page(scene, canon_entities, memory_records, paths))
+        wiki_file(
+            paths.scene_path(scene), build_scene_page(scene, canon_entities, memory_records, paths)
+        )
         for scene in scenes
     )
     files.extend(
@@ -504,13 +505,11 @@ def build_scene_page(
         for entity in canon_entities
         if entity.name and entity.name.lower() in searchable_scene_text(scene)
     ]
-    linked_memory = [
-        record
-        for record in memory_records
-        if record_matches_scene(record, scene)
-    ]
+    linked_memory = [record for record in memory_records if record_matches_scene(record, scene)]
     manuscript_path = paths.manuscript_scene_path(scene.id)
-    manuscript_link = paths.link(manuscript_path, "Accepted manuscript scene") if manuscript_path else ""
+    manuscript_link = (
+        paths.link(manuscript_path, "Accepted manuscript scene") if manuscript_path else ""
+    )
     return page(
         f"{scene.sequence}. {scene.title}",
         "scene",
@@ -547,7 +546,9 @@ def build_scene_page(
 
 
 def build_manuscript_page(scene: ManuscriptScene, paths: WikiPaths) -> str:
-    source_scene = next((candidate for candidate in paths.scenes if candidate.id == scene.scene_id), None)
+    source_scene = next(
+        (candidate for candidate in paths.scenes if candidate.id == scene.scene_id), None
+    )
     source_link = (
         paths.link(paths.scene_path(source_scene), f"{source_scene.sequence}. {source_scene.title}")
         if source_scene
@@ -578,7 +579,9 @@ def build_graph_page(
     scenes: list[SceneContract],
     memory_records: list[MemoryRecord],
 ) -> str:
-    nodes = build_graph_nodes(project.id, project.title, artifacts, canon_entities, scenes, memory_records)
+    nodes = build_graph_nodes(
+        project.id, project.title, artifacts, canon_entities, scenes, memory_records
+    )
     edges = build_graph_edges(project.id, artifacts, canon_entities, scenes, memory_records)
     risks = build_graph_risks(artifacts, canon_entities, scenes, memory_records)
     lines = [
@@ -644,11 +647,7 @@ def page(title: str, page_type: str, tags: list[str], body: list[str]) -> str:
 
 
 def scene_links_for_artifact(artifact: SnowflakeArtifact, paths: WikiPaths) -> list[str]:
-    linked = [
-        scene
-        for scene in paths.scenes
-        if scene.source_artifact_step == artifact.step_number
-    ]
+    linked = [scene for scene in paths.scenes if scene.source_artifact_step == artifact.step_number]
     return scene_links(linked, paths)
 
 
@@ -664,19 +663,13 @@ def scene_links(scenes: list[SceneContract], paths: WikiPaths) -> list[str]:
 def entity_links(entities: list[CanonEntity], paths: WikiPaths) -> list[str]:
     if not entities:
         return ["- _No Canon entity links found._"]
-    return [
-        f"- {paths.link(paths.entity_path(entity), entity.name)}"
-        for entity in entities
-    ]
+    return [f"- {paths.link(paths.entity_path(entity), entity.name)}" for entity in entities]
 
 
 def memory_links(records: list[MemoryRecord], paths: WikiPaths) -> list[str]:
     if not records:
         return ["- _No Memory / Style links found._"]
-    return [
-        f"- {paths.link(paths.memory_path(record), record.title)}"
-        for record in records
-    ]
+    return [f"- {paths.link(paths.memory_path(record), record.title)}" for record in records]
 
 
 def artifact_link(step_number: int, paths: WikiPaths) -> str:
@@ -686,7 +679,9 @@ def artifact_link(step_number: int, paths: WikiPaths) -> str:
     )
     if artifact is None:
         return f"_Missing Snowflake step {step_number}_"
-    return paths.link(paths.artifact_path(artifact), f"Step {artifact.step_number}: {artifact.artifact}")
+    return paths.link(
+        paths.artifact_path(artifact), f"Step {artifact.step_number}: {artifact.artifact}"
+    )
 
 
 def source_ref_links(source_ref: str, paths: WikiPaths) -> list[str]:
@@ -696,10 +691,14 @@ def source_ref_links(source_ref: str, paths: WikiPaths) -> list[str]:
     links: list[str] = []
     for scene in paths.scenes:
         if normalized in scene.id.lower() or normalized in scene.title.lower():
-            links.append(f"- {paths.link(paths.scene_path(scene), f'{scene.sequence}. {scene.title}')}")
+            links.append(
+                f"- {paths.link(paths.scene_path(scene), f'{scene.sequence}. {scene.title}')}"
+            )
     for artifact in paths.artifacts:
         if normalized in {artifact.artifact.lower(), f"step {artifact.step_number}"}:
-            links.append(f"- {paths.link(paths.artifact_path(artifact), f'Step {artifact.step_number}')}")
+            links.append(
+                f"- {paths.link(paths.artifact_path(artifact), f'Step {artifact.step_number}')}"
+            )
     return links
 
 

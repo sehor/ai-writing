@@ -3,7 +3,7 @@ import { onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorkspaceStore } from './stores/workspace'
 
-import Sidebar from './components/Sidebar.vue'
+import AppSidebar from './components/AppSidebar.vue'
 import SnowflakeWorkspace from './components/SnowflakeWorkspace.vue'
 import CanonWorkspace from './components/CanonWorkspace.vue'
 import MemoryWorkspace from './components/MemoryWorkspace.vue'
@@ -21,7 +21,7 @@ onMounted(() => {
 
 <template>
   <main class="shell">
-    <Sidebar />
+    <AppSidebar />
 
     <section class="workspace">
       <header class="topbar">

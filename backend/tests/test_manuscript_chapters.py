@@ -39,7 +39,7 @@ class ManuscriptChapterTests(unittest.TestCase):
                     summary="Mira reaches the sealed archive.",
                 ),
             )
-            scene = store.create_scene_contract(
+            store.create_scene_contract(
                 project.id,
                 SceneContractCreate(
                     chapter_id=first.id,

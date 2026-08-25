@@ -22,8 +22,7 @@ def require_project_chapter(
     data_store: WritingDataStore,
 ) -> None:
     if chapter_id and not any(
-        chapter.id == chapter_id
-        for chapter in data_store.list_manuscript_chapters(project_id)
+        chapter.id == chapter_id for chapter in data_store.list_manuscript_chapters(project_id)
     ):
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

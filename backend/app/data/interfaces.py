@@ -1,10 +1,4 @@
-from pathlib import Path
-from re import sub
-from contextlib import contextmanager
-from datetime import UTC, datetime
-import json
-import sqlite3
-from typing import Iterator, Protocol
+from typing import Protocol
 
 from app.models import (
     CanonEntity,
@@ -31,7 +25,6 @@ from app.models import (
     SceneContractCreate,
     SceneContractUpdate,
     SnowflakeArtifact,
-    WorkflowAgentTrace,
     WritebackProposal,
     WritebackProposalCreate,
     WritebackProposalStatus,
@@ -62,9 +55,7 @@ class WritingDataStore(Protocol):
     def list_snowflake_artifacts(self, project_id: str) -> list[SnowflakeArtifact]:
         pass
 
-    def get_snowflake_artifact(
-        self, project_id: str, step_number: int
-    ) -> SnowflakeArtifact | None:
+    def get_snowflake_artifact(self, project_id: str, step_number: int) -> SnowflakeArtifact | None:
         pass
 
     def save_snowflake_artifact(self, artifact: SnowflakeArtifact) -> SnowflakeArtifact:
@@ -73,9 +64,7 @@ class WritingDataStore(Protocol):
     def list_canon_entities(self, project_id: str) -> list[CanonEntity]:
         pass
 
-    def create_canon_entity(
-        self, project_id: str, entity: CanonEntityCreate
-    ) -> CanonEntity:
+    def create_canon_entity(self, project_id: str, entity: CanonEntityCreate) -> CanonEntity:
         pass
 
     def update_canon_entity(
@@ -89,14 +78,10 @@ class WritingDataStore(Protocol):
     def list_scene_contracts(self, project_id: str) -> list[SceneContract]:
         pass
 
-    def get_scene_contract(
-        self, project_id: str, scene_id: str
-    ) -> SceneContract | None:
+    def get_scene_contract(self, project_id: str, scene_id: str) -> SceneContract | None:
         pass
 
-    def create_scene_contract(
-        self, project_id: str, scene: SceneContractCreate
-    ) -> SceneContract:
+    def create_scene_contract(self, project_id: str, scene: SceneContractCreate) -> SceneContract:
         pass
 
     def update_scene_contract(
@@ -126,9 +111,7 @@ class WritingDataStore(Protocol):
     def list_memory_records(self, project_id: str) -> list[MemoryRecord]:
         pass
 
-    def create_memory_record(
-        self, project_id: str, record: MemoryRecordCreate
-    ) -> MemoryRecord:
+    def create_memory_record(self, project_id: str, record: MemoryRecordCreate) -> MemoryRecord:
         pass
 
     def update_memory_record(
