@@ -2,7 +2,7 @@
 
 AI Writing Studio is a local-first long-form fiction workspace. It is not meant to be a generic AI chat box. The product goal is to help an author grow a novel from Snowflake-method planning into manuscript drafts while preserving canon, memory, style, structure, and reviewable AI changes.
 
-The current implementation is a local MVP: Vite + Vue 3 frontend, FastAPI backend, SQLite persistence, project creation, Snowflake steps, per-step artifact saving, Canon DB, Memory / Style records, Scene Contracts, Chapter Compiler v0, Graph / Structure v0, Manuscript review, write-back review, project-scoped cognition modules, and a deterministic local workflow runtime.
+The current implementation is a local MVP: Vite + Vue 3 frontend, FastAPI backend, SQLite persistence behind focused repositories coordinated by an explicit unit of work, domain-split frontend stores behind a slim workspace shell, project creation, Snowflake steps, per-step artifact saving, Canon DB, Memory / Style records, Scene Contracts, Chapter Compiler v0, Graph / Structure v0, Manuscript review, write-back review, project-scoped cognition modules, and a deterministic local workflow runtime.
 When `DEEPSEEK_API_KEY` is available in `.env`, Snowflake draft generation, provider manuscript proposal generation, and provider write-back suggestion generation use the DeepSeek OpenAI-compatible API runtime. The active workflow runtime is exposed in the author workspace.
 
 ## Product Thesis
@@ -116,6 +116,8 @@ Implemented:
 - Write-back updates for existing Canon records with optimistic version checks: the UI shows current vs. proposed values, evidence from the source revision, and a conflict warning when the record changed after proposal creation.
 - Pre-persist write-back validation: proposals are checked against current data (structure, target record, expected version, duplicate names) before insertion.
 - Idempotent analysis runs: repeated unchanged analysis requests replay stored results instead of duplicating proposals; explicit re-runs supersede stale pending proposals and bump the run version.
+- Automatic post-acceptance analysis: accepting a manuscript proposal schedules the consistency report and deterministic write-back suggestions as outbox jobs, so findings and pending review items appear without a manual trigger while acceptance of them stays a human decision.
+- Deterministic consistency report with evidence-backed findings (forbidden facts, forbidden capabilities, missing required Canon, absent POV) surfaced in Revision History.
 - Draft safety on the frontend: editors autosave to a local draft cache, confirm before switching away, restore cached drafts, and flush on page close; async generations are bound to project/step request scopes.
 - Backend unit coverage for manuscript edit versioning.
 - Backend route test coverage for the manuscript/write-back review loop.
@@ -123,10 +125,14 @@ Implemented:
 - Browser-level frontend smoke coverage for the chapter / scene / proposal / export / reference flow.
 - Frontend Snowflake workbench.
 - Workflow interface boundary with declared pre-generation, generation, and post-generation agents.
+- Provider registry (`backend/app/integrations/provider_registry.py`): deterministic local and DeepSeek backends register behind one `WritingProvider` interface; Hermes stays an isolated external-agent port.
+- Routers as a pure HTTP layer over application services (`backend/app/services/`): request parsing, service calls, domain-error mapping, and response headers only.
+- Focused data layer (P2-03): ten repositories under `backend/app/data/repositories/` over one schema module, an explicit `SqliteUnitOfWork` owning the connection and transaction boundary, and cross-aggregate flows (`app.data.flows`) that keep acceptance / restore / apply operations atomic; the store facade keeps every public signature.
+- Domain-split frontend stores (P2-04): `stores/{projects,snowflake,canon,memory,manuscript,reviews,graph}.ts` plus a typed `/api` client; `workspace.ts` keeps selection, runtime status, and cross-store coordination only.
+- Real-browser E2E (P1-08): Playwright Chromium drives the live FastAPI backend over a temporary SQLite root with zero route mocking — full accept -> auto-analysis -> review -> write-back loop, backend-restart persistence, and wiki-failure recovery through the UI retry (`e2e/`, see its README).
 
 Not yet implemented:
 
-- Browser interaction tests against a live backend.
 - Advanced graph visualization beyond tabular structure analysis.
 
 ## Near-Term Build Order
@@ -176,7 +182,7 @@ Not yet implemented:
    - Implemented v0: zero-dependency frontend contract test for References UI wiring.
    - Implemented v0: backend route test for manuscript proposal acceptance, export, and Canon write-back.
    - Implemented v0: browser-level smoke test for the frontend review flow with mocked API routes.
-   - Next: add browser interaction tests against a live backend and broaden edge-case coverage.
+   - Implemented in P1-08: real-browser E2E against a live backend and temporary SQLite root (`e2e/full-review-loop.e2e.mjs`, `e2e/wiki-failure.e2e.mjs`). Next: broaden edge-case coverage.
 
 ## Development
 
@@ -227,6 +233,14 @@ pnpm install --frozen-lockfile
 pnpm lint
 pnpm test
 pnpm build
+```
+
+Browser E2E (optional, local only — boots a real backend on a temporary SQLite root plus Vite, then drives Chromium):
+
+```bash
+cd e2e
+node full-review-loop.e2e.mjs   # happy path: accept -> auto-analysis -> review -> write-back -> restart persistence
+node wiki-failure.e2e.mjs       # wiki ingest failure + UI retry recovery
 ```
 
 See [AGENTS.md](AGENTS.md) for Codex development rules and [docs/development-plan.md](docs/development-plan.md) for the active implementation plan.

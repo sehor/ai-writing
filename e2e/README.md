@@ -1,0 +1,168 @@
+# e2e — P1-08 真实后端浏览器测试
+
+Real-browser E2E suite from `docs/ai-writing-improvement-plan.md`, section 九 / P1-08:
+a **real FastAPI backend** over a **temp SQLite data root**, a **real Vite dev server**,
+**Playwright Chromium**, and the **local deterministic provider** (no API keys, no
+DEEPSEEK_* env needed). Nothing is route-mocked — every `/api` call the page makes
+reaches the spawned backend through the Vite proxy.
+
+## Files
+
+| File | Purpose |
+| --- | --- |
+| `lib/harness.mjs` | Shared helpers: temp roots, backend/Vite lifecycle, health waits, API client |
+| `full-review-loop.e2e.mjs | Happy path: project → Step 7 → Canon proposals → chapter/scene → proposal accept → auto-analysis → write-back accept → export → restart persistence |
+| `wiki-failure.e2e.mjs` | Failure path: blocked LLM Wiki root, core data survives, UI shows failed job, UI Retry repairs it, no duplicate versions |
+
+## Prerequisites
+
+- Backend venv present: `backend\.venv\Scripts\python.exe` (fastapi + uvicorn installed).
+- Frontend deps installed (`frontend/node_modules` provides vite, @vitejs/plugin-vue and playwright).
+- Playwright Chromium browser binaries. If missing, run once:
+
+      cd frontend
+      pnpm exec playwright install chromium
+
+## How to run
+
+Run each script from inside `e2e/`:
+
+    cd e2e
+    node full-review-loop.e2e.mjs
+    node wiki-failure.e2e.mjs
+
+No NODE_PATH tricks are required: the harness resolves `vite` and `playwright`
+through `createRequire(frontend/package.json)`, so the exact copies installed under
+`frontend/node_modules` are used regardless of cwd. Each script exits 0 on success,
+1 on any assertion failure, and always kills its child processes and removes its
+temp data root (kept only on failure paths where diagnostics reference it).
+
+## Ports
+
+Fixed uncommon ports so the tests never collide with a dev server you may have running:
+
+| Script | Backend (uvicorn) | Vite dev server |
+| --- | --- | --- |
+| `full-review-loop.e2e.mjs` | 8131 | 5175 |
+| `wiki-failure.e2e.mjs` | 8132 | 5176 |
+
+Vite runs with `strictPort`; make sure those ports are free. The frontend's own
+`vite.config.ts` proxies `/api` to hard-coded port 8000, which this suite must not
+modify — so the harness starts Vite through its JavaScript API with the same root,
+plugin, and pipeline, but an `/api` proxy pointed at the chosen temp backend port.
+
+## The AI_WRITING_DATA_ROOT contract gate
+
+Each script spawns uvicorn with `AI_WRITING_DATA_ROOT=<mkdtemp under os.tmpdir()>`.
+Per contract, the SQLite db then lives at `<root>/app.db` and every file-backed
+store roots at `<root>/projects`. `startBackend()` applies two gates before any
+test step runs:
+
+1. Waits for `GET /api/health` (30s timeout, stdout/stderr ring buffers kept for
+   diagnostics), then **requires `<root>/app.db` to exist**.
+2. Runs a behavioral probe (`python -c` importing the backend's own modules with
+   the env var set) and requires **all three** file stores to resolve inside the
+   temp root: `config.resolve_data_root`, `llm_wiki.dependencies.projects_root`,
+   and `cognition.registry.modules_root`.
+
+If any gate fails (data-root refactor incomplete), the suite aborts with an
+actionable message naming the offending store instead of silently falling back to
+— and polluting — the legacy `backend/data` directory. Both scripts additionally
+verify wiki files land under `<root>/projects/<project id>` after successful
+ingestion.
+
+## What the happy path asserts (full-review-loop.e2e.mjs)
+
+UI flow with the real labels/selectors used:
+
+1. **Create project** — `.create-project` form: placeholders `The Glass City` /
+   premise textarea, button `Create Project`; asserts `.topbar h2` shows the title.
+2. **Save Step 7** — sidebar step selector aria-label `Open step 7: Character Bible`,
+   `.artifact-editor textarea`, button `Save Artifact`, status text `Artifact saved.`
+3. **Compile Canon proposals** — heading `Step 7: Compile into Canon Proposals`,
+   button `Extract Canon Proposals`, summary line asserting `1 proposal(s): 1 create, 0 update.`
+4. **Accept Canon proposal** — Manuscript nav → Write-backs panel
+   (`.writeback-review .proposal-list`) item `Create canon character: Mira` →
+   detail `Accept` → status `Write-back accepted and applied.`; Canon nav →
+   `.canon-list` shows Mira; API: entity version 1.
+5. **Chapter + Scene contract** — `New Chapter` / `.chapter-editor` inputs →
+   `Create Chapter` → `.chapter-list` item `Chapter 1: The Locked Map`;
+   `New Scene` / `.scene-editor` (chapter select, sequence, title `Archive Threshold`,
+   POV `Mira`, Goal / Conflict / Turning Point / Required Canon / Forbidden Facts /
+   Open Threads textareas) → `Create Scene`; API asserts all contract fields persisted.
+6. **Create Proposal → Accept** — buttons `Create Proposal` and `Accept`;
+   asserts the accepted-scene indicator `Chapter 1: The Locked Map / Version 1`.
+7. **Post-Acceptance Analysis** — polls the same API the UI uses
+   (`GET .../outbox-jobs`) until `consistency_analysis` and `writeback_analysis`
+   both report `succeeded`, then asserts both chips render `succeeded` in the
+   `.post-accept-analysis` panel; Revision History shows `Version 1`; the
+   `.consistency-report` section loads without an error banner.
+8. **Write-back acceptance** — asserts the deterministic provider auto-created a
+   memory-record proposal (`Prose sample from 1. Archive Threshold`). Because no
+   `action=update` proposal is generated automatically (see deviations), the test
+   seeds one over REST, clicks the panel `Refresh`, selects
+   `Update canon character: Mira`, accepts it in the browser, and asserts over the
+   API that Mira's `version` bumped to 2 with the new `current_state` applied.
+9. **Export Markdown** — button `Export Markdown`; output contains
+   `# Mira Archive`, `## Chapter 1: The Locked Map`, `### 1. Archive Threshold`.
+10. **Restart persistence** — the backend process is stopped and restarted against
+    the SAME temp root on the same port; the page is reloaded, the project is
+    re-selected from `.sidebar .project-list`; Canon still shows Mira (with the
+    updated state in the editor), Manuscript still shows chapter, scene, and the
+    Version 1 scene/revision; APIs confirm exactly one revision/scene at version 1.
+
+## What the failure path asserts (wiki-failure.e2e.mjs)
+
+Before boot, a plain FILE named exactly `projects` is created inside the temp root.
+Both file-backed stores root there, so accepting a manuscript proposal fails
+`llm_wiki_ingest` and `writeback_analysis` (memplace prose samples) while the
+DB-only `consistency_analysis` succeeds. Assertions:
+
+- Core data persists: `Chapter 1: Fault Lines / Version 1` visible; exactly one
+  revision and one manuscript scene at version 1 over the API.
+- Outbox truth: `llm_wiki_ingest` failed with an error message,
+  `writeback_analysis` failed, `consistency_analysis` succeeded.
+- The Manuscript workspace Post-Acceptance Analysis panel renders the failed
+  `Write-back suggestions` job chip (`failed`), its error text, and a `Retry` button;
+  the consistency chip reads `succeeded`.
+- After deleting the blocking file and clicking the panel's `Retry`, the job chip
+  flips to `succeeded`, the API agrees, and the prose sample file appears under
+  `<root>/projects/<project>/modules/memplace/prose_samples/` proving the recovered
+  wiki write path.
+- No duplicate versions: still exactly one revision / one scene, both version 1,
+  and single entries rendered in Accepted Manuscript and Revision History panels.
+
+## Documented deviations
+
+- **Seeded write-back proposal.** The deterministic provider's post-acceptance
+  analysis generates only a memory-record create proposal ("Prose sample"), never an
+  `action=update` proposal against Canon. To exercise browser acceptance of a Canon
+  update (the plan's "接受 Write-back Update → 验证 Canon 已更新"), the happy-path
+  test seeds a valid `canon_entity`/`update` proposal via
+  `POST /api/projects/{id}/writeback/proposals` (with matching `expected_version`)
+  and then accepts it exclusively through the Write-backs UI.
+- **Vite via JS API instead of CLI spawn.** Equivalent dev server (same root/plugin/
+  strictPort behavior), chosen so the `/api` proxy can target the per-test backend
+  port without editing `frontend/vite.config.ts`.
+
+## Known limitations
+
+- **Canon editor draft does not populate when selecting a list entry.** Selecting
+  an entity re-baselines the editor but never copies entity fields into the form
+  (restoreEntryDraft applies cached drafts only). This behavior is identical at
+  git HEAD, so the suites prove Canon state through the active list row plus API
+  field values rather than form contents. Minimal product fix if ever desired:
+  in frontend/src/stores/canon.ts, watch(activeCanonId), assign
+  canonDraft.value = baselineDraft before calling restoreEntryDraft.
+- `llm_wiki_ingest` job failures have no dedicated UI surface yet: the Post-Acceptance
+  Analysis panel intentionally filters to `consistency_analysis` /`writeback_analysis`
+  (P1-07 scope). The failure-path test therefore retries the surfaced analysis job
+  from the UI and proves wiki-root recovery through the filesystem; retrying the wiki
+  index job itself remains an API-only operation (`POST .../outbox-jobs/{id}/retry`).
+- The Canon workspace caches the selected entity's form draft until remount, so the
+  happy path checks the updated `current_state` in the editor after the reload of the
+  restart-persistence phase, plus immediately over the API right after acceptance.
+- Tests are Windows-oriented (venv path `backend\.venv\Scripts\python.exe`,
+  `taskkill` tree cleanup) matching the current repo environment.
+- Scripts are plain Node (>=18) ESM with no package.json of their own, per the
+  constraint of not touching existing repo files.
