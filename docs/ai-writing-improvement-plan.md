@@ -1,1024 +1,1333 @@
-# AI Writing Studio 改进实施计划
+# AI Writing Studio 顺序改进执行手册
 
-> 适用项目：`E:\projects\ai-writing`  
-> 目标：将当前功能较完整但可靠性不足的本地 MVP，提升为数据安全、业务闭环清晰、可持续扩展的本地优先长篇写作工具。
+> 项目：`E:\projects\ai-writing`
+>
+> 基线日期：2026-08-26
+>
+> 面向对象：编程 AI / Coding Agent
+>
+> 目标：在不破坏现有可用 MVP 的前提下，按顺序把项目提升为状态可靠、业务闭环完整、可扩展且可长期维护的 Beta。
 
 ---
 
-## 一、总体实施顺序
+## 0. 当前基线
+
+本计划以 2026-08-26 的实际代码和验证结果为准，不再执行旧计划中已经完成的事项。
+
+当前已验证：
+
+- Backend unittest：125 / 125 通过。
+- Frontend tests：26 / 26 通过。
+- Frontend ESLint：通过。
+- Vue / TypeScript production build：通过。
+- Ruff check / format check：通过。
+- Real-browser E2E `full-review-loop.e2e.mjs`：通过。
+- Real-browser E2E `wiki-failure.e2e.mjs`：通过。
+- 当前核心能力已存在：数据库迁移、Unit of Work、事务型 Outbox 入队、统一 Review 状态机、Canon 乐观版本、分析幂等、结构化日志、备份恢复、真实浏览器 E2E、Provider Registry。
+
+已知工作树注意事项：
+
+- `backend/uv.lock` 是本次 review 验证过程中生成的未跟踪文件；除非某个任务明确决定正式采用该 lockfile，否则不要顺手提交。
+- 不要把与当前任务无关的本地修改纳入提交。
+
+当前产品阶段判断：
 
 ```text
-恢复稳定基线
-→ 解决数据丢失与跨存储一致性
-→ 完善审阅和 Write-back 状态机
-→ 补齐 Snowflake 到正文、正文到 Canon 的业务闭环
-→ 拆分架构热点
-→ 建立真实端到端测试和发布门禁
+Prototype                 ✅
+Usable local MVP          ✅
+Feature-complete PRD MVP  ◐
+Reliable Beta             ◐
+Production architecture   ❌
 ```
 
 ---
 
-## 二、改进目标
+# 1. 编程 AI 执行协议
 
-### 1. 工程目标
+本节是整个计划的执行规则。每次只执行一个任务。
 
-1. 所有测试持续通过，禁止带失败测试继续叠加功能。
-2. 核心数据保存与外围知识索引解耦，避免“接口报错但数据已经保存”。
-3. Router 不再知道 DeepSeek、Hermes 或其他具体供应商。
-4. 将 2000+ 行前端 Store 和巨型 DataStore 拆成可独立维护的业务模块。
-5. 建立正式数据库迁移、CI、Lint 和真实后端浏览器测试。
+## 1.1 开始一个任务前
 
-### 2. 业务目标
+必须完成：
 
-1. AI 只能产生 Proposal，不能直接修改最终项目状态。
-2. 所有审核对象都使用一致且不可逆的状态机。
-3. Write-back 不仅能创建 Canon，还能更新已有 Canon 状态。
-4. Snowflake Step 7、8 能编译为结构化 Canon 和 Scene Proposal。
-5. 正文接受后，系统能够产生带证据的一致性报告和状态变化建议。
-6. 编辑中的正文、Artifact 和表单不会因切换项目、步骤或页面而静默丢失。
+1. 阅读根目录 `AGENTS.md`。
+2. 只阅读本文件中的“当前任务”和它明确引用的相关代码。
+3. 执行 `git status --short`，记录既有未提交内容。
+4. 对行为修复先写能暴露问题的回归测试，再改实现。
+5. 不进行“顺手重构”；发现额外问题记录到本计划的后续任务，不扩大当前 scope。
 
----
+## 1.2 一个任务的完成标准
 
-## 三、实施原则
+只有同时满足以下条件，才能把任务从 `[ ]` 改为 `[x]`：
 
-### 1. 先稳定，后重构，再扩展
+- 任务定义的业务不变量成立。
+- 目标测试通过。
+- 相关现有测试没有回归。
+- Full gate 通过；若任务明确要求 E2E，则 E2E 也通过。
+- `git diff --check` 无错误。
+- Review 当前 diff，没有无关文件、调试代码、临时兼容分支或死代码。
+- 形成一个独立提交；一个任务对应一个逻辑提交。
 
-在 P0 问题全部关闭前，暂停新增：
+失败时停在当前任务，不开始下一个任务。
 
-- 新模型供应商
-- 更复杂的 GraphRAG
-- 新 Agent 类型
-- 高级图可视化
-- 云同步
-- 多人协作
+## 1.3 默认验证门禁
 
-### 2. 一个改动只解决一个问题
+Backend：
 
-不要在同一个提交中同时进行：
-
-- 数据层重构
-- 新业务功能
-- UI 改版
-- 数据库迁移
-- 测试框架更换
-
-### 3. 核心状态与派生状态分离
-
-| 类型 | 示例 | 可靠性要求 |
-|---|---|---|
-| 核心状态 | Project、Canon、Scene、Manuscript、Revision、审核结果 | 必须事务化保存 |
-| 派生状态 | LLM Wiki、Graph、搜索索引、模型摘要 | 可以失败、可以重建、必须可重试 |
-| 临时状态 | 未保存表单、生成中的响应、编辑草稿 | 必须防止静默丢失 |
-
----
-
-# 四、阶段一：恢复稳定基线
-
-## P0-01 修复当前失败测试
-
-修改：
-
-```text
-backend/app/routers/scenes.py
-```
-
-将：
-
-```python
-status.HTTP_422_UNPROCESSABLE_CONTENT
-```
-
-改为：
-
-```python
-status.HTTP_422_UNPROCESSABLE_ENTITY
-```
-
-### 验收标准
-
-```text
+```bash
 python -m compileall backend/app
-backend unittest 全部通过
-frontend pnpm test 通过
-frontend pnpm build 通过
-browser smoke 通过
+ruff check backend
+ruff format --check backend
+cd backend
+python -m unittest discover -s tests
 ```
+
+Frontend：
+
+```bash
+cd frontend
+pnpm lint
+pnpm test
+pnpm build
+```
+
+高风险任务额外执行：
+
+```bash
+cd frontend
+pnpm test:e2e
+```
+
+高风险任务包括：
+
+- Manuscript revision 提交语义。
+- Outbox。
+- Backup / Restore。
+- Review / Write-back。
+- 数据迁移。
+- Provider runtime 公共边界。
 
 ---
 
-## P0-02 整理当前未提交工作树
+# 2. 必须长期保持的业务不变量
 
-建议先形成一个独立提交，范围只包括：
+后续所有实现都必须维护这些规则。
 
-- 跨项目 ID 唯一性
-- Scene Chapter 所属项目校验
-- Write-back 状态不可逆
-- Write-back 接受事务原子性
-- 项目切换异步响应隔离
-- 对应回归测试
+## INV-01 AI 只能提出变更，应用权属于应用和用户
 
-推荐提交说明：
+AI 可以生成：
 
-```text
-Harden project-scoped data integrity and review transitions
-```
+- Manuscript Proposal。
+- Reference / Copilot Proposal。
+- Canon / Memory Write-back Proposal。
 
----
+AI Provider 不直接写最终 Canon、Memory 或 Manuscript 状态。
 
-## P0-03 建立最低 CI 门禁
+## INV-02 每个 committed Manuscript Revision 都进入同一提交后流水线
 
-新增持续集成，至少包含：
+无论 Revision 来源是什么：
 
-### Backend
+- 接受 AI Manuscript Proposal。
+- 用户手工编辑正文并保存。
+- Restore 历史 Revision。
+- 后续 Copilot Apply。
 
-```text
-- Python compileall
-- unittest
-- ruff check
-- ruff format --check
-```
-
-### Frontend
+一旦产生新的正式 Revision，就必须统一触发：
 
 ```text
-- pnpm install --frozen-lockfile
-- pnpm test
-- pnpm build
+Committed Revision
+→ LLM Wiki index
+→ Consistency analysis
+→ Write-back analysis
+→ 人工 Review
 ```
 
-### Repository
+## INV-03 核心状态和派生状态分离
 
-```text
-- git diff --check
-```
+核心状态：
 
-建议新增：
+- Project。
+- Snowflake Artifact。
+- Canon。
+- Memory。
+- Scene Contract。
+- Manuscript Scene / Revision。
+- Review decision。
 
-```text
-.github/workflows/verify.yml
-backend/pyproject.toml
-frontend/eslint.config.js
-```
+必须事务化保存。
 
----
+派生状态：
 
-# 五、阶段二：优先解决数据安全
+- LLM Wiki 索引。
+- Consistency report。
+- 自动 Write-back 建议。
+- Graph / Cognition 派生结果。
 
-## P0-04 为 LLM Wiki 写入增加 Outbox
+允许失败，但必须可重试、可恢复，失败不能回滚已提交的核心状态。
 
-当前问题：
+## INV-04 Review terminal state 不可逆
 
-```text
-保存 SQLite
-→ 再写 LLM Wiki
-→ LLM Wiki 失败
-→ API 报错
-→ SQLite 已经改变
-```
-
-应改为：
-
-```text
-同一个 SQLite 事务：
-1. 保存核心数据
-2. 创建 Revision
-3. 写入 outbox_jobs
-
-事务提交后：
-4. 执行 LLM Wiki ingest
-5. 成功标记 succeeded
-6. 失败标记 failed，允许重试
-```
-
-建议新增表：
-
-```sql
-CREATE TABLE outbox_jobs (
-    id TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL,
-    job_type TEXT NOT NULL,
-    aggregate_type TEXT NOT NULL,
-    aggregate_id TEXT NOT NULL,
-    payload_json TEXT NOT NULL,
-    idempotency_key TEXT NOT NULL UNIQUE,
-    status TEXT NOT NULL,
-    attempt_count INTEGER NOT NULL DEFAULT 0,
-    last_error TEXT NOT NULL DEFAULT '',
-    created_at TEXT NOT NULL,
-    completed_at TEXT NOT NULL DEFAULT ''
-);
-```
-
-推荐状态：
-
-```text
-pending
-processing
-succeeded
-failed
-```
-
-建议新增模块：
-
-```text
-backend/app/outbox/models.py
-backend/app/outbox/service.py
-backend/app/outbox/handlers.py
-backend/app/data/mixins/outbox.py
-```
-
-需要改造：
-
-```text
-backend/app/services/manuscript_service.py
-backend/app/routers/snowflake.py
-```
-
-### 验收测试
-
-```text
-给定 LLM Wiki ingest 抛出异常
-当用户保存正文
-那么：
-- 正文版本已正确保存
-- Revision 已正确保存
-- Outbox Job 为 failed
-- API 明确返回“核心数据已保存，索引失败”
-- 重试后 Job 变为 succeeded
-- 不产生重复 Revision
-```
-
----
-
-## P0-05 增加防丢稿机制
-
-需要覆盖：
-
-- Snowflake Artifact 编辑
-- Canon 表单
-- Chapter 表单
-- Scene Contract 表单
-- Memory 表单
-- Manuscript 正文编辑
-- Reference 请求表单
-
-建议统一草稿模型：
-
-```ts
-type EditorDraftState = {
-  scopeKey: string
-  dirty: boolean
-  lastSavedAt?: string
-  lastAutosavedAt?: string
-}
-```
-
-`scopeKey` 示例：
-
-```text
-snowflake:{projectId}:{stepNumber}
-canon:{projectId}:{entityId|new}
-scene:{projectId}:{sceneId|new}
-manuscript:{projectId}:{sceneId}
-```
-
-建议新增：
-
-```text
-frontend/src/composables/useDirtyGuard.ts
-frontend/src/services/draftCache.ts
-frontend/src/stores/editorSession.ts
-```
-
-### 行为要求
-
-用户切换以下对象时：
-
-- 项目
-- Snowflake Step
-- Chapter
-- Scene
-- Canon Entity
-- Memory Record
-- 页面关闭
-
-若存在未保存内容，应：
-
-1. 自动保存本地草稿
-2. 显示离开确认
-3. 允许取消切换
-4. 重新进入时恢复本地草稿
-
----
-
-## P0-06 完善异步请求隔离
-
-建议实现统一请求作用域：
-
-```ts
-type RequestScope = {
-  projectId: string
-  domain: string
-  entityId: string
-  requestId: number
-}
-```
-
-响应写入状态前必须验证：
-
-```ts
-isCurrentRequest(scope)
-isCurrentProject(scope.projectId)
-isCurrentEntity(scope.domain, scope.entityId)
-```
-
-例如 Snowflake 生成绑定：
-
-```text
-projectId + stepNumber + requestId
-```
-
-建议封装：
-
-```text
-frontend/src/composables/useScopedRequest.ts
-```
-
-### 验收测试
-
-```text
-Step 1 开始生成
-切换到 Step 2
-Step 1 后返回
-Step 2 编辑器内容不被覆盖
-Step 1 结果仍正确保存到 Step 1 数据中
-```
-
----
-
-# 六、阶段三：统一审阅状态机
-
-## P1-01 建立统一状态迁移规则
-
-建议统一状态：
+统一状态：
 
 ```text
 pending_review
-accepted
-rejected
-superseded
+  ├─ accepted
+  ├─ rejected
+  └─ superseded
 ```
 
-合法迁移：
+进入终态后不得转成其他状态。重复提交相同状态可以幂等返回。
+
+## INV-05 跨存储恢复不能留下半恢复项目
+
+Backup Import 成功后，SQLite 核心数据和 project modules 必须来自同一个 backup；失败后应保留导入前的可用状态。
+
+---
+
+# 3. 实施顺序总览
+
+严格按以下顺序实施；P1 全部完成前不要进入 P2。
 
 ```text
-pending_review -> accepted
-pending_review -> rejected
-pending_review -> superseded
+P1-01 统一 Revision Commit Pipeline
+  ↓
+P1-02 Outbox 原子 Claim 与 Crash Recovery
+  ↓
+P1-03 Outbox Dispatcher 脱离 HTTP 请求
+  ↓
+P1-04 Backup Import 完整验证与跨存储恢复
+  ↓
+P1-05 Copilot 绑定正文 Selection 和来源版本
+  ↓
+P1-06 将 Copilot Proposal 安全应用为新 Revision
+  ↓
+P1-07 Copilot 一次生成多方案
+  ↓
+P2-01 Provider 选择去 DeepSeek 硬编码
+  ↓
+P2-02 Provider 按 Capability 拆接口
+  ↓
+P2-03 拆分 Frontend Manuscript / Reviews 大 Store
+  ↓
+P2-04 收窄 Backend Data Ports，消除 God Protocol
+  ↓
+P2-05 去除 Service 层 connection 泄漏
+  ↓
+P2-06 前端 API Error 与行为测试升级
+  ↓
+P2-07 扩充故障 / Provider / Recovery E2E
+  ↓
+P3-01 清理文档漂移、兼容 Shim 和测试 Harness
 ```
 
-禁止：
+高级 Graph 可视化属于后续产品功能，不阻塞本计划。
+
+---
+
+# 4. P1：Reliable Beta 阻塞项
+
+## [x] P1-01 统一 Committed Revision Pipeline
+
+### 问题
+
+当前接受 Manuscript Proposal 时：
+
+`backend/app/data/flows.py`
+
+会为新 Revision enqueue：
+
+- `llm_wiki_ingest`
+- `consistency_analysis`
+- `writeback_analysis`
+
+但以下两条真正的作者主路径只 enqueue Wiki：
+
+- `restore_manuscript_revision()`
+- `update_manuscript_scene()`
+
+因此作者手工修改正文后，“保存正文 → 一致性检查 → Write-back Review”核心闭环断开。
+
+### 目标
+
+建立单一的“正式 Revision 已提交”业务流程。任何新 Manuscript Revision 都使用同一后置任务集合。
+
+### 主要涉及
 
 ```text
-accepted -> rejected
-rejected -> accepted
-accepted -> pending_review
+backend/app/data/flows.py
+backend/app/data/sqlite_store.py
+backend/app/services/manuscript_service.py
+backend/app/routers/manuscript.py
+backend/app/outbox/handlers.py
+backend/tests/test_manuscript_editing.py
+backend/tests/test_post_accept_analysis.py
+backend/tests/test_outbox.py
+e2e/full-review-loop.e2e.mjs
 ```
 
-建议新增：
+### 实施步骤
+
+1. 先增加回归测试：手工 edit 创建 Revision 后应存在三类 Outbox Job。
+2. 增加回归测试：restore 创建新 Revision 后应存在三类 Outbox Job。
+3. 提取一个唯一 helper / flow，例如：
 
 ```text
-backend/app/review/state_machine.py
-backend/app/review/service.py
+enqueue_committed_revision_jobs(revision)
 ```
 
-统一 HTTP 语义：
+它负责一次性 enqueue：
 
 ```text
-404：不存在
-409：已审核，不允许再次修改
-422：请求结构错误
+llm_wiki_ingest
+consistency_analysis
+writeback_analysis
+```
+
+4. Proposal accept、manual edit、restore 全部调用该 helper。
+5. 删除各调用点重复的 job 组合逻辑。
+6. 确保每个新 Revision 的三类 job 各自只有一个，依赖现有 idempotency key 防重复。
+7. 前端 manual save / restore 后刷新 Post-Acceptance Analysis 区域，使用户能看到正在执行或已完成的分析。
+
+### 完成标准
+
+给定任意一条产生正式 Revision 的路径：
+
+```text
+accept proposal
+manual edit
+restore revision
+```
+
+都满足：
+
+- Manuscript version 正确 +1。
+- 产生一个不可变 Revision。
+- exactly one Wiki job。
+- exactly one Consistency job。
+- exactly one Write-back job。
+- 自动分析生成的 Write-back 仍保持 `pending_review`，不会自动写 Canon / Memory。
+- 重复请求不会产生重复 Revision 或重复 job。
+
+### 必须验证
+
+- Backend targeted tests。
+- Backend full suite。
+- Frontend tests/build。
+- `pnpm test:e2e`。
+
+### 提交建议
+
+```text
+Route every manuscript revision through post-commit analysis
 ```
 
 ---
 
-## P1-02 Write-back 支持更新已有 Canon
+## [ ] P1-02 Outbox 原子 Claim 与 Crash Recovery
 
-扩展：
+### 问题
 
-```python
-WritebackAction = Literal["create", "update"]
-```
-
-建议 Update Proposal：
-
-```json
-{
-  "target": "canon_entity",
-  "action": "update",
-  "target_record_id": "character-lin-ye",
-  "expected_version": 3,
-  "title": "Update Lin Ye injury state",
-  "rationale": "The accepted revision establishes a right-arm injury.",
-  "source_ref": "manuscript_revision:revision-24",
-  "changes": {
-    "current_state": {
-      "before": "Uninjured",
-      "after": "Right arm injured"
-    }
-  }
-}
-```
-
-Canon 增加：
-
-```text
-version
-updated_at
-```
-
-接受 Proposal 时校验：
-
-```text
-current_version == expected_version
-```
-
-UI 必须展示：
-
-```text
-当前值
-建议值
-变化来源
-证据正文
-目标记录
-冲突警告
-```
-
----
-
-## P1-03 Proposal 入库前完成目标校验
-
-生成 Proposal 时就执行：
-
-```python
-validate_writeback_payload(proposal)
-```
-
-不要等用户点击接受才发现 Payload 不合法。
-
-Memory 建议：
-
-- 不复制完整 40,000 字符正文
-- Prose Sample 建议控制在 2,000–6,000 字符
-- Chapter Summary 应存摘要而非正文副本
-- 优先保存 source_ref 与选段范围
-
-验收标准：
-
-> 所有已经成功创建的 Write-back Proposal，在数据未发生并发变化时，都应可以被接受。
-
----
-
-## P1-04 增加分析幂等性
-
-建议新增：
+当前 `OutboxRepository.transition()` 更新条件只有：
 
 ```sql
-CREATE TABLE analysis_runs (
-    id TEXT PRIMARY KEY,
-    project_id TEXT NOT NULL,
-    source_ref TEXT NOT NULL,
-    processor TEXT NOT NULL,
-    input_hash TEXT NOT NULL,
-    status TEXT NOT NULL,
-    created_at TEXT NOT NULL,
-    UNIQUE(project_id, source_ref, processor, input_hash)
-);
+WHERE project_id = ? AND id = ?
 ```
 
-Processor 示例：
+并没有用当前状态做 CAS。
+
+两个 dispatcher 如果同时读取到一个 `pending` job，理论上可以重复执行副作用。
+
+另外：核心事务 commit 后、HTTP 同步 dispatch 前如果进程崩溃，job 会停在 `pending`；现有 retry API 只接受 `failed`，没有通用 crash recovery。
+
+### 目标
+
+让 Outbox 具备真正的：
+
+- single-claim。
+- crash recovery。
+- stale-processing recovery。
+- 幂等 retry。
+
+### 主要涉及
 
 ```text
-local_writeback
-deepseek_writeback
-hermes
-consistency_checker
+backend/app/data/repositories/outbox.py
+backend/app/outbox/service.py
+backend/app/outbox/models.py
+backend/app/data/migrations.py
+backend/tests/test_outbox.py
+backend/tests/test_migrations.py
 ```
 
-重复请求时：
+### 实施步骤
 
-- 输入未改变：返回之前结果
-- 用户明确选择重新运行：创建新的 Run Version
-- 不静默创建重复 Proposal
+1. 先写并发 claim 回归测试：两个 service / connection 同时 claim 同一 pending job，只有一个成功。
+2. 将 claim 变成原子状态转换：
+
+```sql
+UPDATE outbox_jobs
+SET status = 'processing', ...
+WHERE project_id = ?
+  AND id = ?
+  AND status = 'pending'
+```
+
+只有 `rowcount == 1` 的调用方可以执行 handler。
+3. 不再把 `processing` job 当成普通可执行 job 直接再次 `_run()`。
+4. 增加 processing 开始时间字段，例如 `processing_started_at`，通过正式 migration 添加。
+5. 增加 stale-processing recovery：超过租约时间的 `processing` job 可安全恢复为 `pending`。
+6. retry `failed -> pending` 同样使用条件更新，避免两个 retry 请求重复运行。
+7. 为 pending crash recovery 提供 service API：应用重启后能继续处理数据库中遗留 pending job。
+
+### 完成标准
+
+- 两个并发 claim 只有一个 handler 被调用。
+- pending job 跨进程重启仍可执行。
+- stale processing job 能恢复。
+- succeeded job 永远不会重新执行。
+- failed job retry 后 attempt_count 正确增加。
+- handler 抛错仍不会影响核心业务事务。
+
+### 必须验证
+
+- Migration tests。
+- Outbox concurrency / recovery tests。
+- Backend full suite。
+- E2E 保持通过。
+
+### 提交建议
+
+```text
+Make outbox claiming atomic and recoverable
+```
 
 ---
 
-# 七、阶段四：补齐核心业务闭环
+## [ ] P1-03 Outbox Dispatcher 脱离 HTTP 请求
 
-## P1-05 将 Snowflake 从文本框升级为结构化编译器
+### 问题
 
-### Step 7：Canon Proposal
-
-```text
-Snowflake Step 7 Artifact
-→ Canon Extractor
-→ Canon Create / Update Proposals
-→ 用户审阅
-→ 写入 Canon
-```
-
-### Step 8：Scene Contract Proposal
+现在所谓 Outbox 在事务层是异步思路，但执行仍发生在请求路径：
 
 ```text
-Snowflake Step 8 Artifact
-→ Scene Contract Parser
-→ 结构校验
-→ Scene Proposals
-→ 用户批量审阅
-→ 创建 Scene Contracts
+HTTP mutation
+→ DB commit
+→ process_pending/process_job
+→ handler IO
+→ HTTP response
 ```
 
-建议 Scene Proposal 包含：
+实际测试中曾出现 Wiki handler 约 1.34 秒，使接受 Proposal 的 HTTP 请求约 1.55 秒。
+
+随着 Provider / Index / Analysis 变复杂，请求延迟和失败耦合会继续增加。
+
+### 目标
+
+建立本地优先、单进程可运行的 app-owned Outbox Dispatcher，使 HTTP mutation 只负责可靠入队，不等待副作用执行。
+
+### 约束
+
+- 当前是 local-first MVP，不引入 Redis、Celery、Kafka 等外部基础设施。
+- 复用 P1-02 的 CAS claim 和 recovery。
+- Dispatcher 必须在应用进程重启后自动处理 pending job。
+
+### 主要涉及
 
 ```text
-sequence
-chapter_id 或 chapter_hint
-title
-pov
-goal
-conflict
-turning_point
-required_canon_ids
-forbidden_fact_refs
-open_threads
+backend/app/main.py
+backend/app/outbox/service.py
+backend/app/outbox/
+backend/app/services/snowflake_service.py
+backend/app/routers/manuscript.py
+backend/app/routers/snowflake.py
+backend/app/outbox/http.py
+frontend/src/stores/reviews.ts
+frontend/src/stores/manuscript.ts
+backend/tests/test_outbox.py
+e2e/full-review-loop.e2e.mjs
+e2e/wiki-failure.e2e.mjs
 ```
 
-设计约束：
+### 实施步骤
 
-- AI 解析失败不能污染数据库
-- 原始 Artifact 必须保留
-- Proposal 带来源文本和解析警告
-- 批量接受必须事务化
-- 重复解析必须幂等
+1. 在 FastAPI lifespan 中启动一个 app-owned dispatcher loop。
+2. 新 job 入队后只 signal / wake dispatcher，不同步运行 handler。
+3. dispatcher 定期 sweep pending，并优先响应 wake signal。
+4. 同步 handler 通过 worker thread / `asyncio.to_thread` 等方式运行，避免阻塞 event loop。
+5. shutdown 时停止领取新 job，并有界等待当前任务完成或安全留下可恢复状态。
+6. 移除 mutation route 中直接 `process_pending()` / `process_job()` 的执行耦合。
+7. 修改响应语义：HTTP 只报告 job 已 scheduled/pending，不假装副作用已经完成。
+8. 前端继续通过现有 Outbox / Analysis 面板轮询状态。
+9. 启动应用时自动恢复 P1-02 遗留 pending / stale processing。
+
+### 完成标准
+
+- 人为让 handler sleep 1 秒，mutation HTTP 请求不再额外等待约 1 秒。
+- mutation 返回后 job 最终自动变为 succeeded / failed。
+- backend restart 后遗留 pending 自动被消费。
+- wiki failure 仍不会影响已提交 Manuscript。
+- UI 可以看到 pending → processing → succeeded/failed。
+- Retry UI 继续有效。
+
+### 必须验证
+
+- Backend dispatcher tests。
+- Backend full suite。
+- 两套 real-browser E2E。
+
+### 提交建议
+
+```text
+Dispatch outbox jobs outside request latency
+```
 
 ---
 
-## P1-06 实现真正的一致性报告
+## [ ] P1-04 Backup Import 完整验证与跨存储一致性
 
-新增结构化模型：
+### 问题
+
+当前 import 顺序大致是：
+
+```text
+验证部分 package
+→ SQLite transaction 完成
+→ 删除旧 project modules
+→ 逐文件恢复 modules
+```
+
+若数据库已经提交后，module 恢复失败，会留下：
+
+```text
+新数据库 + 丢失/半恢复 modules
+```
+
+另外 module path 安全检查发生在数据库 mutation 之后，过晚。
+
+### 目标
+
+Backup Import 在任何失败点都不能把原项目变成半恢复状态。
+
+### 主要涉及
+
+```text
+backend/app/services/backup_service.py
+backend/app/routers/backup.py
+backend/tests/test_backup.py
+backend/app/data/migrations.py   # 仅当需要 metadata，不强制
+frontend/src/stores/backups.ts
+```
+
+### 实施步骤
+
+#### A. Mutation 前完整验证
+
+在修改数据库和文件系统前一次性验证：
+
+- manifest kind / format / schema version。
+- manifest project id / title。
+- table 名称白名单。
+- 每个 table row 的列集合。
+- 每条 project-scoped row 的 `project_id` 必须等于 manifest project id。
+- `projects` 只能包含目标 project 根记录。
+- manifest row_counts 与实际数据一致。
+- 所有 module entry path 先完成 Zip Slip / `..` / absolute path 校验。
+- module 文件可完整解码/读取。
+- package / entry / uncompressed total 有合理上限，避免异常 ZIP 消耗本机资源。
+
+任何验证失败：数据库和现有 modules 必须零变化。
+
+#### B. 文件先 staging
+
+把新 module 内容完整写入与目标同文件系统的 temporary staging directory。
+
+只有 staging 全部成功才进入 replace 阶段。
+
+#### C. 可回滚 swap
+
+建议流程：
+
+```text
+validate
+→ stage new modules
+→ begin SQLite UoW
+→ replace DB rows
+→ rename old modules to backup location
+→ atomic rename staged modules to target
+→ commit DB
+→ delete old module backup
+```
+
+任一步失败：
+
+- rollback DB transaction。
+- 恢复 old module directory。
+- 清理 staging。
+
+不要用“DB commit 后再逐文件写”的方式。
+
+### 完成标准
+
+至少有故障注入测试覆盖：
+
+1. invalid module path → 零 mutation。
+2. bad project_id row → 零 mutation。
+3. staging write failure → 零 mutation。
+4. filesystem swap failure → DB rollback + old modules intact。
+5. DB failure after filesystem prepare → old modules 恢复。
+6. 正常 overwrite → DB 和 modules 都来自同一个 package。
+7. 正常导入后再次 export，关键 row count / module count 一致。
+
+### 必须验证
+
+- Backup dedicated tests。
+- Backend full suite。
+- Frontend backup contract/behavior tests。
+- Full E2E 至少保持原 happy path 通过。
+
+### 提交建议
+
+```text
+Make project restore validated and rollback-safe
+```
+
+---
+
+# 5. P1：补齐 PRD 核心 Copilot 闭环
+
+## [ ] P1-05 Copilot 绑定正文 Selection 和来源版本
+
+### 问题
+
+当前 References / Copilot 是独立表单：
+
+- 手工选 `scope_type`。
+- 手工填写 `scope_ref`。
+- 手工描述 writing problem。
+
+它不知道用户实际选中的正文，也没有记录建议基于哪个 Manuscript version 生成。
+
+如果正文在生成建议后发生变化，系统无法判断建议是否已 stale。
+
+### 目标
+
+让正文编辑器成为 Copilot 的入口，并为每条 suggestion 保存可验证的 source provenance。
+
+### 设计要求
+
+增加一个结构化来源模型，例如：
+
+```text
+ReferenceSelectionContext
+- scene_id
+- revision_id / scene_version
+- selection_start
+- selection_end
+- selected_text
+- selected_text_hash
+```
+
+具体字段名可以根据现有 schema 调整，但必须能回答：
+
+> 这条建议是基于哪一个正文版本、哪一段文字生成的？
+
+### 主要涉及
+
+```text
+backend/app/models.py
+backend/app/data/migrations.py
+backend/app/data/repositories/review.py
+backend/app/agents/reference_workflow.py
+backend/app/services/reference_service.py
+frontend/src/components/manuscript/ReferenceWorkspace.vue
+frontend/src/components/manuscript/*Editor*.vue 或当前正文 textarea 所在组件
+frontend/src/stores/reviews.ts
+frontend/src/stores/manuscript.ts
+frontend/src/types/index.ts
+backend/tests/test_reference_generation.py
+frontend/tests/
+```
+
+### 实施步骤
+
+1. 前端捕获当前正文 textarea/editor 的 selectionStart / selectionEnd 和 selected text。
+2. 打开 Copilot 时自动填充 manuscript scene scope，不要求用户复制 scene id。
+3. Reference generation request 携带 SelectionContext。
+4. backend 校验 selection 属于指定 current revision / version。
+5. suggestion 持久化来源 context，而不是只保存自由文本 `used_context`。
+6. provider/local workflow 都把 selected text 和 Scene Contract/Canon context 一起用于建议生成。
+7. UI 明确显示建议来源，例如：
+
+```text
+Scene X · v3 · selected 146–302
+```
+
+### 完成标准
+
+- 用户选中正文后可以直接发起 Copilot。
+- 后端持久化 suggestion 与具体 scene/version/selection 的绑定。
+- 切换 project / scene 后异步旧结果不会写入当前项目。
+- 未选择正文时仍可保留 project/scene 级 brainstorm 模式。
+- 当前任务不自动修改正文；Apply 留给 P1-06。
+
+### 提交建议
+
+```text
+Bind reference suggestions to manuscript selections
+```
+
+---
+
+## [ ] P1-06 将 Copilot Proposal 安全应用为新 Revision
+
+### 问题
+
+当前 `Accept Reference` 只更新 Review status，不会把建议应用到正文，因此 PRD 的“采纳建议”没有闭环。
+
+直接把 suggestion content 覆盖正文同样不可接受，因为生成建议后正文可能已经被用户修改。
+
+### 目标
+
+增加显式、安全、可追踪的 Apply 操作。Apply 后产生一个新的 Manuscript Revision，并自动进入 P1-01 的统一后置流水线。
+
+### 业务规则
+
+1. Review 和 Apply 是两个不同动作。
+2. suggestion 必须处于 `accepted` 才允许 Apply。
+3. Apply 前验证：
+   - current scene version == suggestion source version。
+   - selection range 仍有效。
+   - selected text / hash 仍匹配。
+4. stale suggestion 返回 409，不静默覆盖新正文。
+5. Apply 通过 Manuscript application service / revision flow，不允许 Reference repository 直接 UPDATE manuscript table。
+6. Apply 是幂等的；同一 suggestion 不产生两个 Revision。
+
+### 建议 API
+
+可采用等价设计，例如：
+
+```text
+POST /projects/{project_id}/references/suggestions/{suggestion_id}/apply
+```
+
+首版只支持：
+
+```text
+replace selected text
+```
+
+不要在同一任务加入复杂 patch DSL。
+
+### 建议持久化
+
+为 suggestion 或独立 application record 保存：
+
+```text
+applied_revision_id
+applied_at
+```
+
+以便审计和幂等 replay。
+
+### 完成标准
+
+- Accepted suggestion 可替换其来源 selection。
+- Apply 产生 Manuscript version +1。
+- 新 Revision 被保存。
+- 自动 enqueue Wiki + Consistency + Write-back 三类 job。
+- 再次 Apply 同一 suggestion 不产生重复 Revision。
+- 正文版本已变化时返回 conflict，并保留用户的新正文。
+- UI 能显示“Applied in revision vN”或冲突原因。
+
+### 必须验证
+
+- Backend apply happy path。
+- stale version conflict。
+- changed selection conflict。
+- idempotent replay。
+- full review loop E2E 增加一次 Copilot apply。
+
+### 提交建议
+
+```text
+Apply accepted references as safe manuscript revisions
+```
+
+---
+
+## [ ] P1-07 Copilot 一次生成多方案
+
+### 问题
+
+PRD 要求 Copilot 对卡点提供“多套结构化参考建议”。当前一次 generation 主要得到单条 ReferenceSuggestion。
+
+### 目标
+
+一次用户请求得到一个可比较的 suggestion group，默认 3 个明显不同的方案。
+
+### 约束
+
+- 不改变 P1-06 的 Apply 安全语义。
+- 每个 option 仍然是独立 reviewable suggestion。
+- options 共享 generation group 和相同 SelectionContext。
+
+### 设计建议
+
+增加：
+
+```text
+generation_group_id
+option_index
+```
+
+或等价结构。
+
+API 可以返回 `list[ReferenceSuggestion]` 或一个 group response；选择对现有客户端迁移成本最低的方案。
+
+### 完成标准
+
+- 默认生成 3 个方案。
+- UI 同组并排/列表比较，不混入其他历史请求。
+- 每个方案可独立 Accept / Reject。
+- 只能 Apply 被接受的具体 option。
+- Provider 输出少于/多于目标数量时有清晰 normalization，不产生空 suggestion。
+
+### 提交建议
+
+```text
+Generate grouped copilot options for review
+```
+
+---
+
+# 6. P2：Provider 可扩展性
+
+## [ ] P2-01 Provider 选择去 DeepSeek 硬编码
+
+### 问题
+
+已有 `ProviderRegistry`，但多个 Service 仍直接：
 
 ```python
-class ConsistencyFinding(BaseModel):
-    id: str
-    severity: Literal["info", "warning", "critical"]
-    rule_code: str
-    title: str
-    description: str
-    manuscript_source_ref: str
-    manuscript_excerpt: str
-    canon_entity_id: str | None
-    canon_field: str | None
-    expected_value: str
-    observed_value: str
-    suggested_action: str
+registry.create("deepseek", ...)
 ```
 
-首批规则：
-
-1. Forbidden Fact 明文出现
-2. Scene POV 与正文角色明显不一致
-3. Canon 中声明禁止某能力，正文明确使用
-4. `last_seen` 或故事位置明显倒退
-5. Required Canon 在正文和上下文中完全缺失
-6. Goal / Conflict / Turning Point 没有可识别体现
-7. 同一实体状态在相邻 Revision 中冲突
-
-输出应带：
+主要位置：
 
 ```text
-规则代码
-证据正文
-Canon 来源
-置信度
-建议动作
-```
-
----
-
-## P1-07 正文接受后自动创建待处理分析
-
-建议核心闭环：
-
-```text
-接受 Manuscript Proposal
-→ 创建 Revision
-→ 创建 Wiki Outbox Job
-→ 创建 Consistency Analysis Job
-→ 创建 Write-back Analysis Job
-→ UI 显示分析状态
-→ 分析完成后出现待审阅结果
-```
-
-自动的是分析，不是自动接受写回。
-
----
-
-# 八、阶段五：架构重构
-
-## P2-01 将 Router 恢复为纯 HTTP 层
-
-目标结构：
-
-```text
-Router
-  -> Application Service
-      -> Domain Policy / Workflow
-      -> Repository
-      -> Integration Port
-```
-
-Router 只负责：
-
-- 解析请求
-- 调用 Service
-- 返回 Response
-- 映射领域错误
-
-禁止 Router 直接导入：
-
-```text
-DeepSeekSettings
-OpenAI SDK
-HermesAgentClient
-LocalFileLlmWiki
-```
-
-建议新增：
-
-```text
-backend/app/services/snowflake_service.py
+backend/app/services/manuscript_service.py
 backend/app/services/reference_service.py
 backend/app/services/writeback_service.py
-backend/app/integrations/provider_registry.py
-backend/app/integrations/hermes.py
+backend/app/services/snowflake_service.py
+```
+
+因此增加第二个外部 Provider 时仍需修改多个业务 Service。
+
+### 目标
+
+Service 只表达：
+
+```text
+我要一个 manuscript/reference/writeback/snowflake provider
+```
+
+不表达：
+
+```text
+我要 DeepSeek
+```
+
+### 实施步骤
+
+1. 在 integrations 层增加单一 Provider Resolver / Policy。
+2. 明确两种语义：
+   - preferred：外部 Provider 可用则使用，否则 local fallback。
+   - external：只解析已配置的外部 Provider；没有则返回 not configured。
+3. `*/provider` 现有 API 首先保持兼容，但内部不出现 provider name。
+4. runtime status 从同一个 resolver 读取，避免状态和实际执行策略漂移。
+5. 用 fake registry/provider 测试：注册一个非 DeepSeek provider 后，Service 无需修改即可使用。
+
+### 完成标准
+
+`backend/app/services/` 中业务 Service 不再出现：
+
+```text
+"deepseek"
+DeepSeekSettings
+DeepSeekWritingWorkflow
+```
+
+具体 provider 名只存在 integrations/configuration 层。
+
+### 提交建议
+
+```text
+Resolve writing providers outside application services
 ```
 
 ---
 
-## P2-02 建立 Provider Registry
+## [ ] P2-02 Provider 按 Capability 拆接口
 
-定义：
+### 问题
+
+当前 `WritingProvider` 要求同一个 Provider 同时实现：
+
+- Snowflake。
+- Manuscript。
+- Reference。
+- Write-back。
+
+这会阻碍“某 provider 只适合一种能力”的扩展，也会产生无意义 stub。
+
+### 目标
+
+把能力变成明确接口，而不是强迫所有 provider 实现整个胖协议。
+
+### 设计方向
+
+可采用结构化 Protocol：
+
+```text
+SnowflakeGenerationProvider
+ManuscriptGenerationProvider
+ReferenceGenerationProvider
+WritebackGenerationProvider
+```
+
+Registry / Resolver 能查询 capability。
+
+### 完成标准
+
+- 一个只实现 Manuscript capability 的 fake provider 可以注册并用于 Manuscript。
+- 它不需要实现 Snowflake / Write-back 空方法。
+- Resolver 在 capability 不支持时返回明确配置/能力错误。
+- 业务模型中不暴露 SDK-specific types。
+
+### 提交建议
+
+```text
+Split provider interfaces by generation capability
+```
+
+---
+
+# 7. P2：Frontend 高内聚改造
+
+## [ ] P2-03 拆分 Manuscript / Reviews 大 Store
+
+### 问题
+
+当前文件规模约为：
+
+```text
+frontend/src/stores/manuscript.ts  > 1000 lines
+frontend/src/stores/reviews.ts       ~675 lines
+```
+
+`manuscript.ts` 同时承担：
+
+- Chapter CRUD。
+- Scene Contract CRUD。
+- Compile。
+- Draft proposal。
+- Proposal review。
+- Manuscript editing。
+- Revision / diff / restore。
+- Export。
+- Draft autosave。
+- Graph refresh。
+- Reviews refresh。
+
+这是第二次形成新的“大 workspace store”。
+
+### 目标
+
+按业务生命周期拆 Store，同时避免 Store-to-Store 形成循环依赖图。
+
+### 建议边界
+
+```text
+stores/manuscript/
+  chapters.ts
+  sceneContracts.ts
+  drafts.ts
+  revisions.ts
+  coordinator.ts
+
+stores/reviews/
+  writebacks.ts
+  references.ts
+  analysis.ts
+  coordinator.ts
+```
+
+保留一个很薄的 compatibility facade 只在迁移期间使用；完成后删除无价值 facade。
+
+### 约束
+
+- 业务行为不变。
+- 不和 UI redesign 放在同一个提交。
+- 跨 domain 刷新放 coordinator / workspace orchestration，不让 leaf store 任意 import 其他 leaf store。
+- 共享 draft session/request scope 继续使用现有 service/composable。
+
+### 完成标准
+
+- `manuscript.ts` 不再是 >1000 行的多职责 Store。
+- `reviews.ts` 不再同时拥有 Reference、Write-back、Analysis 三条完整工作流。
+- leaf store 之间没有循环 import。
+- workspace 只负责真正的跨域协调。
+- 当前组件功能和 E2E 行为不变。
+
+### 提交建议
+
+```text
+Split manuscript and review stores by workflow ownership
+```
+
+---
+
+# 8. P2：Backend 低耦合改造
+
+## [ ] P2-04 收窄 Backend Data Ports，消除 God Protocol
+
+### 问题
+
+`backend/app/data/interfaces.py` 的 `WritingDataStore` 同时描述 Project、Snowflake、Canon、Memory、Scene、Manuscript、Review、Analysis 等几乎全部数据能力。
+
+Service 因此在类型层依赖整个系统，而不是自己真正需要的最小能力。
+
+### 目标
+
+使用窄接口表达 Service 依赖，同时暂时允许同一个 `SQLiteWritingDataStore` 实例实现多个 Protocol，降低迁移成本。
+
+### 建议方向
+
+例如：
+
+```text
+ProjectReader
+SnowflakeStore
+CanonStore
+SceneStore
+ManuscriptStore
+ReviewStore
+AnalysisStore
+OutboxStore
+```
+
+也可以按 read/write 使用场景进一步组合，但不要为了抽象而制造几十个单方法接口。
+
+### 实施顺序
+
+1. 从一个 Service 开始，例如 `ManuscriptService`。
+2. 定义它真正需要的 port 组合。
+3. 保持 runtime object 不变，只收窄类型依赖。
+4. 测试通过后再依次迁移 Writeback、Reference、Snowflake。
+5. 最终移除无人依赖的 God Protocol。
+
+### 完成标准
+
+- 每个 Service 的 constructor type 能直接看出业务依赖。
+- 新增 Canon-only service 不需要看到 Manuscript/Outbox 方法。
+- 不修改数据行为。
+- 不引入 repository locator/service locator。
+
+### 提交建议
+
+```text
+Narrow data ports around application service needs
+```
+
+---
+
+## [ ] P2-05 去除 Service 层 connection 泄漏
+
+### 问题
+
+当前部分 store API 暴露：
 
 ```python
-class WritingProvider(Protocol):
-    name: str
-
-    def generate_snowflake(...): ...
-    def generate_manuscript(...): ...
-    def generate_reference(...): ...
-    def generate_writebacks(...): ...
+connection: object | None = None
 ```
 
-注册：
+`SnowflakeCompileService` 等代码还直接使用：
 
 ```text
-LocalDeterministicProvider
-DeepSeekProvider
+data_store.connect()
+record_analysis_run(connection, ...)
+create_scene_proposals(..., connection=connection)
 ```
 
-新增 Provider 时只需：
+这让应用层知道 SQLite transaction 组合方式，削弱数据接口抽象。
 
-1. 实现接口
-2. 注册 Provider
-3. 修改配置
+### 目标
 
----
+事务组合由 Data/UoW 层拥有；Service 表达“执行一个业务事务”，不传底层 connection。
 
-## P2-03 拆分 `WritingDataStore`
+### 实施方向
 
-建议拆成：
-
-```python
-ProjectRepository
-SnowflakeRepository
-CanonRepository
-SceneRepository
-ManuscriptRepository
-ReviewRepository
-OutboxRepository
-AnalysisRepository
-```
-
-跨仓储事务通过：
+将跨 aggregate transaction 继续集中到：
 
 ```text
-UnitOfWork
+app.data.flows
+SqliteUnitOfWork
 ```
 
-协调。
+或增加窄的 application transaction ports。
 
----
+不要把 SQL 移回 Service。
 
-## P2-04 拆分前端 Store
+### 完成标准
 
-目标结构：
+- Service 和 Router 不再传 `sqlite3.Connection` / `object connection`。
+- 公共 Data Port 不暴露 SQLite connection 参数。
+- 跨 aggregate 操作仍保持单事务。
+- UnitOfWork tests 继续证明 rollback / commit 行为。
 
-```text
-frontend/src/
-  api/
-    client.ts
-    errors.ts
-    projects.ts
-    snowflake.ts
-    manuscript.ts
-    reviews.ts
-
-  stores/
-    workspace.ts
-    projects.ts
-    snowflake.ts
-    canon.ts
-    manuscript.ts
-    reviews.ts
-    graph.ts
-
-  composables/
-    useScopedRequest.ts
-    useDirtyGuard.ts
-    useReviewAction.ts
-
-  services/
-    draftCache.ts
-```
-
-`workspace.ts` 最终只保留：
+### 提交建议
 
 ```text
-activeProjectId
-activeSection
-全局运行状态
-跨 Store 协调
+Keep transaction composition inside the data layer
 ```
 
 ---
 
-## P2-05 合并两套 LLM Wiki 路径
+# 9. P2：测试与前端错误处理
 
-正式边界建议：
+## [ ] P2-06 前端 API Error 与行为测试升级
+
+### 问题 A：错误信息不一致
+
+部分 Store 已使用 `readErrorDetail()`，部分仍把所有非 2xx / exception 转成：
 
 ```text
-app.llm_wiki.interfaces
-app.llm_wiki.local_backend
-app.llm_wiki.external_adapter
+Check that the API is running.
 ```
 
-旧的：
+这会把真实的：
+
+- 409 version conflict。
+- 422 validation error。
+- 501 provider unavailable。
+
+隐藏成同一个泛化提示。
+
+### 问题 B：很多前端测试是源码正则 Contract Test
+
+例如 draft safety 主要通过 `readFileSync + assert.match` 验证某段代码存在。
+
+这适合架构约束，但不能证明真实 Pinia 状态行为。
+
+### 目标
+
+- API 错误保留 backend detail / status / request id。
+- 高价值状态流程由行为测试证明，而不是只检查源码字符串。
+
+### 实施步骤
+
+1. 扩展 `ApiError`：至少携带 `status`、可展示 detail、`x-request-id`。
+2. `fetchJson` / shared client 统一解析 FastAPI error body。
+3. 逐步替换 Store 中重复的 raw `response.ok` + generic catch。
+4. 不要求一次迁移整个前端；从 Manuscript/Reviews 高风险 mutation 开始。
+5. 增加 Vite-native behavior test runner；优先最小依赖。若采用 Vitest，先只加 Vitest，不同时引入大型 UI 测试栈。
+6. 将以下高价值 contract tests 增加真正行为测试：
+   - dirty editor 切换取消。
+   - cached draft restore。
+   - project switch stale response 被忽略。
+   - proposal accept 后依赖集合刷新。
+   - 409 write-back / Copilot conflict 正确显示。
+   - backup preview → overwrite confirm。
+7. 保留少量真正有价值的架构 contract tests，例如“Router 不 import provider SDK”。
+
+### 完成标准
+
+- 409/422/501 在 UI 有不同、可行动的错误提示。
+- 至少上述关键状态流程由 executable behavior tests 覆盖。
+- 不再依赖正则测试来证明核心业务行为。
+
+### 提交建议
 
 ```text
-app.cognition.llm_wiki
-```
-
-处理方式：
-
-- 有价值的 Markdown Exporter 移到 `app.exports.wiki`
-- 运行时知识检索保留在 `app.llm_wiki`
-- 删除或标记旧模块 deprecated
-- 测试迁移到正式实现
-- README 只描述一套架构
-
----
-
-## P2-06 引入正式数据库迁移
-
-建议目录：
-
-```text
-backend/app/data/migrations/
-  001_initial.sql
-  002_add_chapters.sql
-  003_add_review_versions.sql
-  004_add_outbox.sql
-  005_add_analysis_runs.sql
-```
-
-新增：
-
-```text
-schema_migrations
-```
-
-启动时：
-
-1. 读取当前版本
-2. 顺序应用迁移
-3. 每个迁移使用事务
-4. 记录成功版本
-5. 失败时停止启动并给出明确错误
-
-必须测试：
-
-```text
-空数据库升级
-旧数据库升级
-迁移重复执行
-迁移中途失败回滚
-现有 app.db 数据不丢失
+Make frontend errors actionable and tests behavioral
 ```
 
 ---
 
-# 九、阶段六：测试和产品可靠性
+## [ ] P2-07 扩充故障 / Provider / Recovery E2E
 
-## P1-08 真实后端浏览器测试
+### 目标
 
-新增真实测试栈：
+让 E2E 不只证明 happy path，也证明系统的核心可靠性承诺。
+
+### 必须新增的场景
+
+#### 1. Outbox startup recovery
+
+预置一个 pending job，启动 backend 后验证自动完成。
+
+#### 2. Manual edit post-analysis
+
+浏览器编辑 accepted manuscript，保存 v2，验证三类 post-commit jobs 和 Consistency/Write-back UI。
+
+#### 3. Restore post-analysis
+
+Restore 历史版本产生新 revision，验证同一 pipeline。
+
+#### 4. Copilot selection → accept → apply
+
+覆盖 P1-05 / P1-06 的用户主路径。
+
+#### 5. Provider-backed path，无公网依赖
+
+在 E2E harness 启动一个本地 OpenAI-compatible fake HTTP server，把 DeepSeek base URL 指向它。
+
+目标是测试真实：
 
 ```text
-临时 SQLite
-真实 FastAPI
-真实 Vite
-Playwright 浏览器
-Local Deterministic Provider
-临时 LLM Wiki 目录
+provider config
+→ concrete DeepSeek adapter
+→ HTTP request/response parsing
+→ provider proposal
+→ review
 ```
 
-首条完整 E2E：
+而不是 route mocking，也不依赖真实 API key。
+
+#### 6. Provider malformed response
+
+fake provider 返回非法 structured data，验证 502/422、无脏 proposal。
+
+### Harness 清理
+
+当前两套 E2E PASS，但 teardown 偶尔出现：
 
 ```text
-创建项目
-→ 保存 Step 7
-→ 生成 Canon Proposal
-→ 接受 Canon
-→ 创建 Chapter
-→ 创建 Scene
-→ 生成 Manuscript Proposal
-→ 接受正文
-→ 生成 Revision
-→ 运行一致性分析
-→ 接受 Write-back Update
-→ 验证 Canon 已更新
-→ 导出 Markdown
-→ 重启后数据仍存在
+vite close timed out after 8s; continuing teardown
 ```
 
-故障 E2E：
+定位子进程/handle 未正常关闭的原因，做到成功执行无 teardown warning。
+
+### 完成标准
+
+- CI 仍无需任何真实 Provider key。
+- E2E 对核心故障恢复有可重复证明。
+- 所有 child process 正常结束。
+
+### 提交建议
 
 ```text
-LLM Wiki 写入失败
-→ 正文仍保存
-→ UI 显示索引失败
-→ 用户重试
-→ 索引成功
-→ 不产生重复正文版本
-```
-
----
-
-## P2-07 增加备份和恢复
-
-至少提供：
-
-```text
-导出项目包
-导入项目包
-数据库备份
-知识文件备份
-版本兼容检查
-恢复前预览
-```
-
-项目包建议包括：
-
-```text
-manifest.json
-project.sqlite 或结构化 JSON
-manuscript/
-canon/
-memory/
-snowflake/
-wiki/
-attachments/
+Cover recovery and provider paths in live E2E
 ```
 
 ---
 
-## P2-08 增加运行可观察性
+# 10. P3：维护性收尾
 
-最低限度记录：
+## [ ] P3-01 清理文档漂移、兼容 Shim 和过时描述
+
+### 当前已知漂移
+
+README 中 Browser E2E 仍有“optional, local only”等历史表述，但开发计划已经说明它是 CI merge-blocking gate。
+
+存在一些迁移后 compatibility shim，例如：
 
 ```text
-request_id
-project_id
-operation
-aggregate_id
-provider
-duration
-result
-error_code
+backend/app/data/mixins/scene_proposals.py
 ```
 
-禁止记录：
+Router 仍通过旧路径 import exception。
+
+### 目标
+
+代码进入稳定结构后再删 shim，避免在前面高风险任务中混入无意义 churn。
+
+### 实施步骤
+
+1. 搜索 README / development-plan 与当前 CI/scripts 不一致的描述。
+2. 删除已经没有消费者的 compatibility import path。
+3. 删除迁移后确认无引用的 legacy helper。
+4. 文档只记录长期架构、不缓存一条命令即可从 package/config 找到的信息。
+5. 更新本文件：已完成任务改 `[x]`，保留关键 architecture decision，不保留过时实施细节。
+
+### 完成标准
+
+- README、AGENTS、development-plan、CI 对验证门禁描述一致。
+- 无仅为旧 import 路径保留且已无使用方的 shim。
+- `rg "legacy|compatibility shim" backend/app` 的剩余结果都有明确保留理由。
+
+### 提交建议
 
 ```text
-API Key
-完整正文
-完整 Canon 私密内容
-完整 Provider Prompt
-```
-
-建议诊断页展示：
-
-```text
-最近失败的 Outbox Job
-最近失败的 Provider 请求
-数据库 Schema Version
-当前 Provider
-知识索引状态
-最后备份时间
-```
-
----
-
-# 十、推荐提交顺序
-
-| 顺序 | 内容 | 性质 |
-|---:|---|---|
-| 1 | 修复 422 常量并恢复全部测试 | Hotfix |
-| 2 | 提交当前数据完整性和项目切换修复 | Correctness |
-| 3 | 加入 CI、Ruff、ESLint 基础门禁 | Tooling |
-| 4 | 引入 Outbox 表和 Repository | Infrastructure |
-| 5 | Manuscript 保存接入 Outbox | Vertical slice |
-| 6 | Snowflake 保存接入 Outbox | Vertical slice |
-| 7 | 前端 Dirty Guard 和本地草稿 | Data safety |
-| 8 | 请求 Scope 与取消机制 | Concurrency |
-| 9 | 统一 Review State Machine | Domain rule |
-| 10 | Write-back Update Canon | Core feature |
-| 11 | Proposal 预校验和分析幂等 | Reliability |
-| 12 | Step 7 → Canon Proposal | Product loop |
-| 13 | Step 8 → Scene Proposal | Product loop |
-| 14 | 结构化一致性 Finding | Product loop |
-| 15 | 自动分析任务 | Workflow |
-| 16 | 拆分 Provider Registry | Architecture |
-| 17 | 拆分 Repository 和 Unit of Work | Architecture |
-| 18 | 拆分前端 Store | Architecture |
-| 19 | 合并 LLM Wiki 实现 | Cleanup |
-| 20 | 正式迁移和真实后端 E2E | Release readiness |
-
----
-
-# 十一、每个改动的完成标准
-
-每个任务必须满足：
-
-```text
-1. 有明确行为变化说明
-2. 先增加或更新回归测试
-3. 后端 compileall 通过
-4. 后端全部测试通过
-5. 前端测试通过
-6. 前端 build 通过
-7. 涉及主流程时真实 E2E 通过
-8. 数据迁移有升级测试
-9. 外部副作用具有幂等性
-10. 不引入未说明的 Provider 或大依赖
-11. 不留下已知数据安全问题
-12. README 和 development-plan 与真实实现同步
+Remove stale architecture compatibility and docs drift
 ```
 
 ---
 
-# 十二、最终验收指标
+# 11. 暂不实施的事项
 
-| 指标 | 目标 |
-|---|---|
-| 后端测试 | 全部通过 |
-| 前端测试和构建 | 全部通过 |
-| CI | 主分支持续全绿 |
-| 核心数据失败语义 | 不再出现“报错但已静默提交” |
-| 编辑安全 | 项目、步骤、场景切换不丢稿 |
-| 审阅状态 | Accepted / Rejected 不可反向修改 |
-| Write-back | 支持 Create 和 Update Canon |
-| 分析幂等性 | 同一输入不产生重复 Proposal |
-| Snowflake 编译 | Step 7、8 可形成结构化 Proposal |
-| 一致性检查 | 输出带证据的结构化 Finding |
-| Provider 耦合 | Router 不导入具体 Provider |
-| LLM Wiki | 只有一套正式运行边界 |
-| 数据库升级 | 有版本化迁移 |
-| 浏览器测试 | 使用真实 FastAPI 和临时 SQLite |
-| 恢复能力 | 可导出和恢复完整项目 |
+以下事项在 Reliable Beta 之前不要插队：
+
+- 高级 Graph visualization。
+- GraphRAG 大规模升级。
+- 新 Agent orchestration framework。
+- LangGraph 重构。
+- 云同步。
+- 多人协作。
+- 新编辑器框架整体替换。
+- 为“未来可能需要”增加大型基础设施依赖。
+
+如果新需求与本计划冲突，优先维护第 2 节的业务不变量。
 
 ---
 
-# 十三、最重要的执行判断
+# 12. 每个任务的 AI Handoff 模板
 
-> 先完成“数据安全 + 审阅状态机 + Canon Update Write-back”，再继续扩展 Agent 和模型能力。
+编程 AI 完成一个任务后，必须用以下格式汇报，随后停止，等待下一次任务指令：
 
-这三项决定项目能否从“功能演示”转变为“可信赖的长期写作工具”。
+```markdown
+## Completed: <task id + title>
 
-建议执行优先级：
+### Behavior changed
+- ...
 
-```text
-P0：稳定性与数据安全
-P1：核心业务闭环
-P2：架构和工程化
+### Files changed
+- ...
+
+### Tests added/updated
+- ...
+
+### Verification
+- `<command>` — PASS
+- `<command>` — PASS
+
+### Architecture notes
+- 哪个不变量现在由哪里保证。
+
+### Remaining risks
+- 只记录当前 task 无法合理解决的问题；不要顺手继续实现。
+
+### Next task
+- <next task id>，未开始。
 ```
+
+---
+
+# 13. 最终验收：何时可以称为 Reliable Beta
+
+只有以下全部成立，才完成本计划的 P1 阶段：
+
+- [ ] 所有 committed Manuscript Revision 都进入相同 post-commit pipeline。
+- [ ] Outbox 使用原子 claim，不会因并发 dispatcher 重复执行同一 job。
+- [ ] pending / stale-processing 能跨 backend restart 自动恢复。
+- [ ] Outbox handler 不再增加 mutation HTTP 请求延迟。
+- [ ] Backup Import 的 DB + modules 在故障下不会半恢复。
+- [ ] Copilot 能从正文 selection 发起建议。
+- [ ] Copilot suggestion 能安全 Apply 为新 Revision。
+- [ ] Apply 遇到 stale manuscript version 会冲突而不是覆盖。
+- [ ] Copilot 一次提供多方案供用户选择。
+- [ ] Backend full suite 全绿。
+- [ ] Frontend lint/test/build 全绿。
+- [ ] Live E2E 全绿。
+
+完成这些后，再进入 P2 架构收敛；不要把结构重构提前到可靠性修复之前。
