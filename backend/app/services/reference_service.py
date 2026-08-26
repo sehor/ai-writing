@@ -20,6 +20,7 @@ from app.integrations.provider_registry import (
     default_provider_registry,
 )
 from app.models import ReferenceGenerationRequest, ReferenceSuggestion
+from app.observability import timed_operation
 from app.agents.reference_workflow import build_reference_context
 
 
@@ -48,12 +49,18 @@ class ReferenceService:
     ) -> ReferenceSuggestion:
         snapshot, cognition_context, context = self._assemble(project_id, request)
         provider = LocalDeterministicProvider(cognition=self.cognition)
-        suggestion = provider.generate_reference(
-            request,
-            context=context,
-            snapshot=snapshot,
-            cognition_context=cognition_context,
-        )
+        with timed_operation(
+            "provider_call",
+            operation="generate_reference",
+            provider=str(getattr(provider, "name", "unknown")),
+            project_id=project_id,
+        ):
+            suggestion = provider.generate_reference(
+                request,
+                context=context,
+                snapshot=snapshot,
+                cognition_context=cognition_context,
+            )
         return self.data_store.create_reference_suggestion(project_id, suggestion)
 
     def generate_provider(
@@ -64,12 +71,18 @@ class ReferenceService:
         provider = self.registry.create("deepseek", ProviderDependencies())
         snapshot, cognition_context, context = self._assemble(project_id, request)
         try:
-            suggestion = provider.generate_reference(
-                request,
-                context=context,
-                snapshot=snapshot,
-                cognition_context=cognition_context,
-            )
+            with timed_operation(
+                "provider_call",
+                operation="generate_reference",
+                provider=str(getattr(provider, "name", "unknown")),
+                project_id=project_id,
+            ):
+                suggestion = provider.generate_reference(
+                    request,
+                    context=context,
+                    snapshot=snapshot,
+                    cognition_context=cognition_context,
+                )
         except WorkflowNotConfiguredError as exc:
             raise ProviderUnavailableError(str(exc)) from exc
         except Exception as exc:

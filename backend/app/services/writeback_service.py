@@ -24,6 +24,7 @@ from app.integrations.provider_registry import (
     ProviderUnavailableError,
     default_provider_registry,
 )
+from app.observability import timed_operation
 from app.models import (
     HermesRevisionProcessResponse,
     WritebackProposal,
@@ -92,7 +93,13 @@ class WritebackService:
         provider = LocalDeterministicProvider(cognition=self.cognition)
 
         def _generate() -> list[WritebackProposalCreate]:
-            return provider.generate_writebacks(revision, snapshot)
+            with timed_operation(
+                "provider_call",
+                operation="generate_writebacks",
+                provider=str(getattr(provider, "name", "unknown")),
+                project_id=project_id,
+            ):
+                return provider.generate_writebacks(revision, snapshot)
 
         return self.analysis.run_writeback_generation(
             project_id=project_id,
@@ -174,7 +181,13 @@ class WritebackService:
         snapshot = build_project_snapshot(project_id, self.data_store)
 
         def _generate() -> list[WritebackProposalCreate]:
-            return provider.generate_writebacks(revision, snapshot)
+            with timed_operation(
+                "provider_call",
+                operation="generate_writebacks",
+                provider=str(getattr(provider, "name", "unknown")),
+                project_id=project_id,
+            ):
+                return provider.generate_writebacks(revision, snapshot)
 
         try:
             outcome = self.analysis.run_writeback_generation(

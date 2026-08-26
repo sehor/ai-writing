@@ -16,6 +16,7 @@ from app.integrations.provider_registry import (
 from app.llm_wiki.dependencies import get_llm_wiki
 from app.llm_wiki.interfaces import LlmWiki, WikiContextQuery
 from app.manuscript_export import build_export_markdown
+from app.observability import timed_operation
 from app.models import (
     ManuscriptExportResponse,
     ManuscriptProposal,
@@ -142,7 +143,13 @@ class ManuscriptService:
 
         context = self._build_context(project_id, project, scene)
         try:
-            content = provider.generate_manuscript(scene, context)
+            with timed_operation(
+                "provider_call",
+                operation="generate_manuscript",
+                provider=str(getattr(provider, "name", "unknown")),
+                project_id=project_id,
+            ):
+                content = provider.generate_manuscript(scene, context)
         except WorkflowNotConfiguredError as exc:
             raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc))
         except Exception as exc:

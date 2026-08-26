@@ -1,11 +1,14 @@
 """Outbox dispatch: run pending side effects after the core transaction."""
 
+import time
+
 from fastapi import Depends
 
 from app.cognition.registry import CognitionRegistry, get_cognition_registry
 from app.data import WritingDataStore, get_data_store
 from app.llm_wiki.dependencies import get_llm_wiki
 from app.llm_wiki.interfaces import LlmWiki
+from app.observability import log_event
 from app.outbox.handlers import OUTBOX_HANDLERS, OutboxJobContext
 from app.outbox.models import OutboxJob
 
@@ -61,11 +64,22 @@ class OutboxService:
             data_store=self.data_store,
             cognition=self.cognition,
         )
+        started = time.perf_counter()
         try:
             if handler is None:
                 raise ValueError(f"No handler registered for job type '{job.job_type}'.")
             handler(context, job.payload)
         except Exception as exc:  # isolate handler failures on the job record
+            log_event(
+                "outbox_job",
+                operation=job.job_type,
+                project_id=job.project_id,
+                aggregate_id=f"{job.aggregate_type}:{job.aggregate_id}",
+                attempt=claimed.attempt_count,
+                duration_ms=round((time.perf_counter() - started) * 1000, 2),
+                result="failed",
+                error_code=type(exc).__name__,
+            )
             return (
                 self.data_store.transition_outbox_job(
                     job.project_id,
@@ -75,6 +89,16 @@ class OutboxService:
                 )
                 or claimed
             )
+        log_event(
+            "outbox_job",
+            operation=job.job_type,
+            project_id=job.project_id,
+            aggregate_id=f"{job.aggregate_type}:{job.aggregate_id}",
+            attempt=claimed.attempt_count,
+            duration_ms=round((time.perf_counter() - started) * 1000, 2),
+            result="succeeded",
+            error_code="",
+        )
         return (
             self.data_store.transition_outbox_job(job.project_id, job.id, job_status="succeeded")
             or claimed
