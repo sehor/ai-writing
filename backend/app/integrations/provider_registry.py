@@ -30,6 +30,7 @@ from app.cognition.interfaces import (
 )
 from app.data import WritingDataStore
 from app.llm_wiki.interfaces import LlmWiki
+from app.observability import timed_operation
 from app.models import (
     ManuscriptRevision,
     ReferenceGenerationRequest,
@@ -338,9 +339,14 @@ class ProviderSnowflakeWorkflow:
     def run_snowflake_generation(
         self, request: SnowflakeGenerationRequest
     ) -> SnowflakeGenerationResponse:
-        return self.provider.generate_snowflake(
-            request,
-            data_store=self.data_store,
-            steps=self.steps,
-            llm_wiki=self.llm_wiki,
-        )
+        with timed_operation(
+            "provider_call",
+            operation="generate_snowflake",
+            provider=str(getattr(self.provider, "name", "unknown")),
+        ):
+            return self.provider.generate_snowflake(
+                request,
+                data_store=self.data_store,
+                steps=self.steps,
+                llm_wiki=self.llm_wiki,
+            )
