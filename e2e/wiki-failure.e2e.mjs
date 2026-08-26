@@ -9,12 +9,11 @@
 //   - writeback_analysis   (LocalMemplaceModule.persist_sample prose samples)
 // while consistency_analysis stays DB-only and therefore succeeds.
 //
-// The Manuscript workspace Post-Acceptance Analysis panel surfaces the two
-// analysis job types (consistency_analysis / writeback_analysis); the failed
-// writeback_analysis job gets its UI Retry clicked here. llm_wiki_ingest has
-// no dedicated UI surface yet - documented as a known limitation; recovery of
-// the wiki write path is instead proven by the prose-sample files landing
-// under <root>/projects once the blocker is removed.
+// The Manuscript workspace Post-Acceptance Analysis panel surfaces all three
+// job types (llm_wiki_ingest / consistency_analysis / writeback_analysis); the
+// failed writeback_analysis AND llm_wiki_ingest jobs both get their UI Retry
+// clicked here, and recovery of the wiki write path is proven by the ingested
+// wiki sources plus the memplace prose-sample files landing under <root>/projects.
 
 import assert from 'node:assert/strict'
 import { existsSync, readdirSync } from 'node:fs'
@@ -165,6 +164,7 @@ async function run(page) {
   const failedArticle = page
     .locator('.post-accept-analysis article')
     .filter({ hasText: 'Write-back suggestions' })
+    .first()
   await failedArticle.waitFor({ state: 'visible' })
   await failedArticle.locator('.severity-chip', { hasText: 'failed' }).waitFor({ state: 'visible' })
   await failedArticle.getByRole('button', { name: 'Retry' }).waitFor({ state: 'visible' })
@@ -198,13 +198,41 @@ async function run(page) {
     'retried write-back analysis job now succeeds',
   )
 
+  // ------------------------------------------------------------------
+  // Retry the failed wiki index job from the UI as well.
+  // ------------------------------------------------------------------
+  step('retry the failed wiki index job from the UI')
+  const wikiArticle = page
+    .locator('.post-accept-analysis article')
+    .filter({ hasText: 'Wiki index' })
+    .first()
+  await wikiArticle.locator('.severity-chip', { hasText: 'failed' }).waitFor({ state: 'visible' })
+  await wikiArticle.getByRole('button', { name: 'Retry' }).click()
+  await wikiArticle
+    .locator('.severity-chip', { hasText: 'succeeded' })
+    .waitFor({ state: 'visible', timeout: 60000 })
+
+  const retriedAgain = await client.get('/projects/' + project.id + '/outbox-jobs')
+  const retriedAgainByType = Object.fromEntries(retriedAgain.map((job) => [job.job_type, job]))
+  assert.equal(
+    retriedAgainByType.llm_wiki_ingest.status,
+    'succeeded',
+    'retried wiki index job now succeeds',
+  )
+
   // Wiki-side write path really recovered: the memplace prose sample landed
-  // under <root>/projects/<project>/modules/memplace/prose_samples/.
+  // under <root>/projects/<project>/modules/memplace/prose_samples/ and the
+  // retried ingest staged wiki sources under modules/llm_wiki/sources/.
   const samplesDir = join(tempRoot, 'projects', project.id, 'modules', 'memplace', 'prose_samples')
   const sampleFiles = existsSync(samplesDir) ? readdirSync(samplesDir) : []
   assert.ok(
     sampleFiles.some((name) => name.endsWith('.md')),
     'retried job wrote the prose sample into the recovered wiki root (' + samplesDir + ')',
+  )
+  const wikiSourcesDir = join(tempRoot, 'projects', project.id, 'modules', 'llm_wiki', 'sources')
+  assert.ok(
+    existsSync(wikiSourcesDir),
+    'retried ingest staged wiki sources into the recovered root (' + wikiSourcesDir + ')',
   )
 
   // ------------------------------------------------------------------

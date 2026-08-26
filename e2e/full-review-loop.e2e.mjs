@@ -253,35 +253,53 @@ async function run(page) {
     .waitFor({ state: 'visible' })
 
   // ------------------------------------------------------------------
-  // 7. Post-Acceptance Analysis: both automatic jobs must succeed.
+  // 7. Post-Acceptance Analysis: all three automatic jobs must succeed.
   //    (Dispatched inline right after the acceptance commit.)
   // ------------------------------------------------------------------
-  step('wait for the automatic consistency + write-back analysis jobs')
+  step('wait for the automatic wiki index + consistency + write-back analysis jobs')
+  const POST_ACCEPT_TYPES = ['llm_wiki_ingest', 'consistency_analysis', 'writeback_analysis']
   await refreshPanelUntil(
     page,
     '.post-accept-analysis',
     async () => {
       const jobs = await client.get('/projects/' + project.id + '/outbox-jobs')
-      const analysisJobs = jobs.filter((job) =>
-        ['consistency_analysis', 'writeback_analysis'].includes(job.job_type),
-      )
-      if (analysisJobs.length !== 2) return false
-      return analysisJobs.every((job) => job.status === 'succeeded')
+      const relevant = jobs.filter((job) => POST_ACCEPT_TYPES.includes(job.job_type))
+      // Canon and manuscript acceptances each enqueue their own wiki index job,
+      // so require every type present and EVERY relevant job succeeded.
+      if (relevant.length < POST_ACCEPT_TYPES.length) return false
+      return relevant.every((job) => job.status === 'succeeded')
     },
-    { label: 'both post-acceptance analysis jobs succeeding', timeoutMs: 60000 },
+    { label: 'all post-acceptance jobs succeeding', timeoutMs: 90000 },
   )
   const jobChips = page.locator('.post-accept-analysis article .severity-chip')
   await page
     .locator('.post-accept-analysis article')
+    .filter({ hasText: 'Wiki index' })
+    .first()
+    .locator('.severity-chip', { hasText: 'succeeded' })
+    .waitFor({ state: 'visible' })
+  await page
+    .locator('.post-accept-analysis article')
     .filter({ hasText: 'Consistency report' })
+    .first()
     .locator('.severity-chip', { hasText: 'succeeded' })
     .waitFor({ state: 'visible' })
   await page
     .locator('.post-accept-analysis article')
     .filter({ hasText: 'Write-back suggestions' })
+    .first()
     .locator('.severity-chip', { hasText: 'succeeded' })
     .waitFor({ state: 'visible' })
-  assert.equal(await jobChips.count(), 2, 'exactly two analysis-job chips are rendered')
+  const chipCount = await jobChips.count()
+  assert.ok(chipCount >= 3, 'at least the three post-acceptance job chips are rendered')
+  const succeededCount = await page
+    .locator('.post-accept-analysis article .severity-chip', { hasText: 'succeeded' })
+    .count()
+  assert.equal(
+    succeededCount,
+    chipCount,
+    'every rendered post-acceptance job chip reads succeeded',
+  )
 
   // Revision History shows the accepted revision; consistency findings load.
   await page

@@ -47,7 +47,21 @@ export const E2E_ROOT = resolve(HARNESS_DIR, '..')
 export const REPO_ROOT = resolve(E2E_ROOT, '..')
 export const FRONTEND_DIR = join(REPO_ROOT, 'frontend')
 export const BACKEND_DIR = join(REPO_ROOT, 'backend')
-export const BACKEND_PYTHON = join(BACKEND_DIR, '.venv', 'Scripts', 'python.exe')
+// Python used to spawn uvicorn. Resolution order:
+//   1. AI_WRITING_E2E_PYTHON env override (CI points this at the setup-python
+//      interpreter where requirements are already installed)
+//   2. the local venv (Windows layout, then POSIX layout)
+//   3. whatever `python` / `python3` is on PATH
+function resolveBackendPython() {
+  const override = process.env.AI_WRITING_E2E_PYTHON?.trim()
+  if (override) return override
+  const windowsVenv = join(BACKEND_DIR, '.venv', 'Scripts', 'python.exe')
+  if (existsSync(windowsVenv)) return windowsVenv
+  const posixVenv = join(BACKEND_DIR, '.venv', 'bin', 'python')
+  if (existsSync(posixVenv)) return posixVenv
+  return process.platform === 'win32' ? 'python' : 'python3'
+}
+export const BACKEND_PYTHON = resolveBackendPython()
 
 /** Fixed uncommon ports so parallel runs never collide with dev servers. */
 export const PORTS = {

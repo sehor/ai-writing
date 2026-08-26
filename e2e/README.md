@@ -93,10 +93,10 @@ UI flow with the real labels/selectors used:
 6. **Create Proposal → Accept** — buttons `Create Proposal` and `Accept`;
    asserts the accepted-scene indicator `Chapter 1: The Locked Map / Version 1`.
 7. **Post-Acceptance Analysis** — polls the same API the UI uses
-   (`GET .../outbox-jobs`) until `consistency_analysis` and `writeback_analysis`
-   both report `succeeded`, then asserts both chips render `succeeded` in the
-   `.post-accept-analysis` panel; Revision History shows `Version 1`; the
-   `.consistency-report` section loads without an error banner.
+   (`GET .../outbox-jobs`) until `llm_wiki_ingest`, `consistency_analysis`, and
+   `writeback_analysis` all report `succeeded`, then asserts all three chips
+   render `succeeded` in the `.post-accept-analysis` panel; Revision History shows
+   `Version 1`; the `.consistency-report` section loads without an error banner.
 8. **Write-back acceptance** — asserts the deterministic provider auto-created a
    memory-record proposal (`Prose sample from 1. Archive Threshold`). Because no
    `action=update` proposal is generated automatically (see deviations), the test
@@ -123,11 +123,12 @@ DB-only `consistency_analysis` succeeds. Assertions:
 - Outbox truth: `llm_wiki_ingest` failed with an error message,
   `writeback_analysis` failed, `consistency_analysis` succeeded.
 - The Manuscript workspace Post-Acceptance Analysis panel renders the failed
-  `Write-back suggestions` job chip (`failed`), its error text, and a `Retry` button;
-  the consistency chip reads `succeeded`.
-- After deleting the blocking file and clicking the panel's `Retry`, the job chip
-  flips to `succeeded`, the API agrees, and the prose sample file appears under
-  `<root>/projects/<project>/modules/memplace/prose_samples/` proving the recovered
+  `Write-back suggestions` and `Wiki index` job chips (`failed`), their error text,
+  and a `Retry` button each; the consistency chip reads `succeeded`.
+- After deleting the blocking file and clicking the panel's `Retry` on both failed
+  jobs, the chips flip to `succeeded`, the API agrees, the prose sample file appears
+  under `<root>/projects/<project>/modules/memplace/prose_samples/`, and the retried
+  ingest stages wiki sources under `modules/llm_wiki/sources/` proving the recovered
   wiki write path.
 - No duplicate versions: still exactly one revision / one scene, both version 1,
   and single entries rendered in Accepted Manuscript and Revision History panels.
@@ -147,22 +148,17 @@ DB-only `consistency_analysis` succeeds. Assertions:
 
 ## Known limitations
 
-- **Canon editor draft does not populate when selecting a list entry.** Selecting
-  an entity re-baselines the editor but never copies entity fields into the form
-  (restoreEntryDraft applies cached drafts only). This behavior is identical at
-  git HEAD, so the suites prove Canon state through the active list row plus API
-  field values rather than form contents. Minimal product fix if ever desired:
-  in frontend/src/stores/canon.ts, watch(activeCanonId), assign
-  canonDraft.value = baselineDraft before calling restoreEntryDraft.
-- `llm_wiki_ingest` job failures have no dedicated UI surface yet: the Post-Acceptance
-  Analysis panel intentionally filters to `consistency_analysis` /`writeback_analysis`
-  (P1-07 scope). The failure-path test therefore retries the surfaced analysis job
-  from the UI and proves wiki-root recovery through the filesystem; retrying the wiki
-  index job itself remains an API-only operation (`POST .../outbox-jobs/{id}/retry`).
+- ~~Canon editor draft does not populate when selecting a list entry~~ — fixed:
+  the selection watcher now applies the entity baseline before restoring any cached
+  draft (`frontend/src/stores/canon.ts`).
+- ~~`llm_wiki_ingest` job failures have no dedicated UI surface~~ — fixed: the
+  Post-Acceptance Analysis panel now lists all three job types and offers the same
+  Retry action for the wiki index job; the failure-path test clicks it in the UI.
 - The Canon workspace caches the selected entity's form draft until remount, so the
   happy path checks the updated `current_state` in the editor after the reload of the
   restart-persistence phase, plus immediately over the API right after acceptance.
-- Tests are Windows-oriented (venv path `backend\.venv\Scripts\python.exe`,
-  `taskkill` tree cleanup) matching the current repo environment.
+- Cross-platform: uvicorn is spawned through `BACKEND_PYTHON`, resolved as
+  `AI_WRITING_E2E_PYTHON` → local venv (Windows or POSIX layout) → PATH python;
+  process-tree cleanup uses `taskkill /T` on Windows and signals elsewhere.
 - Scripts are plain Node (>=18) ESM with no package.json of their own, per the
   constraint of not touching existing repo files.

@@ -9,7 +9,8 @@
     "build": "vue-tsc -b && vite build",
     "preview": "vite preview",
     "test": "node --test tests/*.test.mjs",
-    "test:browser": "node tests/browser-review-loop.mjs"
+    "test:browser": "node tests/browser-review-loop.mjs",
+    "test:e2e": "node ../e2e/full-review-loop.e2e.mjs && node ../e2e/wiki-failure.e2e.mjs"
   },
   "dependencies": {
     "pinia": "^3.0.4",
