@@ -401,10 +401,20 @@ export const useReviewsStore = defineStore('reviews', () => {
 
   // ---- Post-acceptance analysis (P1-07): show job status, surface results ----
 
-  const POST_ACCEPT_JOB_TYPES: OutboxJobType[] = ['consistency_analysis', 'writeback_analysis']
+  const POST_ACCEPT_JOB_TYPES: OutboxJobType[] = [
+    'llm_wiki_ingest',
+    'consistency_analysis',
+    'writeback_analysis',
+  ]
 
   function analysisJobLabel(jobType: OutboxJobType): string {
-    return jobType === 'consistency_analysis' ? 'Consistency report' : 'Write-back suggestions'
+    if (jobType === 'consistency_analysis') {
+      return 'Consistency report'
+    }
+    if (jobType === 'llm_wiki_ingest') {
+      return 'Wiki index'
+    }
+    return 'Write-back suggestions'
   }
 
   async function loadPostAcceptAnalysisJobs(projectId = ws().activeProject?.id) {

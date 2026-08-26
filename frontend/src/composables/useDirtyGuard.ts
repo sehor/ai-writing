@@ -1,4 +1,3 @@
-import { onBeforeUnmount, onMounted } from 'vue'
 import { useEditorSessionStore } from '../stores/editorSession'
 
 let unloadGuardInstalled = false
@@ -53,18 +52,15 @@ export function useDirtyGuard(options: DirtyGuardOptions) {
     }
   }
 
-  onMounted(() => {
-    if (unloadGuardInstalled) {
-      return
-    }
+  // The guard is installed eagerly rather than in onMounted(): this
+  // composable runs inside a Pinia store setup (no component instance),
+  // where lifecycle hooks never fire — the listener used to never attach.
+  // It is called exactly once from the workspace shell for the whole
+  // session, so no removal here either.
+  if (!unloadGuardInstalled) {
     unloadGuardInstalled = true
     window.addEventListener('beforeunload', handleBeforeUnload)
-  })
-
-  onBeforeUnmount(() => {
-    // The composable is mounted once from the app shell; keep the listener
-    // alive for the whole session, hence no removal here.
-  })
+  }
 
   return { confirmLeave, confirmLeaveMultiple }
 }

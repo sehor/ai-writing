@@ -98,6 +98,7 @@ export const useCanonStore = defineStore('canon', () => {
           timeline_notes: selected.timeline_notes,
         }
       : createEmptyCanonDraft()
+    canonDraft.value = baselineDraft
     restoreEntryDraft<CanonDraft>(canonScopeKey(), baselineDraft, (cached) => {
       canonDraft.value = cached
     }, (message) => {

@@ -12,12 +12,10 @@ const types = read('../src/types/index.ts')
 
 test('store tracks post-acceptance analysis jobs scoped to the active project', () => {
   assert.match(reviewsStore, /const postAcceptJobs = ref<OutboxJob\[\]>\(\[\]\)/)
-  // Jobs come from the outbox endpoint and are filtered to analysis types.
+  // Jobs come from the outbox endpoint and are filtered to analysis types
+  // (including the wiki index job, which is retryable from the same panel).
   assert.match(reviewsStore, /\/projects\/\$\{projectId\}\/outbox-jobs/)
-  assert.match(
-    reviewsStore,
-    /POST_ACCEPT_JOB_TYPES: OutboxJobType\[\] = \['consistency_analysis', 'writeback_analysis'\]/,
-  )
+  assert.match(reviewsStore, /'llm_wiki_ingest',\s*'consistency_analysis',\s*'writeback_analysis',/)
   assert.match(reviewsStore, /async function loadPostAcceptAnalysisJobs\(/)
   assert.match(reviewsStore, /async function retryPostAcceptAnalysisJob\(/)
   // Stale results are dropped when the user switches projects mid-request.
