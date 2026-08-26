@@ -20,6 +20,8 @@ Done in P1-08: a real-browser E2E suite (`e2e/`, Playwright Chromium + Vite JS A
 
 Done after P1-08 (quick-fix pack): selecting a Canon list entry now fills the editor form with the entity baseline before restoring any cached draft (`stores/canon.ts`); the Post-Acceptance Analysis panel lists all three outbox job types — including `llm_wiki_ingest` as "Wiki index" — with the same Retry action, and both E2E suites exercise it from the UI; the page-close draft guard actually installs now (its `onMounted` never fired inside store setup). The suites run cross-platform (`AI_WRITING_E2E_PYTHON` or venv autodetection) and are wired into CI as an allow-failure `browser-e2e` job pending flake-free runs.
 
+Done in P2-05: the two LLM Wiki paths are merged into one. The Obsidian-compatible Markdown exporter now lives in `app.exports.wiki` (moved verbatim from `app.cognition.llm_wiki`); the never-registered `LocalLlmWikiModule` cognition wrapper around it was dead code at HEAD and is deleted along with the `app.wiki_export` shim, whose test imports `app.exports.wiki` directly. All runtime ingestion / retrieval goes through `app.llm_wiki.interfaces` + `LocalFileLlmWiki`, so README's single architecture description now matches reality.
+
 The next implementation focus is broadening E2E coverage to more Snowflake steps and provider-backed paths, then continuing with P2-05 (merge the two LLM Wiki paths), P2-06 (versioned database migrations), P2-07 (project backup / restore), and P2-08 (runtime observability).
 
 ## Near-Term Milestones

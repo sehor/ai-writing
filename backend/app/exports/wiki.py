@@ -1,17 +1,18 @@
+"""Obsidian-compatible Markdown export of a project's committed state.
+
+Moved here from ``app.cognition.llm_wiki`` (P2-05): this module owns the
+Markdown exporter only. Runtime wiki ingestion / retrieval lives behind
+``app.llm_wiki.interfaces``; nothing in this package writes back into app
+state.
+"""
+
 import json
 from pathlib import Path
 
-from app.cognition.interfaces import (
-    CommittedContentEvent,
-    ContextPacket,
-    ModuleReport,
-    ProjectCognitionSnapshot,
-    WritingScope,
-)
+from app.cognition.graph_core import build_graph_edges, build_graph_nodes, build_graph_risks
 from app.data import utc_now
 from app.models import (
     CanonEntity,
-    CanonEntityCreate,
     MemoryRecord,
     ManuscriptScene,
     ProjectSummary,
@@ -19,93 +20,16 @@ from app.models import (
     SnowflakeArtifact,
     WikiExportFile,
     WikiExportResponse,
-    WritebackProposalCreate,
 )
-from app.text_utils import slugify, one_line, truncate as truncate_module_context, slug_with_id
-from app.cognition.graph_core import build_graph_nodes, build_graph_edges, build_graph_risks
+from app.text_utils import one_line, slug_with_id, slugify
 
-
-class LocalLlmWikiModule:
-    name = "llm_wiki"
-
-    def __init__(self, modules_root: Path):
-        self.modules_root = modules_root
-
-    def project_path(self, project_id: str) -> Path:
-        return self.modules_root / project_id / "modules" / self.name
-
-    def export(self, snapshot: ProjectCognitionSnapshot) -> WikiExportResponse:
-        return build_wiki_export(
-            snapshot.project,
-            snapshot.artifacts,
-            snapshot.canon_entities,
-            snapshot.scenes,
-            snapshot.memory_records,
-            snapshot.manuscript_scenes,
-        )
-
-    def prepare_context(
-        self,
-        snapshot: ProjectCognitionSnapshot,
-        scope: WritingScope,
-    ) -> ContextPacket:
-        exported = self.export(snapshot)
-        index = next((file.content for file in exported.files if file.path == "index.md"), "")
-        graph = next((file.content for file in exported.files if file.path == "graph.md"), "")
-        content = "\n\n".join(
-            [
-                "LLM Wiki module context for the current writing scope.",
-                f"Scope: {scope.kind}:{scope.ref}",
-                "## Index",
-                truncate_module_context(index, 4000),
-                "## Structure Notes",
-                truncate_module_context(graph, 2500),
-            ]
-        )
-        return ContextPacket(
-            module=self.name,
-            title="LLM Wiki project knowledge context",
-            content=content,
-            source_refs=["index.md", "graph.md", "raw/project-state.json"],
-        )
-
-    def ingest_committed_content(
-        self,
-        snapshot: ProjectCognitionSnapshot,
-        event: CommittedContentEvent,
-    ) -> ModuleReport:
-        project_path = self.project_path(snapshot.project.id)
-        persist_export(project_path, self.export(snapshot))
-        persist_confirmed_raw(project_path, event)
-        proposals: list[WritebackProposalCreate] = []
-        pov_name = extract_pov_name(event.content)
-        if pov_name and not canon_entity_exists(snapshot.canon_entities, pov_name):
-            proposals.append(
-                WritebackProposalCreate(
-                    target="canon_entity",
-                    title=f"Canon candidate: {pov_name}",
-                    rationale="Confirmed writing names this POV character; review before committing it to Canon.",
-                    source_ref=event.source_ref,
-                    payload=CanonEntityCreate(
-                        entity_type="character",
-                        name=pov_name,
-                        summary=f"POV character referenced by confirmed writing {event.title}.",
-                        current_state="",
-                        constraints="",
-                        last_seen=event.revision.scene_id if event.revision else event.source_ref,
-                        timeline_notes=f"Referenced by {event.source_ref}.",
-                    ).model_dump(),
-                )
-            )
-        return ModuleReport(
-            module=self.name,
-            summary=(
-                "Updated the project-scoped LLM Wiki module files from confirmed app state. "
-                "Generated Canon candidates from confirmed writing where applicable."
-            ),
-            project_path=project_path,
-            writeback_proposals=proposals,
-        )
+__all__ = [
+    "WikiPaths",
+    "build_wiki_export",
+    "persist_export",
+    "safe_child_path",
+    "wiki_file",
+]
 
 
 def build_wiki_export(
@@ -183,30 +107,6 @@ def persist_export(project_path: Path, export: WikiExportResponse) -> None:
         target = safe_child_path(project_path, file.path)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(file.content, encoding="utf-8")
-
-
-def persist_confirmed_raw(project_path: Path, event: CommittedContentEvent) -> None:
-    raw_path = safe_child_path(
-        project_path,
-        f"raw/confirmed/{slugify(event.source_ref)}.md",
-    )
-    raw_path.parent.mkdir(parents=True, exist_ok=True)
-    raw_path.write_text(
-        "\n".join(
-            [
-                "---",
-                f"source: {json.dumps(event.source)}",
-                f"source_ref: {json.dumps(event.source_ref)}",
-                f"title: {json.dumps(event.title, ensure_ascii=False)}",
-                f"ingested: {json.dumps(utc_now())}",
-                "---",
-                "",
-                event.content.strip(),
-                "",
-            ]
-        ),
-        encoding="utf-8",
-    )
 
 
 def safe_child_path(root: Path, relative_path: str) -> Path:
@@ -729,18 +629,3 @@ def searchable_scene_text(scene: SceneContract) -> str:
 
 def escape_link_label(label: str) -> str:
     return label.replace("|", "-")
-
-
-def canon_entity_exists(entities: list[CanonEntity], name: str) -> bool:
-    normalized = name.strip().lower()
-    return any(entity.name.strip().lower() == normalized for entity in entities)
-
-
-def extract_pov_name(content: str) -> str:
-    for line in content.splitlines():
-        if not line.lower().startswith("pov:"):
-            continue
-        value = line.split(":", 1)[1].strip()
-        if value and value.upper() != "TBD":
-            return value[:120]
-    return ""

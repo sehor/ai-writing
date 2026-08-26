@@ -15,7 +15,7 @@ from app.models import (
     SceneContractCreate,
     SnowflakeArtifact,
 )
-from app.wiki_export import build_wiki_export
+from app.exports.wiki import build_wiki_export
 
 
 class WikiExportTests(unittest.TestCase):
