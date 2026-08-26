@@ -16,6 +16,9 @@ jobs:
         with:
           python-version: "3.13"
 
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
       - name: Byte-compile backend sources
         run: python -m compileall backend/app
 
@@ -61,6 +64,48 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+  browser-e2e:
+    name: Browser E2E (real backend + Playwright)
+    runs-on: ubuntu-latest
+    continue-on-error: true  # promotion to required once flake-free on CI
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install backend dependencies
+        run: pip install -r backend/requirements.txt
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright Chromium
+        working-directory: frontend
+        run: pnpm exec playwright install --with-deps chromium
+
+      - name: Run full review loop E2E
+        env:
+          AI_WRITING_E2E_PYTHON: python
+        run: node e2e/full-review-loop.e2e.mjs
+
+      - name: Run wiki failure E2E
+        env:
+          AI_WRITING_E2E_PYTHON: python
+        run: node e2e/wiki-failure.e2e.mjs
 
   repository:
     name: Repository hygiene (git diff --check)

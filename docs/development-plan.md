@@ -18,7 +18,9 @@ Done in P2-04: the ~2,900-line frontend workspace store is broken into domain st
 
 Done in P1-08: a real-browser E2E suite (`e2e/`, Playwright Chromium + Vite JS API + real uvicorn) drives the actual FastAPI backend over a throwaway SQLite root with zero route mocking. The happy path covers UI project creation, Step 7 compile into Canon proposals and their browser acceptance, chapter / scene / proposal flows through acceptance, polling automatic analysis jobs to success, seeding and browser-accepting a Canon update write-back (Canon v2 verified), Markdown export, and a backend restart on the same data root proving full persistence. The failure path blocks wiki ingestion before boot and proves core writes survive index failures, failed jobs surface in the Post-Acceptance panel, and UI retry recovers without duplicate versions.
 
-The next implementation focus is closing the gaps surfaced by the P1-08 run: refill the Canon editor form when selecting a list entry (pre-existing behavior at HEAD, documented in e2e/README.md), expose a retry surface for `llm_wiki_ingest` jobs in the Post-Acceptance Analysis panel, and broaden E2E coverage to more Snowflake steps and provider-backed paths.
+Done after P1-08 (quick-fix pack): selecting a Canon list entry now fills the editor form with the entity baseline before restoring any cached draft (`stores/canon.ts`); the Post-Acceptance Analysis panel lists all three outbox job types — including `llm_wiki_ingest` as "Wiki index" — with the same Retry action, and both E2E suites exercise it from the UI; the page-close draft guard actually installs now (its `onMounted` never fired inside store setup). The suites run cross-platform (`AI_WRITING_E2E_PYTHON` or venv autodetection) and are wired into CI as an allow-failure `browser-e2e` job pending flake-free runs.
+
+The next implementation focus is broadening E2E coverage to more Snowflake steps and provider-backed paths, then continuing with P2-05 (merge the two LLM Wiki paths), P2-06 (versioned database migrations), P2-07 (project backup / restore), and P2-08 (runtime observability).
 
 ## Near-Term Milestones
 
