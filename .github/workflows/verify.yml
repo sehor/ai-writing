@@ -68,7 +68,6 @@ jobs:
   browser-e2e:
     name: Browser E2E (real backend + Playwright)
     runs-on: ubuntu-latest
-    continue-on-error: true  # promotion to required once flake-free on CI
     steps:
       - uses: actions/checkout@v4
 

@@ -11,7 +11,7 @@ reaches the spawned backend through the Vite proxy.
 | File | Purpose |
 | --- | --- |
 | `lib/harness.mjs` | Shared helpers: temp roots, backend/Vite lifecycle, health waits, API client |
-| `full-review-loop.e2e.mjs | Happy path: project → Step 7 → Canon proposals → chapter/scene → proposal accept → auto-analysis → write-back accept → export → restart persistence |
+| `full-review-loop.e2e.mjs | Happy path: project → Step 7 → Canon proposals → chapter/scene → proposal accept → auto-analysis → write-back accept → export → restart persistence → Step 8 parse + batch accept → scene edit v2 → restore v1 |
 | `wiki-failure.e2e.mjs` | Failure path: blocked LLM Wiki root, core data survives, UI shows failed job, UI Retry repairs it, no duplicate versions |
 
 ## Prerequisites
@@ -110,6 +110,22 @@ UI flow with the real labels/selectors used:
     re-selected from `.sidebar .project-list`; Canon still shows Mira (with the
     updated state in the editor), Manuscript still shows chapter, scene, and the
     Version 1 scene/revision; APIs confirm exactly one revision/scene at version 1.
+11. **Step 8 compiler** — sidebar step selector `Open step 8: Scene List`, save the
+    two-scene artifact (`Artifact saved.`), heading `Step 8: Parse into Scene
+    Proposals`, button `Parse Scene Proposals`, status `Parsed 2 scene proposal(s).`,
+    both rows render in `.scene-proposal-table`; `Accept All Pending` reports
+    `Created 2 scene contract(s) from parsed proposals.`; over the API both
+    contracts exist at sequences 2/3 with the chapter hint resolved to Chapter 1,
+    required canon resolved, and both proposals moved to `accepted`; the new
+    contracts appear in the Manuscript `.scene-list`.
+12. **Direct scene edit** — `Edit` on the accepted `Archive Threshold` item,
+    replace the content, `Save Version`; the accepted item flips to `Version 2`,
+    the API shows scene version 2 with the edited prose and exactly revisions
+    v1+v2, Revision History lists `Version 2`.
+13. **Revision restore** — `Restore` on the `Version 1` history item; the scene
+    becomes `Version 3` carrying the ORIGINAL v1 content again (asserted in UI
+    and API), all three revisions remain (versions 1..3), and the v3 revision
+    row stores the restored prose.
 
 ## What the failure path asserts (wiki-failure.e2e.mjs)
 

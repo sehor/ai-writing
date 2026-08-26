@@ -61,6 +61,42 @@ const UPDATE_WRITEBACK_RATIONALE =
   'the Canon record, so an update proposal is seeded over REST and then ACCEPTED ' +
   'THROUGH THE BROWSER UI to keep the human-review contract intact.'
 
+// Parsed by backend/app/snowflake_compiler/scene_parser.py into exactly two
+// clean Scene Contract proposals (sequences 2/3 dodge the existing contract;
+// 'Chapter 1' hints resolve to the chapter created in step 5; required canon
+// resolves against the accepted Mira entity, so no parse warnings appear).
+const SCENE_LIST_ARTIFACT = [
+  '# Scene List',
+  '',
+  "### Scene 2: The Patron's Letter",
+  '- POV: Mira',
+  '- Goal: Decode the letter hidden inside the archive ledger.',
+  '- Conflict: The letter names a patron Mira has promised to protect.',
+  '- Turning point: The ledger page is newer than its binding.',
+  '- Required Canon: Mira',
+  "- Forbidden facts: The patron's identity.",
+  '- Open threads: Who rewrote the map?',
+  '- Chapter hint: Chapter 1',
+  '',
+  '### Scene 3: The Redrawn Door',
+  '- POV: Mira',
+  '- Goal: Use the redrawn map to open the sealed archive door.',
+  '- Conflict: The door opens onto a room that should not exist.',
+  '- Turning point: The room already holds her own archived notes.',
+  '- Required Canon: Mira',
+  "- Forbidden facts: The patron's identity.",
+  '- Open threads: Who filed those notes?',
+  '- Chapter hint: Chapter 1',
+  '',
+].join('\n')
+
+const EDITED_SCENE_CONTENT = [
+  'The archive door answered this time.',
+  '',
+  'Mira pressed the altered map flat against the stone and felt the city',
+  'hold its breath before letting her in. EDITED-FOR-REVISION-E2E.',
+].join('\n')
+
 let tempRoot = null
 let backend = null
 let vite = null
@@ -437,6 +473,149 @@ async function run(page) {
   )
   assert.equal(scenesAfterRestart.length, 1)
   assert.equal(scenesAfterRestart[0].version, 1)
+
+  // ------------------------------------------------------------------
+  // 11. Step 8 structured compiler: save the scene list, parse it into
+  //     Scene Contract proposals, then batch-accept every pending one.
+  //     Sequences 2/3 avoid the existing contract at sequence 1; the
+  //     'Chapter 1' hints resolve to the chapter created in step 5 and
+  //     'Mira' resolves against the accepted Canon entity.
+  // ------------------------------------------------------------------
+  step('save Step 8 scene list artifact')
+  // Step 10 left the workspace on the Manuscript section; the Snowflake
+  // step rail only exists while that section is mounted.
+  await clickNavButton(page, 'Snowflake')
+  await page.getByRole('button', { name: 'Open step 8: Scene List' }).click()
+  await page.locator('.artifact-editor textarea').fill(SCENE_LIST_ARTIFACT)
+  await page.getByRole('button', { name: 'Save Artifact' }).click()
+  await page
+    .locator('.artifact-editor .save-state', { hasText: 'Artifact saved.' })
+    .waitFor({ state: 'visible' })
+
+  step('parse Step 8 into Scene Proposals')
+  await page
+    .getByRole('heading', { name: 'Step 8: Parse into Scene Proposals' })
+    .waitFor({ state: 'visible' })
+  await page.getByRole('button', { name: 'Parse Scene Proposals' }).click()
+  await page
+    .locator('.compile-panel .save-state', { hasText: 'Parsed 2 scene proposal(s).' })
+    .waitFor({ state: 'visible' })
+  const proposalRows = page.locator('.scene-proposal-table tbody tr')
+  await proposalRows.first().waitFor({ state: 'visible' })
+  assert.equal(await proposalRows.count(), 2, 'both parsed scene proposals are listed')
+  await page
+    .locator('.scene-proposal-table tbody tr', { hasText: "The Patron's Letter" })
+    .locator('input[type="checkbox"]')
+    .waitFor({ state: 'visible' })
+
+  step('batch-accept all pending scene proposals')
+  await page.getByRole('button', { name: 'Accept All Pending' }).click()
+  await page
+    .locator('.compile-panel .save-state', {
+      hasText: 'Created 2 scene contract(s) from parsed proposals.',
+    })
+    .waitFor({ state: 'visible' })
+
+  const contractsAfterBatch = await client.get('/projects/' + project.id + '/scene-contracts')
+  const patronContract = contractsAfterBatch.find((item) => item.title === "The Patron's Letter")
+  const doorContract = contractsAfterBatch.find((item) => item.title === 'The Redrawn Door')
+  assert.ok(patronContract, 'batch acceptance created the first parsed contract')
+  assert.ok(doorContract, 'batch acceptance created the second parsed contract')
+  assert.equal(patronContract.sequence, 2)
+  assert.equal(doorContract.sequence, 3)
+  assert.ok(patronContract.chapter_id, 'chapter hint resolved to the existing chapter')
+  assert.equal(patronContract.chapter_id, doorContract.chapter_id, 'same chapter for both hints')
+  assert.match(patronContract.pov, /Mira/)
+  assert.ok(
+    patronContract.required_canon,
+    'required canon names resolved against the Canon DB',
+  )
+
+  const batchProposals = await client.get('/projects/' + project.id + '/snowflake/scene-proposals')
+  assert.equal(batchProposals.length, 2)
+  assert.ok(
+    batchProposals.every((item) => item.status === 'accepted'),
+    'every parsed proposal moved to accepted',
+  )
+
+  step('new contracts are visible in the Manuscript workspace')
+  await clickNavButton(page, 'Manuscript')
+  await page
+    .locator('.scene-list button', { hasText: "2. The Patron's Letter" })
+    .waitFor({ state: 'visible' })
+  await page
+    .locator('.scene-list button', { hasText: '3. The Redrawn Door' })
+    .waitFor({ state: 'visible' })
+
+  // ------------------------------------------------------------------
+  // 12. Direct edit of an accepted manuscript scene creates Version 2.
+  // ------------------------------------------------------------------
+  step('edit the accepted scene draft into Version 2')
+  const scenesBeforeEdit = await client.get('/projects/' + project.id + '/manuscript/scenes')
+  const editedScene = scenesBeforeEdit.find((item) => item.title.includes(SCENE_TITLE))
+  assert.ok(editedScene, 'accepted scene from step 6 is present')
+  const originalContent = editedScene.content
+
+  const archiveItem = page
+    .locator('.accepted-manuscript .accepted-item')
+    .filter({ hasText: SCENE_TITLE })
+  await archiveItem.getByRole('button', { name: 'Edit' }).click()
+  await page.locator('.manuscript-edit textarea').fill(EDITED_SCENE_CONTENT)
+  await page.getByRole('button', { name: 'Save Version' }).click()
+  await page
+    .locator('.accepted-manuscript .accepted-item p.eyebrow', { hasText: 'Version 2' })
+    .waitFor({ state: 'visible' })
+
+  const scenesAfterEdit = await client.get('/projects/' + project.id + '/manuscript/scenes')
+  assert.equal(scenesAfterEdit[0].version, 2, 'direct edit bumps the scene to version 2')
+  assert.equal(scenesAfterEdit[0].content, EDITED_SCENE_CONTENT, 'edited content is current')
+  const revisionsAfterEdit = await client.get(
+    '/projects/' + project.id + '/manuscript/revisions',
+  )
+  assert.equal(revisionsAfterEdit.length, 2, 'the edit filed exactly one new revision')
+  assert.deepEqual(
+    revisionsAfterEdit.map((revision) => revision.version).sort(),
+    [1, 2],
+    'revisions v1 and v2 exist after the edit',
+  )
+  await page
+    .locator('.revision-history .revision-item p.eyebrow', { hasText: 'Version 2' })
+    .waitFor({ state: 'visible' })
+
+  // ------------------------------------------------------------------
+  // 13. Restore revision 1: becomes the newest version with the
+  //     original content back; history keeps all three revisions.
+  // ------------------------------------------------------------------
+  step('restore revision 1 as a new current version')
+  const versionOneItem = page.locator('.revision-history .revision-item').filter({
+    has: page.locator('p.eyebrow', { hasText: /^Version 1$/ }),
+  })
+  await versionOneItem.getByRole('button', { name: 'Restore' }).click()
+  await page
+    .locator('.accepted-manuscript .accepted-item p.eyebrow', { hasText: 'Version 3' })
+    .waitFor({ state: 'visible' })
+
+  const scenesAfterRestore = await client.get('/projects/' + project.id + '/manuscript/scenes')
+  assert.equal(scenesAfterRestore[0].version, 3, 'restore files a brand-new version')
+  assert.equal(
+    scenesAfterRestore[0].content,
+    originalContent,
+    'restored scene carries the original revision content again',
+  )
+  const revisionsAfterRestore = await client.get(
+    '/projects/' + project.id + '/manuscript/revisions',
+  )
+  assert.equal(revisionsAfterRestore.length, 3, 'all three revisions are preserved')
+  assert.deepEqual(
+    revisionsAfterRestore.map((revision) => revision.version).sort(),
+    [1, 2, 3],
+    'revision history holds versions 1..3',
+  )
+  const restoredRevision = revisionsAfterRestore.find((revision) => revision.version === 3)
+  assert.equal(restoredRevision.content, originalContent, 'v3 revision stores the restored prose')
+  await page
+    .locator('.revision-history .revision-item p.eyebrow', { hasText: 'Version 3' })
+    .waitFor({ state: 'visible' })
 }
 
 async function main() {

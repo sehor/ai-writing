@@ -127,6 +127,115 @@ button {
   color: #aeb8c2;
 }
 
+.backup-panel {
+  display: grid;
+  gap: 8px;
+}
+
+.backup-panel > button {
+  padding: 9px 12px;
+  border-radius: 8px;
+  color: #dce4e8;
+  text-align: left;
+  background: #273449;
+}
+
+.backup-panel > button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.backup-import {
+  display: grid;
+  gap: 4px;
+  color: #aeb8c2;
+  font-size: 12px;
+}
+
+.backup-import input {
+  width: 100%;
+  color: #dce4e8;
+  font-size: 12px;
+}
+
+.backup-preview {
+  display: grid;
+  gap: 6px;
+  padding: 10px;
+  border: 1px solid #34445f;
+  border-radius: 8px;
+  font-size: 12px;
+}
+
+.backup-preview-title {
+  margin: 0;
+  color: #f1cf8a;
+  font-weight: 600;
+}
+
+.backup-preview-title small {
+  display: block;
+  color: #687681;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+}
+
+.backup-preview-meta {
+  margin: 0;
+  color: #aeb8c2;
+  overflow-wrap: anywhere;
+}
+
+.backup-panel .conflict-warning {
+  margin: 0;
+  color: #fca5a5;
+}
+
+.backup-overwrite-confirm {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #dce4e8;
+}
+
+.backup-preview-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.backup-preview-actions button {
+  flex: 1;
+  padding: 7px 8px;
+  border-radius: 6px;
+  color: #18212f;
+  font-weight: 600;
+  background: #f1cf8a;
+}
+
+.backup-preview-actions button.secondary {
+  color: #dce4e8;
+  font-weight: 400;
+  background: #273449;
+}
+
+.backup-preview-actions button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.backup-note,
+.backup-status {
+  margin: 0;
+  color: #9fd6a8;
+  font-size: 12px;
+}
+
+.backup-error {
+  margin: 0;
+  color: #fca5a5;
+  font-size: 12px;
+}
+
 .workspace {
   padding: 28px;
 }
