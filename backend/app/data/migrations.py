@@ -1,14 +1,25 @@
-"""SQLite schema creation and column migrations.
+"""Versioned, transactional SQLite schema migrations.
 
-Lifted verbatim out of the former ProjectsDataMixin.init() when the store
-was split into repositories (P2-03): same tables, indexes, ensure_column
-migrations and demo-novel seed, now applied through initialize_schema()
-against a caller-supplied connection.
+P2-06 replaces the old apply-everything-every-time bootstrap with an ordered
+migration list recorded in a ``schema_migrations`` table:
+
+- every migration has a positive integer version and a unique name;
+- startup reads the applied versions and runs each pending migration in order,
+  inside exactly one transaction together with its ``schema_migrations`` row —
+  a failure rolls the migration back and stops startup with an error naming it;
+- migrations stay idempotent (``IF NOT EXISTS`` / add-column-if-missing) so a
+database created by any earlier era converges to the same final shape.
+
+Version 1 is today's full DDL baseline; later versions mirror the additive
+column changes that previously ran unconditionally through ``ensure_column``.
+New schema changes append a new migration and must never edit old ones.
 """
 
 import sqlite3
+from collections.abc import Callable
+from dataclasses import dataclass
 
-from app.data.helpers import ensure_column
+from app.data.helpers import ensure_column, utc_now
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -231,54 +242,114 @@ CREATE INDEX IF NOT EXISTS idx_scene_proposals_project_id ON scene_proposals(pro
 """
 
 
-def initialize_schema(connection: sqlite3.Connection) -> None:
-    """Create every table/index and run the additive column migrations.
+@dataclass(frozen=True)
+class Migration:
+    """One ordered schema change: ``version`` is permanent once released."""
 
-    Idempotent: safe to call on an existing database (all statements are
-    IF NOT EXISTS / add-column-if-missing).
+    version: int
+    name: str
+    apply: Callable[[sqlite3.Connection], None]
+
+
+def _apply_baseline_schema(connection: sqlite3.Connection) -> None:
+    _run_script(connection, SCHEMA_SQL)
+
+
+def _add_scene_contracts_chapter_id(connection: sqlite3.Connection) -> None:
+    ensure_column(connection, "scene_contracts", "chapter_id", "TEXT NOT NULL DEFAULT ''")
+
+
+def _add_canon_version_tracking(connection: sqlite3.Connection) -> None:
+    # P1-02: optimistic-concurrency columns for Canon so update write-backs
+    # can detect records changed after proposal creation. Existing rows keep
+    # working as version 1.
+    ensure_column(connection, "canon_entities", "version", "INTEGER NOT NULL DEFAULT 1")
+    ensure_column(connection, "canon_entities", "updated_at", "TEXT NOT NULL DEFAULT ''")
+
+
+def _add_writeback_optimistic_concurrency(connection: sqlite3.Connection) -> None:
+    # P1-02: update write-backs carry an optimistic concurrency handle and
+    # field-level changes.
+    ensure_column(connection, "writeback_proposals", "target_record_id", "TEXT NOT NULL DEFAULT ''")
+    ensure_column(connection, "writeback_proposals", "expected_version", "INTEGER")
+    ensure_column(connection, "writeback_proposals", "changes_json", "TEXT NOT NULL DEFAULT '{}'")
+
+
+def _run_script(connection: sqlite3.Connection, script: str) -> None:
+    """Execute DDL statement by statement (executescript would auto-commit)."""
+    for statement in script.split(";"):
+        if statement.strip():
+            connection.execute(statement)
+
+
+MIGRATIONS: list[Migration] = [
+    Migration(version=1, name="baseline_schema", apply=_apply_baseline_schema),
+    Migration(version=2, name="scene_contracts_chapter_id", apply=_add_scene_contracts_chapter_id),
+    Migration(version=3, name="canon_version_tracking", apply=_add_canon_version_tracking),
+    Migration(
+        version=4,
+        name="writeback_optimistic_concurrency",
+        apply=_add_writeback_optimistic_concurrency,
+    ),
+]
+
+LATEST_VERSION = MIGRATIONS[-1].version
+
+_SCHEMA_MIGRATIONS_DDL = """
+CREATE TABLE IF NOT EXISTS schema_migrations (
+    version INTEGER PRIMARY KEY,
+    name TEXT NOT NULL,
+    applied_at TEXT NOT NULL
+)
+"""
+
+
+def applied_versions(connection: sqlite3.Connection) -> set[int]:
+    """Versions already recorded in schema_migrations (empty before v1)."""
+    if not connection.execute(
+        "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations'"
+    ).fetchone():
+        return set()
+    return {int(row[0]) for row in connection.execute("SELECT version FROM schema_migrations")}
+
+
+def run_migrations(connection: sqlite3.Connection) -> int:
+    """Apply pending migrations in order; returns how many were applied.
+
+    Each pending migration plus its bookkeeping row commits atomically. A
+    failure rolls that migration back completely and raises a RuntimeError
+    naming the failed version so startup stops with an actionable message.
     """
-    connection.executescript(SCHEMA_SQL)
-    ensure_column(
-        connection,
-        "scene_contracts",
-        "chapter_id",
-        "TEXT NOT NULL DEFAULT ''",
-    )
-    # Phase 3 (P1-02): optimistic-concurrency columns for Canon so
-    # update write-backs can detect records changed after proposal
-    # creation. Existing rows keep working as version 1.
-    ensure_column(
-        connection,
-        "canon_entities",
-        "version",
-        "INTEGER NOT NULL DEFAULT 1",
-    )
-    ensure_column(
-        connection,
-        "canon_entities",
-        "updated_at",
-        "TEXT NOT NULL DEFAULT ''",
-    )
-    # Phase 3 (P1-02): update write-backs carry an optimistic
-    # concurrency handle and field-level changes.
-    ensure_column(
-        connection,
-        "writeback_proposals",
-        "target_record_id",
-        "TEXT NOT NULL DEFAULT ''",
-    )
-    ensure_column(
-        connection,
-        "writeback_proposals",
-        "expected_version",
-        "INTEGER",
-    )
-    ensure_column(
-        connection,
-        "writeback_proposals",
-        "changes_json",
-        "TEXT NOT NULL DEFAULT '{}'",
-    )
+    connection.execute(_SCHEMA_MIGRATIONS_DDL)
+    pending = [m for m in MIGRATIONS if m.version not in applied_versions(connection)]
+    previous_isolation = connection.isolation_level
+    try:
+        # Manual transaction control: legacy implicit transactions would let
+        # DDL slip out of our BEGIN..COMMIT pairs.
+        connection.isolation_level = None
+        for migration in sorted(pending, key=lambda item: item.version):
+            try:
+                connection.execute("BEGIN IMMEDIATE")
+                migration.apply(connection)
+                connection.execute(
+                    "INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, ?)",
+                    (migration.version, migration.name, utc_now()),
+                )
+                connection.execute("COMMIT")
+            except Exception as error:
+                if connection.in_transaction:
+                    connection.execute("ROLLBACK")
+                raise RuntimeError(
+                    f"Database migration {migration.version:03d}_{migration.name} failed: {error}"
+                ) from error
+    finally:
+        connection.isolation_level = previous_isolation
+    return len(pending)
+
+
+def initialize_schema(connection: sqlite3.Connection) -> None:
+    """Bring the database to LATEST_VERSION, then keep the demo seed."""
+    run_migrations(connection)
     if not connection.execute("SELECT 1 FROM projects LIMIT 1").fetchone():
         connection.execute(
             """

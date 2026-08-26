@@ -37,7 +37,7 @@ from app.data.repositories.review import ReviewRepository
 from app.data.repositories.scene_proposals import SceneProposalRepository
 from app.data.repositories.scenes import SceneRepository
 from app.data.repositories.snowflake import SnowflakeRepository
-from app.data.schema import initialize_schema
+from app.data.migrations import initialize_schema
 from app.data.unit_of_work import SqliteUnitOfWork, open_connection
 from app.models import (
     CanonEntity,
