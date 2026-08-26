@@ -141,7 +141,11 @@ def update_manuscript_scene(
 ) -> ManuscriptScene:
     require_project(project_id, data_store)
     scene = service.update_scene(project_id, scene_id, update)
-    apply_wiki_index_headers(response, outbox.process_pending(project_id))
+    # P1-01: a manual save commits a formal revision, so its post-commit
+    # pipeline (wiki + both analyses) is dispatched and reported like accepts.
+    processed_jobs = outbox.process_pending(project_id)
+    apply_wiki_index_headers(response, processed_jobs)
+    apply_post_accept_analysis_headers(response, processed_jobs)
     return scene
 
 
@@ -199,7 +203,11 @@ def restore_manuscript_revision(
 ) -> ManuscriptScene:
     require_project(project_id, data_store)
     scene = service.restore_revision(project_id, revision_id)
-    apply_wiki_index_headers(response, outbox.process_pending(project_id))
+    # P1-01: the restored revision re-enters the post-commit pipeline; its
+    # analysis outcome is reported alongside the wiki index headers.
+    processed_jobs = outbox.process_pending(project_id)
+    apply_wiki_index_headers(response, processed_jobs)
+    apply_post_accept_analysis_headers(response, processed_jobs)
     return scene
 
 

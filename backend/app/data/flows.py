@@ -143,6 +143,26 @@ def enqueue_manuscript_revision_analysis_jobs(
     return consistency_job_id, writeback_job_id
 
 
+def enqueue_committed_revision_jobs(
+    connection: sqlite3.Connection,
+    *,
+    revision: ManuscriptRevision,
+) -> tuple[str, str, str]:
+    """Enqueue the full post-commit pipeline for one committed revision (P1-01).
+
+    Every path that files a formal ManuscriptRevision - proposal accept,
+    manual scene edit, revision restore, and later Copilot Apply - must go
+    through this single helper so no committed content can skip wiki
+    indexing, consistency analysis or write-back analysis. Jobs are keyed by
+    the immutable revision id, so replaying the helper never duplicates them.
+    """
+    index_job_id = enqueue_manuscript_revision_index_job(connection, revision=revision)
+    consistency_job_id, writeback_job_id = enqueue_manuscript_revision_analysis_jobs(
+        connection, revision=revision
+    )
+    return index_job_id, consistency_job_id, writeback_job_id
+
+
 def accept_manuscript_proposal(
     connection: sqlite3.Connection,
     *,
@@ -199,8 +219,7 @@ def accept_manuscript_proposal(
     )
     manuscripts.upsert_scene(scene)
     manuscripts.insert_revision(revision)
-    enqueue_manuscript_revision_index_job(connection, revision=revision)
-    enqueue_manuscript_revision_analysis_jobs(connection, revision=revision)
+    enqueue_committed_revision_jobs(connection, revision=revision)
     manuscripts.set_proposal_status(
         project_id=project_id,
         proposal_id=proposal_id,
@@ -224,7 +243,7 @@ def restore_manuscript_revision(
     project_id: str,
     revision_id: str,
 ) -> ManuscriptScene | None:
-    """Restore an old revision as the newest scene version (+ index job)."""
+    """Restore an old revision as the newest scene version (+ full pipeline)."""
     now = utc_now()
     manuscripts = ManuscriptRepository(connection)
 
@@ -263,7 +282,7 @@ def restore_manuscript_revision(
     )
     manuscripts.upsert_scene(scene)
     manuscripts.insert_revision(restored_revision)
-    enqueue_manuscript_revision_index_job(connection, revision=restored_revision)
+    enqueue_committed_revision_jobs(connection, revision=restored_revision)
     return manuscripts.get_scene(project_id, source_revision.scene_id)
 
 
@@ -274,7 +293,7 @@ def update_manuscript_scene(
     scene_id: str,
     update: ManuscriptSceneUpdate,
 ) -> ManuscriptScene | None:
-    """Manual scene edit: bump version, file a revision, enqueue indexing."""
+    """Manual scene edit: bump version, file a revision, run the pipeline."""
     now = utc_now()
     manuscripts = ManuscriptRepository(connection)
 
@@ -304,7 +323,7 @@ def update_manuscript_scene(
         created_at=now,
     )
     manuscripts.insert_revision(revision)
-    enqueue_manuscript_revision_index_job(connection, revision=revision)
+    enqueue_committed_revision_jobs(connection, revision=revision)
     return manuscripts.get_scene(project_id, scene_id)
 
 

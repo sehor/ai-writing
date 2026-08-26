@@ -36,6 +36,19 @@ test('accepting a proposal surfaces automatic analyses without a manual run', ()
   assert.match(reviewsStore, /postAcceptJobs\.value = \[\]/)
 })
 
+test('manual save and restore refresh the same analysis panel (P1-01)', () => {
+  // Every committed-revision path - accept, manual scene save, revision
+  // restore - must surface the scheduled pipeline jobs and their report.
+  const jobRefreshes = manuscriptStore.match(
+    /reviews\.loadPostAcceptAnalysisJobs\(projectId\)/g
+  )
+  assert.equal(jobRefreshes?.length, 3, 'accept, manual save and restore all load analysis jobs')
+  const reportLoads = manuscriptStore.match(
+    /reviews\.showLatestConsistencyReport\(projectId\)/g
+  )
+  assert.equal(reportLoads?.length, 3, 'all three paths also show the latest report')
+})
+
 test('revision history renders analysis job status with retry for failures', () => {
   assert.match(revisionHistory, /class="post-accept-analysis"/)
   assert.match(revisionHistory, /analysisJobLabel\(job\.job_type\)/)

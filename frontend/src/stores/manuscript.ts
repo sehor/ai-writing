@@ -794,6 +794,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   async function restoreRevision(revisionId: string) {
     manuscriptError.value = ''
     manuscriptStatus.value = ''
+    const reviews = useReviewsStore()
     const projectId = ws().activeProject?.id
 
     if (!projectId) {
@@ -815,6 +816,15 @@ export const useManuscriptStore = defineStore('manuscript', () => {
       }
       await loadManuscriptScenes(projectId)
       await loadManuscriptRevisions(projectId)
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      // P1-01: the restored revision re-entered the post-commit pipeline;
+      // surface its jobs and the finished consistency report.
+      await Promise.all([
+        reviews.loadPostAcceptAnalysisJobs(projectId),
+        reviews.showLatestConsistencyReport(projectId),
+      ])
       if (!isActiveProject(projectId)) {
         return
       }
@@ -895,6 +905,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   async function saveManuscriptSceneEdit(sceneId: string) {
     manuscriptError.value = ''
     manuscriptStatus.value = ''
+    const reviews = useReviewsStore()
     const projectId = ws().activeProject?.id
     const title = manuscriptEditTitle.value.trim()
     const content = manuscriptEditContent.value.trim()
@@ -930,6 +941,15 @@ export const useManuscriptStore = defineStore('manuscript', () => {
       manuscriptExport.value = null
       revisionDiff.value = null
       await loadManuscriptRevisions(projectId)
+      if (!isActiveProject(projectId)) {
+        return
+      }
+      // P1-01: a manual save commits a formal revision, so the same
+      // post-commit pipeline runs; surface its jobs and finished report.
+      await Promise.all([
+        reviews.loadPostAcceptAnalysisJobs(projectId),
+        reviews.showLatestConsistencyReport(projectId),
+      ])
       if (!isActiveProject(projectId)) {
         return
       }
