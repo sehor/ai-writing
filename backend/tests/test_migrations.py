@@ -177,6 +177,35 @@ class MigrationTests(unittest.TestCase):
             finally:
                 connection.close()
 
+    def test_outbox_jobs_gain_processing_started_at_column(self) -> None:
+        # P1-02: claim lease bookkeeping exists on fresh databases and
+        # pre-existing rows keep an empty stamp.
+        with tempfile.TemporaryDirectory() as temp_dir:
+            connection = sqlite3.connect(Path(temp_dir) / "app.db")
+            connection.row_factory = sqlite3.Row
+            try:
+                self.assertEqual(run_migrations(connection), len(MIGRATIONS))
+                self.assertIn("processing_started_at", _column_names(connection, "outbox_jobs"))
+                connection.execute(
+                    "INSERT INTO projects (id, title, premise, current_step)"
+                    " VALUES ('legacy', 'Legacy', 'p', 1)"
+                )
+                insert_job = (
+                    "INSERT INTO outbox_jobs ("
+                    " id, project_id, job_type, aggregate_type, aggregate_id,"
+                    " payload_json, idempotency_key, status, created_at)"
+                    " VALUES ('job-1', 'legacy', 'llm_wiki_ingest',"
+                    " 'manuscript_revision', 'rev-1', '{}', 'k-1', 'pending',"
+                    " '2026-01-01T00:00:00+00:00')"
+                )
+                connection.execute(insert_job)
+                row = connection.execute(
+                    "SELECT processing_started_at FROM outbox_jobs WHERE id = 'job-1'"
+                ).fetchone()
+                self.assertEqual(row["processing_started_at"], "")
+            finally:
+                connection.close()
+
 
 if __name__ == "__main__":
     unittest.main()

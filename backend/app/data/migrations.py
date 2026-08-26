@@ -275,6 +275,12 @@ def _add_writeback_optimistic_concurrency(connection: sqlite3.Connection) -> Non
     ensure_column(connection, "writeback_proposals", "changes_json", "TEXT NOT NULL DEFAULT '{}'")
 
 
+def _add_outbox_processing_lease(connection: sqlite3.Connection) -> None:
+    # P1-02: atomic outbox claiming stamps when a job moved to 'processing'
+    # so a crashed dispatcher's lease can be detected and recovered.
+    ensure_column(connection, "outbox_jobs", "processing_started_at", "TEXT NOT NULL DEFAULT ''")
+
+
 def _run_script(connection: sqlite3.Connection, script: str) -> None:
     """Execute DDL statement by statement (executescript would auto-commit)."""
     for statement in script.split(";"):
@@ -291,6 +297,7 @@ MIGRATIONS: list[Migration] = [
         name="writeback_optimistic_concurrency",
         apply=_add_writeback_optimistic_concurrency,
     ),
+    Migration(version=5, name="outbox_processing_lease", apply=_add_outbox_processing_lease),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1].version

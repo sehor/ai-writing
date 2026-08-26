@@ -19,3 +19,4 @@ class OutboxJob(BaseModel):
     last_error: str = ""
     created_at: str = ""
     completed_at: str = ""
+    processing_started_at: str = ""

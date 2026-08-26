@@ -323,7 +323,7 @@ Route every manuscript revision through post-commit analysis
 
 ---
 
-## [ ] P1-02 Outbox 原子 Claim 与 Crash Recovery
+## [x] P1-02 Outbox 原子 Claim 与 Crash Recovery
 
 ### 问题
 

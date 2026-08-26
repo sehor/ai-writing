@@ -602,16 +602,37 @@ class SQLiteWritingDataStore:
         with SqliteUnitOfWork(self.database_path) as uow:
             return uow.outbox.list_jobs(project_id, job_status, limit)
 
-    def transition_outbox_job(
+    def claim_outbox_job(self, project_id: str, job_id: str) -> OutboxJob | None:
+        """Atomically claim a pending job (pending -> processing)."""
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.outbox.claim(project_id, job_id)
+
+    def complete_outbox_job(
         self,
         project_id: str,
         job_id: str,
         *,
-        job_status: OutboxJobStatus,
+        succeeded: bool,
         error: str | None = None,
     ) -> OutboxJob | None:
+        """Finalize a claimed job; only valid from 'processing'."""
         with SqliteUnitOfWork(self.database_path) as uow:
-            return uow.outbox.transition(project_id, job_id, job_status=job_status, error=error)
+            return uow.outbox.complete(project_id, job_id, succeeded=succeeded, error=error)
+
+    def reset_failed_outbox_job(self, project_id: str, job_id: str) -> OutboxJob | None:
+        """Move a failed job back to pending via compare-and-set."""
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.outbox.reset_failed(project_id, job_id)
+
+    def recover_stale_outbox_jobs(self, *, cutoff: str) -> list[OutboxJob]:
+        """Reset processing jobs whose lease expired before the cutoff."""
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.outbox.recover_stale(cutoff)
+
+    def list_projects_with_pending_outbox_jobs(self) -> list[str]:
+        """Project ids that still hold at least one pending job."""
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.outbox.pending_project_ids()
 
     # ------------------------------------------------------------------
     # Analysis runs (P1-04)

@@ -3,6 +3,9 @@
 Jobs are always inserted inside the same transaction as the domain rows
 that make them necessary (transactional outbox pattern); dispatch happens
 after commit through app.outbox.service.
+
+Every status change is a compare-and-set on the current status so two
+dispatchers can never both win one job (P1-02).
 """
 
 import json
@@ -25,13 +28,14 @@ def outbox_job_from_row(row: sqlite3.Row) -> OutboxJob:
         last_error=row["last_error"],
         created_at=row["created_at"],
         completed_at=row["completed_at"],
+        processing_started_at=row["processing_started_at"],
     )
 
 
 OUTBOX_JOB_COLUMNS = """
     SELECT id, project_id, job_type, aggregate_type, aggregate_id,
            payload_json, status, attempt_count, last_error,
-           created_at, completed_at
+           created_at, completed_at, processing_started_at
     FROM outbox_jobs
 """
 
@@ -118,32 +122,58 @@ class OutboxRepository:
         rows = self.connection.execute(query, params).fetchall()
         return [outbox_job_from_row(row) for row in rows]
 
-    def transition(
+    def pending_project_ids(self) -> list[str]:
+        """Projects that still hold at least one pending job."""
+        rows = self.connection.execute(
+            "SELECT DISTINCT project_id FROM outbox_jobs WHERE status = 'pending'"
+            " ORDER BY project_id"
+        ).fetchall()
+        return [row["project_id"] for row in rows]
+
+    def claim(self, project_id: str, job_id: str) -> OutboxJob | None:
+        """Atomically claim a pending job for execution.
+
+        The compare-and-set makes the claim single-winner: only a caller
+        whose UPDATE moved the row from 'pending' may run the handler.
+        """
+        cursor = self.connection.execute(
+            """
+            UPDATE outbox_jobs
+            SET status = 'processing',
+                attempt_count = attempt_count + 1,
+                processing_started_at = ?,
+                completed_at = '',
+                last_error = ''
+            WHERE project_id = ? AND id = ? AND status = 'pending'
+            """,
+            (utc_now(), project_id, job_id),
+        )
+        if cursor.rowcount == 0:
+            return None
+        return self.get(project_id, job_id)
+
+    def complete(
         self,
         project_id: str,
         job_id: str,
         *,
-        job_status: OutboxJobStatus,
+        succeeded: bool,
         error: str | None = None,
     ) -> OutboxJob | None:
-        """Move a job to the given status; counts an attempt on processing."""
-        now = utc_now()
-        terminal = job_status in ("succeeded", "failed")
-        error_text = error or ""
+        """Finalize a claimed job; only valid from 'processing'."""
         cursor = self.connection.execute(
             """
             UPDATE outbox_jobs
             SET status = ?,
                 last_error = ?,
                 completed_at = ?,
-                attempt_count = attempt_count + ?
-            WHERE project_id = ? AND id = ?
+                processing_started_at = ''
+            WHERE project_id = ? AND id = ? AND status = 'processing'
             """,
             (
-                job_status,
-                error_text,
-                now if terminal else "",
-                1 if job_status == "processing" else 0,
+                "succeeded" if succeeded else "failed",
+                error or "",
+                utc_now(),
                 project_id,
                 job_id,
             ),
@@ -151,3 +181,49 @@ class OutboxRepository:
         if cursor.rowcount == 0:
             return None
         return self.get(project_id, job_id)
+
+    def reset_failed(self, project_id: str, job_id: str) -> OutboxJob | None:
+        """Retry gate: move a failed job back to pending via CAS.
+
+        A concurrent retry loses here instead of running the handler twice.
+        """
+        cursor = self.connection.execute(
+            """
+            UPDATE outbox_jobs
+            SET status = 'pending',
+                last_error = '',
+                completed_at = '',
+                processing_started_at = ''
+            WHERE project_id = ? AND id = ? AND status = 'failed'
+            """,
+            (project_id, job_id),
+        )
+        if cursor.rowcount == 0:
+            return None
+        return self.get(project_id, job_id)
+
+    def recover_stale(self, cutoff: str) -> list[OutboxJob]:
+        """Reset processing jobs whose lease expired before the cutoff.
+
+        Rows stamped empty predate lease tracking and are treated as stale;
+        jobs claimed by current code always carry a stamp in the same
+        statement that sets 'processing'.
+        """
+        rows = self.connection.execute(
+            "SELECT project_id, id FROM outbox_jobs"
+            " WHERE status = 'processing'"
+            " AND (processing_started_at = '' OR processing_started_at < ?)",
+            (cutoff,),
+        ).fetchall()
+        recovered: list[OutboxJob] = []
+        for row in rows:
+            cursor = self.connection.execute(
+                "UPDATE outbox_jobs SET status = 'pending', processing_started_at = ''"
+                " WHERE project_id = ? AND id = ? AND status = 'processing'",
+                (row["project_id"], row["id"]),
+            )
+            if cursor.rowcount == 1:
+                job = self.get(row["project_id"], row["id"])
+                if job is not None:
+                    recovered.append(job)
+        return recovered
