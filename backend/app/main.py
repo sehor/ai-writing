@@ -8,6 +8,7 @@ from app.data import data_store
 from app.observability import bind_request_id, log_event, new_request_id
 from app.routers import (
     analysis,
+    backup,
     canon,
     graph,
     health,
@@ -85,6 +86,7 @@ async def observability_middleware(request: Request, call_next):
 
 app.include_router(health.router, prefix="/api")
 app.include_router(projects.router, prefix="/api")
+app.include_router(backup.router, prefix="/api")
 app.include_router(snowflake.router, prefix="/api")
 app.include_router(canon.router, prefix="/api")
 app.include_router(scenes.router, prefix="/api")
