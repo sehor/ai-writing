@@ -24,6 +24,7 @@ from app.routers.snowflake import (
     get_writing_workflow,
     snowflake_wiki_document,
 )
+from _polling import wait_until
 
 
 class RecordingLlmWiki:
@@ -172,6 +173,18 @@ class LlmWikiIntegrationTests(unittest.TestCase):
                         },
                     )
                     self.assertEqual(insight_response.status_code, 200)
+
+                    # P1-03: handlers run in the background dispatcher, so the
+                    # ingested documents are only complete once every job has
+                    # settled. Wait before leaving the app (and its loop).
+                    wait_until(
+                        lambda: all(
+                            job.status == "succeeded"
+                            for job in store.list_outbox_jobs(project_id)
+                        ),
+                        timeout_seconds=20,
+                        message="all scheduled wiki index jobs to settle",
+                    )
             finally:
                 app.dependency_overrides.clear()
 

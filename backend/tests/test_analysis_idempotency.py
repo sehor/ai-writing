@@ -15,6 +15,7 @@ from app.cognition.registry import get_cognition_registry
 from app.data import SQLiteWritingDataStore, get_data_store
 from app.main import app
 from app.models import ManuscriptProposalCreate
+from _polling import wait_until
 
 
 class FailingCognitionRegistry:
@@ -61,6 +62,22 @@ class AnalysisIdempotencyTests(unittest.TestCase):
         revision = store.list_manuscript_revisions(project_id)[0]
         return project_id, revision.id
 
+    def _wait_for_automatic_writeback_run(
+        self, store: SQLiteWritingDataStore, project_id: str, expected_status: str
+    ) -> None:
+        """P1-03: the acceptance-time job runs in the background dispatcher."""
+        wait_until(
+            lambda: [
+                job
+                for job in store.list_outbox_jobs(
+                    project_id, job_status=expected_status
+                )
+                if job.job_type == "writeback_analysis"
+            ],
+            timeout_seconds=20,
+            message=f"automatic write-back job to reach '{expected_status}'",
+        )
+
     def _post_writebacks(self, client: TestClient, project_id: str, revision_id: str, **params):
         return client.post(
             f"/api/projects/{project_id}/writeback/proposals/from-revision/{revision_id}",
@@ -76,6 +93,9 @@ class AnalysisIdempotencyTests(unittest.TestCase):
             try:
                 with TestClient(app) as client:
                     project_id, revision_id = self._setup_revision(store, client)
+                    # The manual requests below replay the automatic run, so
+                    # the dispatcher must have finished it first (P1-03).
+                    self._wait_for_automatic_writeback_run(store, project_id, "succeeded")
 
                     first = self._post_writebacks(client, project_id, revision_id)
                     second = self._post_writebacks(client, project_id, revision_id)
@@ -115,6 +135,7 @@ class AnalysisIdempotencyTests(unittest.TestCase):
             try:
                 with TestClient(app) as client:
                     project_id, revision_id = self._setup_revision(store, client)
+                    self._wait_for_automatic_writeback_run(store, project_id, "succeeded")
 
                     first = self._post_writebacks(client, project_id, revision_id)
                     rerun = self._post_writebacks(client, project_id, revision_id, force=True)
@@ -155,6 +176,11 @@ class AnalysisIdempotencyTests(unittest.TestCase):
                 with TestClient(app, raise_server_exceptions=False) as client:
                     project_id, revision_id = self._setup_revision(store, client)
 
+                    # The outage is active before acceptance, so the P1-07
+                    # automatic write-back job already fails in the background
+                    # dispatcher (P1-03); the manual request below must fail
+                    # the same way until cognition recovers.
+                    self._wait_for_automatic_writeback_run(store, project_id, "failed")
                     failed_jobs = store.list_outbox_jobs(project_id, job_status="failed")
                     failed = self._post_writebacks(client, project_id, revision_id)
 

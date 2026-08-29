@@ -6,7 +6,7 @@ here; workflow resolution happens behind the app-owned interface in
 app.services.snowflake_service.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.agents.writing_workflow import (
     WorkflowNotConfiguredError,
@@ -35,7 +35,7 @@ from app.models import (
     SnowflakeStep,
     WorkflowRuntimeStatus,
 )
-from app.outbox.http import apply_wiki_index_headers
+from app.outbox.dispatcher import OutboxDispatcher, get_outbox_dispatcher
 from app.services.snowflake_compile_service import SnowflakeCompileService
 
 # Re-exported so tests can keep importing these symbols from the router.
@@ -108,17 +108,19 @@ def save_snowflake_artifact(
     project_id: str,
     step_number: int,
     update: SnowflakeArtifactUpdate,
-    response: Response,
     data_store: WritingDataStore = Depends(get_data_store),
     service: SnowflakeService = Depends(get_snowflake_service),
+    dispatcher: OutboxDispatcher = Depends(get_outbox_dispatcher),
 ) -> SnowflakeArtifact:
     require_project(project_id, data_store)
     try:
-        saved, processed = service.save_artifact(project_id, step_number, update.content)
+        saved, job_id = service.save_artifact(project_id, step_number, update.content)
     except StepNotFoundError as exc:
         raise not_found_step() from exc
-    if processed is not None:
-        apply_wiki_index_headers(response, [processed])
+    # P1-03: the index job was enqueued in the save transaction; the
+    # background dispatcher owns its execution, not this request.
+    if job_id:
+        dispatcher.wake()
     return saved
 
 
@@ -128,14 +130,14 @@ def save_snowflake_artifact(
 )
 def generate_snowflake_artifact(
     request: SnowflakeGenerationRequest,
-    response: Response,
     data_store: WritingDataStore = Depends(get_data_store),
     workflow: WritingWorkflow = Depends(get_writing_workflow),
     service: SnowflakeService = Depends(get_snowflake_service),
+    dispatcher: OutboxDispatcher = Depends(get_outbox_dispatcher),
 ) -> SnowflakeGenerationResponse:
     require_project(request.project_id, data_store)
     try:
-        generated, processed = service.generate(request, workflow)
+        generated, job_id = service.generate(request, workflow)
     except StepNotFoundError as exc:
         raise not_found_step() from exc
     except WorkflowNotConfiguredError as exc:
@@ -154,8 +156,9 @@ def generate_snowflake_artifact(
                 "workflow_trace": [trace.model_dump() for trace in exc.trace],
             },
         ) from exc
-    if processed is not None:
-        apply_wiki_index_headers(response, [processed])
+    # P1-03: indexing happens in the background dispatcher.
+    if job_id:
+        dispatcher.wake()
     return generated
 
 

@@ -1,10 +1,11 @@
 """P1-07: accepting a manuscript proposal schedules its analyses automatically.
 
 The acceptance transaction enqueues one Wiki-index job plus consistency and
-write-back analysis jobs per created revision. Dispatch happens right after
-commit: reports appear without a manual trigger, generated write-backs stay
-pending_review (analysis is automatic, accepting them is not), and a failing
-analysis never endangers the accepted core data.
+write-back analysis jobs per created revision. Since P1-03 the jobs are
+executed by the app-owned dispatcher outside the request path: reports appear
+without a manual trigger, generated write-backs stay pending_review (analysis
+is automatic, accepting them is not), and a failing analysis never endangers
+the accepted core data.
 """
 
 from pathlib import Path
@@ -28,6 +29,7 @@ from app.llm_wiki.interfaces import (
 from app.main import app
 from app.outbox.service import OutboxService
 from app.routers.snowflake import SNOWFLAKE_STEPS, get_writing_workflow
+from _polling import wait_until
 
 
 class RecordingLlmWiki:
@@ -45,6 +47,16 @@ class RecordingLlmWiki:
 
     def analyze(self, query: WikiInsightQuery) -> WikiInsightResult:
         return WikiInsightResult(summary="stub", insights=[])
+
+
+def wait_for_jobs(store: SQLiteWritingDataStore, project_id: str, status: str):
+    return wait_until(
+        lambda: [
+            job for job in store.list_outbox_jobs(project_id) if job.status == status
+        ],
+        timeout_seconds=20,
+        message=f"outbox jobs to reach '{status}' via the background dispatcher",
+    )
 
 
 class PostAcceptAnalysisTests(unittest.TestCase):
@@ -97,6 +109,10 @@ class PostAcceptAnalysisTests(unittest.TestCase):
                 with TestClient(app) as client:
                     project_id, accepted = self._accept_one_revision(client)
 
+                    # P1-03: the mutation returns before the side effects run;
+                    # the dispatcher finishes every scheduled job afterwards.
+                    wait_for_jobs(store, project_id, "succeeded")
+
                     revisions = store.list_manuscript_revisions(project_id)
                     jobs = store.list_outbox_jobs(project_id)
                     report_response = client.get(
@@ -109,10 +125,9 @@ class PostAcceptAnalysisTests(unittest.TestCase):
                 app.dependency_overrides.clear()
 
         self.assertEqual(len(revisions), 1)
-
-        # Both post-commit job groups report success on the response itself.
-        self.assertEqual(accepted.headers.get("X-Wiki-Index-Status"), "succeeded")
-        self.assertEqual(accepted.headers.get("X-Analysis-Job-Status"), "succeeded")
+        # The response itself no longer claims completion (P1-03).
+        self.assertNotIn("X-Wiki-Index-Status", accepted.headers)
+        self.assertNotIn("X-Analysis-Job-Status", accepted.headers)
 
         # Three jobs left the acceptance transaction: index + two analyses.
         self.assertEqual(
@@ -149,14 +164,16 @@ class PostAcceptAnalysisTests(unittest.TestCase):
             store = self._install(temp_dir, wiki)
             try:
                 with TestClient(app) as client:
+                    # The outage must span the background dispatch too, so it
+                    # stays active until the consistency job has failed.
                     with mock.patch(
                         "app.analysis.consistency.check_revision",
                         side_effect=RuntimeError("simulated checker outage"),
                     ):
                         project_id, accepted = self._accept_one_revision(client)
+                        failed_jobs = wait_for_jobs(store, project_id, "failed")
 
                     revisions = store.list_manuscript_revisions(project_id)
-                    failed_jobs = store.list_outbox_jobs(project_id, job_status="failed")
                     retried = client.post(
                         f"/api/projects/{project_id}/outbox-jobs/{failed_jobs[0].id}/retry"
                     )
@@ -176,12 +193,10 @@ class PostAcceptAnalysisTests(unittest.TestCase):
             finally:
                 app.dependency_overrides.clear()
 
-        # Core data survived the checker outage and the response says where
-        # the automatic analysis stopped.
+        # Core data survived the checker outage even though the handler ran
+        # outside the request that accepted the proposal.
         self.assertEqual(accepted.status_code, 200)
-        self.assertEqual(accepted.headers.get("X-Analysis-Job-Status"), "failed")
-        self.assertIn("X-Analysis-Job-Id", accepted.headers)
-        self.assertIn("Core data saved", accepted.headers["X-Analysis-Job-Message"])
+        self.assertNotIn("X-Analysis-Job-Status", accepted.headers)
         self.assertEqual(len(revisions), 1)
 
         # Exactly the consistency job failed; wiki and write-back succeeded.

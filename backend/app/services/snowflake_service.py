@@ -1,8 +1,10 @@
 """P2-01 application service for the Snowflake workflow.
 
-Owns runtime-status reporting, artifact persistence with Wiki-index
-outbox dispatch, and generation orchestration. Routers stay pure HTTP:
-they parse requests, call this service, and map domain errors.
+Owns runtime-status reporting, artifact persistence with transactional
+Wiki-index outbox enqueueing, and generation orchestration. Routers stay
+pure HTTP: they parse requests, call this service, and map domain errors.
+Since P1-03 this service only enqueues index jobs; executing them is the
+job of the app-owned outbox dispatcher, which routes wake after enqueuing.
 """
 
 from typing import Any
@@ -29,7 +31,6 @@ from app.models import (
     WorkflowRuntimeStatus,
 )
 from app.outbox.handlers import snowflake_index_payload
-from app.outbox.service import OutboxJob, OutboxService, get_outbox_service
 from app.agents.writing_workflow import WritingWorkflow
 
 
@@ -110,12 +111,10 @@ class SnowflakeService:
         self,
         data_store: WritingDataStore,
         llm_wiki: LlmWiki,
-        outbox: OutboxService,
         registry: ProviderRegistry | None = None,
     ):
         self.data_store = data_store
         self.llm_wiki = llm_wiki
-        self.outbox = outbox
         self.registry = registry if registry is not None else default_provider_registry
 
     # -- steps -----------------------------------------------------------
@@ -178,8 +177,12 @@ class SnowflakeService:
 
     def save_artifact(
         self, project_id: str, step_number: int, content: str
-    ) -> tuple[SnowflakeArtifact, OutboxJob | None]:
-        """Persist an artifact and dispatch its Wiki-index job (one transaction)."""
+    ) -> tuple[SnowflakeArtifact, str | None]:
+        """Persist an artifact and enqueue its Wiki-index job (one transaction).
+
+        Returns the artifact plus the enqueued job id; executing the job is
+        the dispatcher's business (P1-03), not this request's.
+        """
         step = self.get_step(step_number)
         artifact = SnowflakeArtifact(
             project_id=project_id,
@@ -187,16 +190,14 @@ class SnowflakeService:
             artifact=step.artifact,
             content=content,
         )
-        saved, job_id = self.data_store.enqueue_snowflake_index_job(
+        return self.data_store.enqueue_snowflake_index_job(
             artifact, advance_step_to=step_number
         )
-        processed = self.outbox.process_job(project_id, job_id)
-        return saved, processed
 
     def generate(
         self, request: SnowflakeGenerationRequest, workflow: WritingWorkflow
-    ) -> tuple[SnowflakeGenerationResponse, OutboxJob | None]:
-        """Run one generation workflow, then enqueue + dispatch indexing."""
+    ) -> tuple[SnowflakeGenerationResponse, str | None]:
+        """Run one generation workflow, then enqueue its indexing job."""
         self.get_step(request.step_number)
         generated = workflow.run_snowflake_generation(request)
         _, job_id = self.data_store.enqueue_snowflake_index_job(
@@ -208,8 +209,7 @@ class SnowflakeService:
             ),
             advance_step_to=request.step_number,
         )
-        processed = self.outbox.process_job(request.project_id, job_id)
-        return generated, processed
+        return generated, job_id
 
 
 # ---------------------------------------------------------------------------
@@ -220,9 +220,8 @@ class SnowflakeService:
 def get_snowflake_service(
     data_store: WritingDataStore = Depends(get_data_store),
     llm_wiki: LlmWiki = Depends(get_llm_wiki),
-    outbox: OutboxService = Depends(get_outbox_service),
 ) -> SnowflakeService:
-    return SnowflakeService(data_store, llm_wiki, outbox)
+    return SnowflakeService(data_store, llm_wiki)
 
 
 def get_writing_workflow(

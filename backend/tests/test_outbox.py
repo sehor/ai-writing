@@ -19,6 +19,7 @@ from app.llm_wiki.interfaces import (
 from app.main import app
 from app.outbox.service import OutboxService
 from app.routers.snowflake import SNOWFLAKE_STEPS, get_writing_workflow
+from _polling import wait_until
 
 
 class FlakyLlmWiki:
@@ -92,15 +93,20 @@ class OutboxAcceptanceTests(unittest.TestCase):
                     )
 
                     # Core data is saved and reported as such, not a 500.
+                    # P1-03: the response returns before any handler runs; the
+                    # background dispatcher produces the failure on its own.
                     self.assertEqual(accepted.status_code, 200)
-                    self.assertEqual(accepted.headers.get("X-Wiki-Index-Status"), "failed")
-                    self.assertIn("Core data saved", accepted.headers["X-Wiki-Index-Message"])
+                    self.assertNotIn("X-Wiki-Index-Status", accepted.headers)
+                    jobs = wait_until(
+                        lambda: store.list_outbox_jobs(project_id, job_status="failed"),
+                        timeout_seconds=20,
+                        message="wiki ingest job to fail in the background dispatcher",
+                    )
                     revisions = store.list_manuscript_revisions(project_id)
                     self.assertEqual(len(revisions), 1)
                     self.assertEqual(len(wiki.documents), 0)
 
                     # The failed job is visible and carries the error.
-                    jobs = store.list_outbox_jobs(project_id, job_status="failed")
                     self.assertEqual(len(jobs), 1)
                     job = jobs[0]
                     self.assertGreaterEqual(job.attempt_count, 1)
@@ -146,8 +152,13 @@ class OutboxAcceptanceTests(unittest.TestCase):
                     )
 
                     self.assertEqual(saved.status_code, 200)
-                    self.assertEqual(saved.headers.get("X-Wiki-Index-Status"), "failed")
-
+                    # P1-03: the artifact save no longer runs the handler
+                    # inline; the dispatcher fails it in the background.
+                    failed_jobs = wait_until(
+                        lambda: store.list_outbox_jobs(project_id, job_status="failed"),
+                        timeout_seconds=20,
+                        message="snowflake index job to fail in the background dispatcher",
+                    )
                     # Artifact and project progress are committed despite failure.
                     artifact = store.get_snowflake_artifact(project_id, 1)
                     self.assertIsNotNone(artifact)
@@ -155,7 +166,6 @@ class OutboxAcceptanceTests(unittest.TestCase):
                     project = store.get_project(project_id)
                     self.assertEqual(project.current_step, 2)
 
-                    failed_jobs = store.list_outbox_jobs(project_id, job_status="failed")
                     self.assertEqual(len(failed_jobs), 1)
                     payload = failed_jobs[0].payload
                     self.assertEqual(payload["source_kind"], "snowflake_artifact")
@@ -179,7 +189,11 @@ class OutboxAcceptanceTests(unittest.TestCase):
                     self.assertEqual(second.status_code, 200)
                     pending_or_done = store.list_outbox_jobs(project_id)
                     self.assertEqual(len(pending_or_done), 2)
-                    self.assertEqual(len(wiki.documents), 2)
+                    wait_until(
+                        lambda: len(wiki.documents) == 2,
+                        timeout_seconds=20,
+                        message="the second background ingest to land",
+                    )
             finally:
                 app.dependency_overrides.clear()
 

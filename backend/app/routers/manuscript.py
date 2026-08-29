@@ -1,13 +1,9 @@
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, status
 import sqlite3
 
 from app.data import WritingDataStore, get_data_store
 from app.dependencies import require_project
-from app.outbox.http import (
-    apply_post_accept_analysis_headers,
-    apply_wiki_index_headers,
-)
-from app.outbox.service import OutboxService, get_outbox_service
+from app.outbox.dispatcher import OutboxDispatcher, get_outbox_dispatcher
 from app.models import (
     ManuscriptExportResponse,
     ManuscriptChapter,
@@ -134,18 +130,16 @@ def update_manuscript_scene(
     project_id: str,
     scene_id: str,
     update: ManuscriptSceneUpdate,
-    response: Response,
     data_store: WritingDataStore = Depends(get_data_store),
     service: ManuscriptService = Depends(),
-    outbox: OutboxService = Depends(get_outbox_service),
+    dispatcher: OutboxDispatcher = Depends(get_outbox_dispatcher),
 ) -> ManuscriptScene:
     require_project(project_id, data_store)
     scene = service.update_scene(project_id, scene_id, update)
-    # P1-01: a manual save commits a formal revision, so its post-commit
-    # pipeline (wiki + both analyses) is dispatched and reported like accepts.
-    processed_jobs = outbox.process_pending(project_id)
-    apply_wiki_index_headers(response, processed_jobs)
-    apply_post_accept_analysis_headers(response, processed_jobs)
+    # P1-01/P1-03: a manual save commits a formal revision whose post-commit
+    # pipeline (wiki + both analyses) was enqueued in the same transaction;
+    # the background dispatcher runs it, not this request.
+    dispatcher.wake()
     return scene
 
 
@@ -196,18 +190,15 @@ def diff_manuscript_revisions(
 def restore_manuscript_revision(
     project_id: str,
     revision_id: str,
-    response: Response,
     data_store: WritingDataStore = Depends(get_data_store),
     service: ManuscriptService = Depends(),
-    outbox: OutboxService = Depends(get_outbox_service),
+    dispatcher: OutboxDispatcher = Depends(get_outbox_dispatcher),
 ) -> ManuscriptScene:
     require_project(project_id, data_store)
     scene = service.restore_revision(project_id, revision_id)
-    # P1-01: the restored revision re-enters the post-commit pipeline; its
-    # analysis outcome is reported alongside the wiki index headers.
-    processed_jobs = outbox.process_pending(project_id)
-    apply_wiki_index_headers(response, processed_jobs)
-    apply_post_accept_analysis_headers(response, processed_jobs)
+    # P1-01/P1-03: the restored revision re-enters the post-commit pipeline;
+    # its jobs were enqueued transactionally and run in the background.
+    dispatcher.wake()
     return scene
 
 
@@ -249,16 +240,14 @@ def update_manuscript_proposal_status(
     project_id: str,
     proposal_id: str,
     update: ManuscriptProposalStatusUpdate,
-    response: Response,
     data_store: WritingDataStore = Depends(get_data_store),
     service: ManuscriptService = Depends(),
-    outbox: OutboxService = Depends(get_outbox_service),
+    dispatcher: OutboxDispatcher = Depends(get_outbox_dispatcher),
 ) -> ManuscriptProposal:
     require_project(project_id, data_store)
     proposal = service.update_proposal_status(project_id, proposal_id, update.status)
-    processed_jobs = outbox.process_pending(project_id)
-    apply_wiki_index_headers(response, processed_jobs)
-    # P1-07: acceptance also dispatched the consistency / write-back analysis
-    # jobs; their outcome rides the headers so the UI can refresh its panels.
-    apply_post_accept_analysis_headers(response, processed_jobs)
+    # P1-07/P1-03: acceptance enqueued wiki + consistency + write-back jobs
+    # transactionally; the background dispatcher executes them after this
+    # response has been sent.
+    dispatcher.wake()
     return proposal

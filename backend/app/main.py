@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.data import data_store
 from app.observability import bind_request_id, log_event, new_request_id
+from app.outbox.dispatcher import build_app_outbox_dispatcher
 from app.routers import (
     analysis,
     backup,
@@ -27,7 +28,15 @@ from app.routers import (
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     data_store.init()
-    yield
+    # P1-03: post-commit jobs are dispatched by this app-owned background
+    # loop instead of inside mutation requests.
+    dispatcher = build_app_outbox_dispatcher(app)
+    app.state.outbox_dispatcher = dispatcher
+    dispatcher.start()
+    try:
+        yield
+    finally:
+        await dispatcher.stop()
 
 
 app = FastAPI(

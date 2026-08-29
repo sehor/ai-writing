@@ -16,6 +16,7 @@ from app.analysis.consistency import (
 from app.data import SQLiteWritingDataStore, get_data_store
 from app.main import app
 from app.models import CanonEntity, ManuscriptProposalCreate, ManuscriptRevision, SceneContract
+from _polling import wait_until
 
 
 def _make_revision(content: str) -> ManuscriptRevision:
@@ -179,6 +180,20 @@ class ConsistencyReportRouteTests(unittest.TestCase):
             params=params,
         )
 
+    def _wait_for_automatic_consistency_run(
+        self, store: SQLiteWritingDataStore, project_id: str
+    ) -> None:
+        """P1-03: the acceptance-time report is produced by the dispatcher."""
+        wait_until(
+            lambda: [
+                job
+                for job in store.list_outbox_jobs(project_id, job_status="succeeded")
+                if job.job_type == "consistency_analysis"
+            ],
+            timeout_seconds=20,
+            message="automatic consistency job to succeed",
+        )
+
     def test_report_exists_after_acceptance_and_force_bumps_version(self) -> None:
         """P1-07: acceptance produces a report without a manual trigger."""
         with TemporaryDirectory() as temp_dir:
@@ -188,6 +203,7 @@ class ConsistencyReportRouteTests(unittest.TestCase):
             try:
                 with TestClient(app) as client:
                     project_id, revision_id = self._setup(store, client)
+                    self._wait_for_automatic_consistency_run(store, project_id)
 
                     automatic = client.get(
                         f"/api/projects/{project_id}/analysis/consistency"
@@ -238,6 +254,7 @@ class ConsistencyReportRouteTests(unittest.TestCase):
             try:
                 with TestClient(app) as client:
                     project_id, revision_id = self._setup(store, client)
+                    self._wait_for_automatic_consistency_run(store, project_id)
 
                     first = self._post_report(client, project_id, revision_id)
                     scene_id = client.get(f"/api/projects/{project_id}/scene-contracts").json()[0][
