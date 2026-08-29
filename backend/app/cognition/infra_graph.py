@@ -50,14 +50,10 @@ class LocalInfraGraphModule:
             risk_count=len(risks),
             critical_count=sum(1 for risk in risks if risk.severity == "critical"),
             warning_count=sum(1 for risk in risks if risk.severity == "warning"),
-            unresolved_thread_count=(
-                sum(
-                    1
-                    for thread in snapshot.story_threads
-                    if thread.status not in {"paid_off", "abandoned"}
-                )
-                if snapshot.story_threads
-                else sum(1 for scene in snapshot.scenes if scene.open_threads)
+            unresolved_thread_count=sum(
+                1
+                for thread in snapshot.story_threads
+                if thread.status not in {"paid_off", "abandoned"}
             ),
             canon_reference_count=sum(
                 1

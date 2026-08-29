@@ -9,7 +9,6 @@ from app.models import (
     StoryThread,
     StoryThreadEvent,
 )
-from app.text_utils import truncate
 
 
 def build_graph_nodes(
@@ -258,17 +257,6 @@ def build_graph_risks(
                     source_id=f"scene:{scene.id}",
                 )
             )
-        if scene.open_threads:
-            risks.append(
-                GraphRisk(
-                    id=f"scene-{scene.id}-open-threads",
-                    severity="info",
-                    title="Open thread requires review",
-                    detail=f"{scene.title}: {truncate(scene.open_threads, 220)}",
-                    source_id=f"scene:{scene.id}",
-                )
-            )
-
     referenced_canon_ids = {
         entity.id
         for scene in scenes
@@ -482,7 +470,6 @@ def searchable_scene_text(scene: SceneContract) -> str:
             scene.turning_point,
             scene.required_canon,
             scene.forbidden_facts,
-            scene.open_threads,
         ]
     ).lower()
 

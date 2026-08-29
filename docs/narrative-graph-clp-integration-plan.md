@@ -449,6 +449,18 @@ P5 完成后移除 scene-scoped Narrative 路径中的旧 Wiki 兼容注入，�
 - CLP、Outbox、Writeback Review 主链保持不变。
 - 增加边界 contract test，防止未来重新把旧 Wiki 注入 scene Snapshot。
 
+### P7：固化结构化 StoryThread 边界
+
+P6 后继续收口成功标准 4，避免旧 `SceneContract.open_threads` 与结构化 StoryThread lifecycle 同时驱动 Narrative 行为：
+
+- `SceneContract.open_threads` 暂保留为 Snowflake / 旧项目兼容字段，不做 schema migration，也不删除旧数据。
+- Scene Snapshot generation context 不再输出 `open_threads`；活跃线程只来自 `StoryThread + StoryThreadEvent` 的确定性时序计算。
+- scene-scoped Reference 的兼容 cognition snapshot 会清空 `open_threads`，防止旧字段经 `describe_scope()` 二次注入。
+- 旧 Infra Graph 不再用 `open_threads` 生成 thread risk、Canon mention 或 unresolved-thread fallback；线程统计只看结构化 StoryThread。
+- Snowflake 解析/保存仍可读写旧字段，本阶段不改变 authoring 输入契约。
+- 不改变 Director、CLP candidate、Writeback Review、Manuscript acceptance 或 Outbox 行为。
+- 增加 StoryThread boundary tests，证明旧字符串存在时不会污染 scene generation、Reference 或 Graph，且结构化线程仍正常可见。
+
 ---
 
 ## 11. 明确不做

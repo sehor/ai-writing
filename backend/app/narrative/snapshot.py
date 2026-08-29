@@ -167,11 +167,12 @@ class NarrativeSnapshot:
             entity.model_copy(update={"current_state": "", "last_seen": "", "timeline_notes": ""})
             for entity in self.canon_entities
         ]
+        safe_scene = self.scene.model_copy(update={"open_threads": ""})
         return ProjectCognitionSnapshot(
             project=self.project,
             artifacts=[],
             canon_entities=safe_canon,
-            scenes=[self.scene],
+            scenes=[safe_scene],
             memory_records=self.memory_records,
             manuscript_scenes=self.manuscript_scenes,
             story_threads=self.active_threads,
@@ -190,7 +191,6 @@ class NarrativeSnapshot:
             f"Turning Point: {scene.turning_point or 'TBD'}",
             f"Required Canon: {scene.required_canon or 'None listed'}",
             f"Forbidden Facts: {scene.forbidden_facts or 'None listed'}",
-            f"Open Threads: {scene.open_threads or 'None listed'}",
         ]
 
         world_ids = {item.id for item in self.world_truth}

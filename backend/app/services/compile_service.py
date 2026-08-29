@@ -69,7 +69,6 @@ def build_compile_context(
         f"Turning Point: {scene.turning_point or 'TBD'}",
         f"Required Canon: {scene.required_canon or 'None listed'}",
         f"Forbidden Facts: {scene.forbidden_facts or 'None listed'}",
-        f"Open Threads: {scene.open_threads or 'None listed'}",
     ]
     if source_artifact:
         sections.extend(
