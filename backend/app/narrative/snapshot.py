@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 
 from app.cognition.interfaces import ContextPacket, ProjectCognitionSnapshot, WritingScope
 from app.data import WritingDataStore
-from app.llm_wiki.interfaces import WikiContextQuery, WikiContextResult, WikiEvidence
+from app.llm_wiki.interfaces import WikiContextResult
 from app.models import (
     CanonEntity,
     ManuscriptScene,
@@ -143,22 +143,12 @@ class NarrativeSnapshot:
             if cognition is not None
             else []
         )
-        if llm_wiki is not None:
-            raw_wiki_context = llm_wiki.retrieve_context(
-                WikiContextQuery(
-                    project_id=project_id,
-                    snowflake_step=10,
-                    instruction=scene.title,
-                    # Cross-scene observed prose remains visible. Story position,
-                    # not scene-id scope, is the spoiler boundary.
-                    scope="",
-                    story_position=scene.sequence,
-                    spoiler_horizon=scene.sequence,
-                )
-            )
-            wiki_context = _scene_safe_wiki_context(raw_wiki_context, scene.sequence)
-        else:
-            wiki_context = WikiContextResult(summary="LLM Wiki context not requested.")
+        # P5 compatibility: callers may still pass the legacy LLM Wiki port, but
+        # scene retrieval is authoritative here. Earlier accepted prose already
+        # comes from SQLite, and facts/relations come from the Narrative Domain.
+        wiki_context = WikiContextResult(
+            summary="Legacy LLM Wiki retrieval is not used for scenes."
+        )
 
         return cls(
             project=project,
@@ -563,24 +553,3 @@ def _prior_manuscript_scenes(
     ]
     visible.sort(key=lambda item: sequence_by_id.get(item.scene_id, 9999))
     return visible
-
-
-def _scene_safe_wiki_context(context: WikiContextResult, target_sequence: int) -> WikiContextResult:
-    evidence: list[WikiEvidence] = []
-    for item in context.evidence:
-        if item.knowledge_class != "observed":
-            continue
-        if item.story_position is None or item.story_position >= target_sequence:
-            continue
-        evidence.append(item)
-    source_refs = {item.source_ref for item in evidence}
-    constraints = [
-        item
-        for item in context.constraints
-        if not item.source_refs or any(source_ref in source_refs for source_ref in item.source_refs)
-    ]
-    return WikiContextResult(
-        summary=f"Scene-safe continuity evidence: {len(evidence)} observed source(s).",
-        evidence=evidence,
-        constraints=constraints,
-    )

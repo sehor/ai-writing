@@ -147,10 +147,18 @@ class LlmWikiInterfaceTests(unittest.TestCase):
             self.assertIn('source_ref: "snowflake:1"', content)
             self.assertIn("Mira must map the archive", content)
 
-    def test_ingest_rebuilds_compiler_like_concept_projection(self) -> None:
+    def test_ingest_removes_legacy_knowledge_projection_and_keeps_source_evidence(self) -> None:
         with TemporaryDirectory() as temp_dir:
+            project_path = Path(temp_dir) / "novel" / "modules" / "llm_wiki"
+            legacy_concepts = project_path / "wiki" / "concepts"
+            legacy_concepts.mkdir(parents=True)
+            (legacy_concepts / "stale-fact.md").write_text(
+                "# Stale derived knowledge\n",
+                encoding="utf-8",
+            )
+
             wiki = LocalFileLlmWiki(Path(temp_dir))
-            wiki.ingest(
+            result = wiki.ingest(
                 WikiSourceDocument(
                     project_id="novel",
                     source_kind="snowflake_artifact",
@@ -163,65 +171,10 @@ class LlmWikiInterfaceTests(unittest.TestCase):
                 )
             )
 
-            concepts_dir = Path(temp_dir) / "novel" / "modules" / "llm_wiki" / "wiki" / "concepts"
-            pages = list(concepts_dir.glob("*.md"))
-            self.assertEqual(len(pages), 1)
-            content = pages[0].read_text(encoding="utf-8")
-            self.assertIn('title: "Story promise"', content)
-            self.assertIn('kind: "concept"', content)
-            self.assertIn('sources: ["snowflake:1"]', content)
-            self.assertIn("Mira must map the archive", content)
-
-    def test_projection_index_lists_only_active_approved_sources(self) -> None:
-        with TemporaryDirectory() as temp_dir:
-            wiki = LocalFileLlmWiki(Path(temp_dir))
-            wiki.ingest(
-                WikiSourceDocument(
-                    project_id="novel",
-                    source_kind="snowflake_artifact",
-                    source_ref="snowflake:1:old",
-                    title="Old promise",
-                    content="Mira leaves the archive sealed.",
-                    snowflake_step=1,
-                    artifact_type="story_contract",
-                    knowledge_class="planned",
-                )
-            )
-            wiki.ingest(
-                WikiSourceDocument(
-                    project_id="novel",
-                    source_kind="snowflake_artifact",
-                    source_ref="snowflake:1:new",
-                    title="New promise",
-                    content="Mira breaks the archive seal.",
-                    snowflake_step=1,
-                    artifact_type="story_contract",
-                    knowledge_class="planned",
-                    supersedes="snowflake:1:old",
-                )
-            )
-            wiki.ingest(
-                WikiSourceDocument(
-                    project_id="novel",
-                    source_kind="snowflake_artifact",
-                    source_ref="snowflake:2:draft",
-                    title="Draft plot seed",
-                    content="This draft should not become active projected knowledge.",
-                    snowflake_step=2,
-                    artifact_type="plot_seed",
-                    knowledge_class="planned",
-                    status="draft",
-                )
-            )
-
-            project_path = Path(temp_dir) / "novel" / "modules" / "llm_wiki"
-            index = (project_path / "wiki" / "index.md").read_text(encoding="utf-8")
-            concept_pages = list((project_path / "wiki" / "concepts").glob("*.md"))
-
-            self.assertIn("New promise", index)
-            self.assertNotIn("Old promise", index)
-            self.assertNotIn("Draft plot seed", index)
-            self.assertEqual(len(concept_pages), 1)
+            stored_json = project_path / result.stored_path
+            self.assertTrue(stored_json.is_file())
+            self.assertTrue(stored_json.with_suffix(".md").is_file())
+            self.assertFalse((project_path / "wiki").exists())
 
     def test_context_ranks_instruction_matches_before_merely_visible_sources(self) -> None:
         with TemporaryDirectory() as temp_dir:
@@ -284,6 +237,7 @@ class LlmWikiInterfaceTests(unittest.TestCase):
                 result.evidence[0].excerpt,
                 "Mira maps the archive. The archive erases uncommitted names.",
             )
+            self.assertEqual(result.constraints, [])
 
     def test_drafting_scope_allows_prior_observed_sources_from_other_scenes(self) -> None:
         with TemporaryDirectory() as temp_dir:

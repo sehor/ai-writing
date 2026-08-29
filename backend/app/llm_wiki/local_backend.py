@@ -1,10 +1,10 @@
 import json
 import re
+import shutil
 from hashlib import sha256
 from pathlib import Path
 
 from app.llm_wiki.interfaces import (
-    WikiConstraint,
     WikiContextQuery,
     WikiContextResult,
     WikiEvidence,
@@ -15,7 +15,7 @@ from app.llm_wiki.interfaces import (
     WikiSourceDocument,
 )
 from app.llm_wiki.stage_protocol import get_stage_policy
-from app.text_utils import one_line, slugify
+from app.text_utils import one_line
 
 
 class LocalFileLlmWiki:
@@ -34,7 +34,7 @@ class LocalFileLlmWiki:
             encoding="utf-8",
         )
         self._write_markdown_source(source_path.with_suffix(".md"), document)
-        self._rebuild_projection(project_path, document.project_id)
+        self._remove_legacy_projection(project_path)
         return WikiIngestionResult(
             status=status,
             source_ref=document.source_ref,
@@ -71,20 +71,12 @@ class LocalFileLlmWiki:
             )
             for document in documents
         ]
-        constraints = [
-            WikiConstraint(
-                text=evidence_item.excerpt,
-                source_refs=[evidence_item.source_ref],
-            )
-            for evidence_item in evidence
-        ]
         return WikiContextResult(
             summary=(
                 f"Retrieved {len(evidence)} stage-aware LLM Wiki source"
                 f"{'' if len(evidence) == 1 else 's'} for Snowflake step {query.snowflake_step}."
             ),
             evidence=evidence,
-            constraints=constraints,
         )
 
     def analyze(self, query: WikiInsightQuery) -> WikiInsightResult:
@@ -211,94 +203,18 @@ class LocalFileLlmWiki:
             self._write_markdown_source(path.with_suffix(".md"), updated)
             return
 
-    def _rebuild_projection(self, project_path: Path, project_id: str) -> None:
-        documents = [
-            document
-            for document in self._load_documents(project_id)
-            if document.status == "approved"
-        ]
-        documents.sort(
-            key=lambda item: (
-                item.snowflake_step,
-                item.story_position if item.story_position is not None else -1,
-                item.title,
-                item.source_ref,
-            )
-        )
-        concepts_path = project_path / "wiki" / "concepts"
-        concepts_path.mkdir(parents=True, exist_ok=True)
-        for path in concepts_path.glob("*.md"):
-            if path.is_file():
-                path.unlink()
-        pages = []
-        for document in documents:
-            slug = self._concept_slug(document)
-            (concepts_path / f"{slug}.md").write_text(
-                self._concept_page(slug, document),
-                encoding="utf-8",
-            )
-            pages.append((slug, document))
-        self._write_projection_index(project_path / "wiki" / "index.md", pages)
-
-    def _concept_slug(self, document: WikiSourceDocument) -> str:
-        digest = sha256(document.source_ref.encode("utf-8")).hexdigest()[:10]
-        return f"{slugify(document.title, 'source')}-{digest}"
-
-    def _concept_page(self, slug: str, document: WikiSourceDocument) -> str:
-        summary = self._projection_summary(document)
-        lines = [
-            "---",
-            f"title: {json.dumps(document.title, ensure_ascii=False)}",
-            'kind: "concept"',
-            f"summary: {json.dumps(summary, ensure_ascii=False)}",
-            f"sources: {json.dumps([document.source_ref], ensure_ascii=False)}",
-            f"source_ref: {json.dumps(document.source_ref, ensure_ascii=False)}",
-            f"source_kind: {json.dumps(document.source_kind, ensure_ascii=False)}",
-            f"knowledge_class: {json.dumps(document.knowledge_class, ensure_ascii=False)}",
-            f"snowflake_step: {document.snowflake_step}",
-            f"artifact_type: {json.dumps(document.artifact_type, ensure_ascii=False)}",
-            f"scope: {json.dumps(document.scope, ensure_ascii=False)}",
-            f"story_position: {json.dumps(document.story_position)}",
-            "---",
-            "",
-            f"# {document.title}",
-            "",
-            f"- Source: `{document.source_ref}`",
-            f"- Snowflake step: {document.snowflake_step}",
-            f"- Knowledge class: {document.knowledge_class}",
-            "",
-            "## Content",
-            "",
-            document.content.strip(),
-            "",
-            f"<!-- generated-slug: {slug} -->",
-            "",
-        ]
-        return "\n".join(lines)
+    @staticmethod
+    def _remove_legacy_projection(project_path: Path) -> None:
+        """Delete the old derived knowledge mirror; sources remain the adapter's only state."""
+        wiki_path = project_path / "wiki"
+        if wiki_path.is_dir():
+            shutil.rmtree(wiki_path)
+        elif wiki_path.exists():
+            wiki_path.unlink()
 
     @staticmethod
     def _projection_summary(document: WikiSourceDocument) -> str:
         return one_line(document.content, 180)
-
-    def _write_projection_index(
-        self,
-        path: Path,
-        pages: list[tuple[str, WikiSourceDocument]],
-    ) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        lines = ["# Wiki Index", "", "## Concepts", ""]
-        if not pages:
-            lines.append("- _No active approved sources._")
-        else:
-            lines.extend(
-                (
-                    f"- [[concepts/{slug}|{document.title.replace('|', '-')}]]"
-                    f" - {document.knowledge_class} step {document.snowflake_step};"
-                    f" `{document.source_ref}`"
-                )
-                for slug, document in pages
-            )
-        path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     @staticmethod
     def _score_document(document: WikiSourceDocument, query: WikiContextQuery) -> int:

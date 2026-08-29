@@ -429,6 +429,15 @@ SQLite 始终是真相；Graph 与 CLP 都是派生层。
 - 避免 Narrative Graph 与 LLM Wiki 各维护一套事实关系。
 - 最终将 Local LLM Wiki 降级为 source/evidence adapter，或在无独立价值后删除。
 
+当前收敛结果：
+
+- `LocalFileLlmWiki` 仅保留 source JSON / Markdown evidence、planned/observed 分类、supersession、Snowflake stage 可见性和 deterministic evidence ranking。
+- 删除本地 `wiki/concepts` / `wiki/index.md` 派生知识投影；ingest 时会清理遗留投影，避免与 Narrative Graph / Narrative Domain 形成第二套事实关系。
+- `retrieve_context()` 返回 source evidence，不再把 source excerpt 复制成事实/约束。
+- `NarrativeSnapshot.for_scene()` 不再调用旧 LLM Wiki retrieval；Scene / Manuscript 连续性、事实、关系、线程全部由 SQLite Narrative Domain + Narrative Graph projection + accepted manuscript 计算。
+- 旧 Wiki context / insight API 暂保兼容和 advisory 价值，主要服务 Snowflake 1-9 的 source evidence；不参与 Scene 权威状态判定。
+- CLP candidate pipeline 不变：accepted revision -> typed candidate -> WritebackProposal -> validation -> human review -> SQLite Narrative Domain。
+
 ---
 
 ## 11. 明确不做

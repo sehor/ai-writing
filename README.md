@@ -14,7 +14,8 @@ Long-form AI writing breaks down when the system treats each prompt as an isolat
 - **Memory / Style**: original prose excerpts, chapter summaries, character voice samples, scene style, and narrative rhythm.
 - **Graph / Structure**: relationships between characters, events, themes, locations, foreshadowing, and unresolved threads.
 - **Chapter Compiler**: a repeatable pipeline that turns scene contracts into prose, checks the result, and proposes state updates.
-- **LLM Wiki**: an independent, replaceable knowledge backend that ingests staged planning/prose documents and returns sourced context or advisory insights.
+- **Narrative Domain / Snapshot**: SQLite-backed authoritative story facts, knowledge state, threads, relations, and scene-safe retrieval.
+- **LLM Wiki source adapter**: a replaceable derived store for staged planning/prose evidence; it does not own story facts or relationships.
 - **Cognition Modules**: project-scoped style and structure helpers such as Memplace and Infra Graph.
 - **Agent Orchestration**: multiple narrow AI agents coordinated by the app, with the app retaining final write/commit authority.
 
@@ -61,29 +62,28 @@ docs/       Development plan and architecture notes
 
 The backend owns workflow state and persistence. The frontend owns author-facing review and editing. AI agents should never write final project state directly; they propose changes that the app validates and commits.
 
-## Independent Knowledge Module Boundary
+## Narrative Authority and LLM Wiki Source Boundary
 
-LLM Wiki is not a mirror of application state. It owns knowledge derived from approved Snowflake artifacts and manuscript revisions, and the core app depends only on `backend/app/llm_wiki/interfaces.py`:
+SQLite Narrative Domain is the only authoritative story state. `NarrativeSnapshot.for_scene(...)` assembles scene-safe facts, knowledge visibility, Narrative Graph relations, Story Threads, accepted prior manuscript, and Memory / Style from application-owned state. Scene / Manuscript generation does not ask LLM Wiki to decide what is true or visible.
+
+The old LLM Wiki path remains only as a replaceable source/evidence adapter behind `backend/app/llm_wiki/interfaces.py`:
 
 ```text
 Approved planning or prose:
 Core App -> llm_wiki.ingest(WikiSourceDocument)
 LLM Wiki -> WikiIngestionResult
 
-Writing starts:
+Snowflake planning asks for staged source evidence:
 Core App -> llm_wiki.retrieve_context(WikiContextQuery)
-LLM Wiki -> WikiContextResult with source evidence
+LLM Wiki -> WikiContextResult with source excerpts only
 
-Author asks for analysis:
-Core App -> llm_wiki.analyze(WikiInsightQuery)
-LLM Wiki -> advisory, evidence-backed insights
+Scene / Manuscript generation:
+SQLite Narrative Domain -> Narrative Graph projection -> NarrativeSnapshot
 ```
 
-The local adapter owns its project-scoped data under `backend/data/projects/{project_id}/modules/llm_wiki/`. It keeps `planned` Snowflake knowledge separate from `observed` manuscript knowledge and filters observed facts by story position.
+The local adapter stores project-scoped source JSON plus readable Markdown mirrors under `backend/data/projects/{project_id}/modules/llm_wiki/sources/`. It preserves planned/observed separation, supersession, stage visibility, and deterministic evidence ranking, but it no longer builds a second `wiki/concepts` knowledge projection or turns source excerpts into local fact constraints. The legacy context/insight HTTP surface remains advisory/compatible; it is not an authority for Canon or Narrative Relations.
 
-The application still owns Snowflake records, Canon, Memory / Style, Scene Contracts, Manuscript versions, review state, and provider configuration. Those objects are never passed into the LLM Wiki interface. Replacing the local adapter with an external Agent should require changing the dependency provider, not writing workflows or API routes.
-
-Memplace and Infra Graph remain under the separate cognition/analysis boundaries.
+LLM Wiki CLP is a separate local sidecar adapter: accepted manuscript revisions may produce typed candidates with evidence, but candidates must pass application validation and human Review before any SQLite Narrative Domain mutation. Memplace and Infra Graph remain under separate cognition/analysis boundaries.
 
 ## Current State
 
@@ -101,7 +101,7 @@ Implemented:
 - DeepSeek-backed Snowflake generation through the workflow interface when configured.
 - Workflow runtime status API and frontend runtime indicator.
 - Graph / Structure v0 with nodes, edges, unresolved threads, and structural risk review.
-- Stage-aware LLM Wiki interface with replaceable local/external implementations.
+- Stage-aware LLM Wiki source/evidence interface with replaceable local/external implementations; scene authority stays in Narrative Snapshot / SQLite.
 - Cognition module boundary for Memplace and Infra Graph context exchange.
 - Provider-backed manuscript proposal generation from Scene Contracts when configured.
 - Manuscript proposal review UI with accepted scene drafts and revision history.

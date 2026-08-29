@@ -83,7 +83,7 @@ class NarrativeSnapshotTests(unittest.TestCase):
     def test_legacy_cognition_import_reexports_narrative_snapshot(self) -> None:
         self.assertIs(LegacyNarrativeSnapshot, NarrativeSnapshot)
 
-    def test_for_scene_uses_only_prior_accepted_prose_and_non_future_memory(self) -> None:
+    def test_for_scene_uses_sqlite_continuity_without_querying_legacy_wiki(self) -> None:
         with TemporaryDirectory() as temp_dir:
             store = SQLiteWritingDataStore(Path(temp_dir) / "app.db")
             store.init()
@@ -210,12 +210,11 @@ class NarrativeSnapshotTests(unittest.TestCase):
             self.assertIn("Earlier prose sample", cognition.memory_titles)
             self.assertIn("Global style rule", cognition.memory_titles)
             self.assertNotIn("Future prose sample", cognition.memory_titles)
-            self.assertEqual(wiki.queries[-1].story_position, 20)
-            self.assertEqual(wiki.queries[-1].spoiler_horizon, 20)
-            self.assertEqual(wiki.queries[-1].scope, "")
+            self.assertEqual(wiki.queries, [])
+            self.assertEqual(snapshot.wiki_context.evidence, [])
 
             self.assertIn("EARLIER_ACCEPTED_PROSE", context)
-            self.assertIn("EARLIER_OBSERVED_PROSE", context)
+            self.assertNotIn("EARLIER_OBSERVED_PROSE", context)
             self.assertIn("EARLIER_PROSE_SAMPLE", context)
             self.assertIn("Do not reveal who forged the map.", context)
             self.assertNotIn("FUTURE_ACCEPTED_PROSE", context)
