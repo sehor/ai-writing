@@ -29,6 +29,7 @@ from app.data import WritingDataStore, get_data_store
 from app.integrations.llmwiki_clp import get_knowledge_compiler
 from app.llm_wiki.dependencies import get_llm_wiki
 from app.llm_wiki.interfaces import LlmWiki
+from app.observability import log_event
 from app.outbox.models import OutboxJob
 from app.outbox.service import DEFAULT_PROCESSING_LEASE_SECONDS, OutboxService
 
@@ -84,9 +85,7 @@ class OutboxDispatcher:
         if self._task is None:
             return
         self._stopping.set()
-        timeout = (
-            self._stop_timeout_seconds if timeout_seconds is None else timeout_seconds
-        )
+        timeout = self._stop_timeout_seconds if timeout_seconds is None else timeout_seconds
         self._wake_event.set()
         task = self._task
         try:
@@ -128,9 +127,7 @@ class OutboxDispatcher:
         assert self._wake_event is not None
         while not self._stopping.is_set():
             try:
-                await asyncio.wait_for(
-                    self._wake_event.wait(), timeout=self._poll_interval_seconds
-                )
+                await asyncio.wait_for(self._wake_event.wait(), timeout=self._poll_interval_seconds)
             except TimeoutError:
                 pass
             self._wake_event.clear()
@@ -147,6 +144,25 @@ class OutboxDispatcher:
         # 2. Drain everything currently pending, one claim at a time.
         processed = await asyncio.to_thread(service.resume_pending_jobs)
         return processed
+
+
+def wake_outbox_best_effort(
+    dispatcher: OutboxDispatcher,
+    *,
+    operation: str,
+    project_id: str,
+) -> None:
+    """Wake derived post-commit work without invalidating an authoritative commit."""
+    try:
+        dispatcher.wake()
+    except Exception as exc:
+        log_event(
+            "outbox_wake",
+            operation=operation,
+            project_id=project_id,
+            result="error",
+            error_code=type(exc).__name__,
+        )
 
 
 def get_outbox_dispatcher(request: Request) -> OutboxDispatcher:

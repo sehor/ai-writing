@@ -3,7 +3,11 @@ import sqlite3
 
 from app.data import WritingDataStore, get_data_store
 from app.dependencies import require_project
-from app.outbox.dispatcher import OutboxDispatcher, get_outbox_dispatcher
+from app.outbox.dispatcher import (
+    OutboxDispatcher,
+    get_outbox_dispatcher,
+    wake_outbox_best_effort,
+)
 from app.models import (
     ManuscriptExportResponse,
     ManuscriptChapter,
@@ -139,7 +143,11 @@ def update_manuscript_scene(
     # P1-01/P1-03: a manual save commits a formal revision whose post-commit
     # pipeline (wiki + both analyses) was enqueued in the same transaction;
     # the background dispatcher runs it, not this request.
-    dispatcher.wake()
+    wake_outbox_best_effort(
+        dispatcher,
+        operation="manuscript_manual_save",
+        project_id=project_id,
+    )
     return scene
 
 
@@ -198,7 +206,11 @@ def restore_manuscript_revision(
     scene = service.restore_revision(project_id, revision_id)
     # P1-01/P1-03: the restored revision re-enters the post-commit pipeline;
     # its jobs were enqueued transactionally and run in the background.
-    dispatcher.wake()
+    wake_outbox_best_effort(
+        dispatcher,
+        operation="manuscript_restore_revision",
+        project_id=project_id,
+    )
     return scene
 
 
@@ -249,5 +261,9 @@ def update_manuscript_proposal_status(
     # P1-07/P1-03: acceptance enqueued wiki + consistency + write-back jobs
     # transactionally; the background dispatcher executes them after this
     # response has been sent.
-    dispatcher.wake()
+    wake_outbox_best_effort(
+        dispatcher,
+        operation="manuscript_proposal_status",
+        project_id=project_id,
+    )
     return proposal

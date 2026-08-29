@@ -473,6 +473,17 @@ P7 后继续收口成功标准 3 和 7，避免可替换 cognition adapter 通�
 - 不改变非 scene-scoped cognition、Snowflake 1–9 source/evidence retrieval、Director、CLP、Review、Manuscript acceptance 或 Outbox。
 - 增加 cognition boundary contract test，使用会回显输入字段的 adapter 证明未来 Scene、旧 Canon temporal state 和旧 `open_threads` 均无法经 cognition 重新污染 scene generation，同时结构化 StoryThread 仍可见。
 
+### P9：固化 post-commit Outbox wake failure 边界
+
+P8 后核对成功标准 6，确认正式写入已经与 Graph / cognition / CLP 的实际 job 执行解耦，但 HTTP mutation 在 SQLite 提交完成后仍直接调用 `dispatcher.wake()`；如果派生流水线唤醒本身抛异常，请求会误报 500，尽管权威状态和 outbox jobs 已经成功提交。
+
+- Snowflake artifact save、Manuscript proposal acceptance、accepted Manuscript manual save、revision restore 的 authoritative SQLite commit 保持原有事务语义。
+- commit 后的 Outbox wake 改为 best-effort notification；wake failure 只记录 observability event，不回滚、覆盖或误报已经成功的正式写入。
+- Outbox jobs 仍在同一权威事务中持久化，dispatcher 的周期 sweep / startup recovery 继续负责后续派生处理，因此不丢 CLP / consistency / cognition / Wiki 后处理任务。
+- Manuscript read / revisions / export 继续完全依赖 SQLite，不依赖派生组件可用性。
+- 不吞掉正式写入事务、Review validation 或 Outbox job handler 自身的失败；仅隔离 commit 之后的 wake signal。
+- 增加 authoring failure-isolation contract test，证明 wake 故障时 save / accept / edit / restore / read 仍成功，且各 revision 的派生 jobs 已持久化等待恢复处理。
+
 ---
 
 ## 11. 明确不做

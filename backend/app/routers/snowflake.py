@@ -35,7 +35,11 @@ from app.models import (
     SnowflakeStep,
     WorkflowRuntimeStatus,
 )
-from app.outbox.dispatcher import OutboxDispatcher, get_outbox_dispatcher
+from app.outbox.dispatcher import (
+    OutboxDispatcher,
+    get_outbox_dispatcher,
+    wake_outbox_best_effort,
+)
 from app.services.snowflake_compile_service import SnowflakeCompileService
 
 # Re-exported so tests can keep importing these symbols from the router.
@@ -120,7 +124,11 @@ def save_snowflake_artifact(
     # P1-03: the index job was enqueued in the save transaction; the
     # background dispatcher owns its execution, not this request.
     if job_id:
-        dispatcher.wake()
+        wake_outbox_best_effort(
+            dispatcher,
+            operation="snowflake_artifact_save",
+            project_id=project_id,
+        )
     return saved
 
 
@@ -158,7 +166,11 @@ def generate_snowflake_artifact(
         ) from exc
     # P1-03: indexing happens in the background dispatcher.
     if job_id:
-        dispatcher.wake()
+        wake_outbox_best_effort(
+            dispatcher,
+            operation="snowflake_generation_save",
+            project_id=request.project_id,
+        )
     return generated
 
 
