@@ -43,8 +43,12 @@ class NarrativeSnapshot:
     pov_knowledge: list[StoryFact] = field(default_factory=list)
     related_character_knowledge: dict[str, list[StoryFact]] = field(default_factory=dict)
     narrative_relations: list[NarrativeRelation] = field(default_factory=list)
+    story_threads: list[StoryThread] = field(default_factory=list)
     active_threads: list[StoryThread] = field(default_factory=list)
     story_thread_events: list[StoryThreadEvent] = field(default_factory=list)
+    thread_event_history: list[StoryThreadEvent] = field(default_factory=list)
+    latest_scene_sequence: int = 0
+    scene_sequence_by_id: dict[str, int] = field(default_factory=dict)
     safe_future_constraints: list[str] = field(default_factory=list)
     future_fact_ids: list[str] = field(default_factory=list)
     future_relation_ids: list[str] = field(default_factory=list)
@@ -121,11 +125,13 @@ class NarrativeSnapshot:
             for fact in data_store.list_story_facts(project_id)
             if fact.status in {"planned", "confirmed"} and fact.valid_from_scene > scene.sequence
         )
-        active_threads, story_thread_events = _threads_for_scene(
+        story_threads = data_store.list_story_threads(project_id)
+        active_threads, story_thread_events, thread_event_history = _threads_for_scene(
             data_store,
             project_id,
             scenes,
             scene.sequence,
+            story_threads=story_threads,
         )
         safe_future_constraints = _safe_future_constraints(scene, active_threads)
 
@@ -165,8 +171,12 @@ class NarrativeSnapshot:
             pov_knowledge=pov_knowledge,
             related_character_knowledge=related_character_knowledge,
             narrative_relations=narrative_relations,
+            story_threads=story_threads,
             active_threads=active_threads,
             story_thread_events=story_thread_events,
+            thread_event_history=thread_event_history,
+            latest_scene_sequence=max((item.sequence for item in scenes), default=scene.sequence),
+            scene_sequence_by_id=sequence_by_id,
             safe_future_constraints=safe_future_constraints,
             future_fact_ids=future_fact_ids,
             future_relation_ids=future_relation_ids,
@@ -438,16 +448,17 @@ def _threads_for_scene(
     project_id: str,
     scenes: list[SceneContract],
     target_sequence: int,
-) -> tuple[list[StoryThread], list[StoryThreadEvent]]:
+    *,
+    story_threads: list[StoryThread] | None = None,
+) -> tuple[list[StoryThread], list[StoryThreadEvent], list[StoryThreadEvent]]:
     sequence_by_id = {scene.id: scene.sequence for scene in scenes}
     active_threads: list[StoryThread] = []
     visible_events: list[tuple[int, StoryThreadEvent]] = []
+    history_events: list[tuple[int, StoryThreadEvent]] = []
 
-    for thread in data_store.list_story_threads(project_id):
-        # Abandonment has no scene timestamp in the current domain, so the safe
-        # interpretation is to keep it out of every generated scene context.
-        if thread.status == "abandoned":
-            continue
+    for thread in (
+        story_threads if story_threads is not None else data_store.list_story_threads(project_id)
+    ):
         events_with_sequence = [
             (sequence_by_id[event.scene_id], event)
             for event in data_store.list_story_thread_events(project_id, thread.id)
@@ -455,6 +466,13 @@ def _threads_for_scene(
         ]
         events_with_sequence.sort(key=lambda item: (item[0], item[1].id))
         prior_events = [item for item in events_with_sequence if item[0] < target_sequence]
+        history_events.extend(prior_events)
+        # Abandonment has no scene timestamp in the current domain, so the safe
+        # generation interpretation is to keep it out of every scene context.
+        # Director analytics still receives the raw thread plus prior events and
+        # can explain that historical abandonment timing is indeterminate.
+        if thread.status == "abandoned":
+            continue
         planted_at = thread.planted_at
         if planted_at is None:
             planted_sequences = [
@@ -480,7 +498,12 @@ def _threads_for_scene(
         visible_events.extend(prior_events)
 
     visible_events.sort(key=lambda item: (item[0], item[1].thread_id, item[1].id))
-    return active_threads, [event for _, event in visible_events]
+    history_events.sort(key=lambda item: (item[0], item[1].thread_id, item[1].id))
+    return (
+        active_threads,
+        [event for _, event in visible_events],
+        [event for _, event in history_events],
+    )
 
 
 def _safe_future_constraints(
