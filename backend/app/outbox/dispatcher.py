@@ -26,6 +26,7 @@ from fastapi import Request
 
 from app.cognition.registry import CognitionRegistry, get_cognition_registry
 from app.data import WritingDataStore, get_data_store
+from app.integrations.llmwiki_clp import get_knowledge_compiler
 from app.llm_wiki.dependencies import get_llm_wiki
 from app.llm_wiki.interfaces import LlmWiki
 from app.outbox.models import OutboxJob
@@ -171,5 +172,11 @@ def build_app_outbox_dispatcher(app) -> OutboxDispatcher:
     data_store: WritingDataStore = resolve(get_data_store)
     wiki: LlmWiki = resolve(get_llm_wiki)
     cognition: CognitionRegistry = resolve(get_cognition_registry)
-    service = OutboxService(data_store=data_store, wiki=wiki, cognition=cognition)
+    compiler = get_knowledge_compiler()
+    service = OutboxService(
+        data_store=data_store,
+        wiki=wiki,
+        cognition=cognition,
+        compiler=compiler,
+    )
     return OutboxDispatcher(service)

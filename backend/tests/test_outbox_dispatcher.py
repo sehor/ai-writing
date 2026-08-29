@@ -232,13 +232,18 @@ class DispatcherHttpContractTests(unittest.TestCase):
                             for job in store.list_outbox_jobs(project_id)
                         ),
                         timeout_seconds=20,
-                        message="all three post-commit jobs to succeed",
+                        message="all four post-commit jobs to succeed",
                     )
 
                     jobs = sorted(job.job_type for job in store.list_outbox_jobs(project_id))
                     self.assertEqual(
                         jobs,
-                        ["consistency_analysis", "llm_wiki_ingest", "writeback_analysis"],
+                        [
+                            "clp_extraction",
+                            "consistency_analysis",
+                            "llm_wiki_ingest",
+                            "writeback_analysis",
+                        ],
                     )
                     self.assertEqual(len(wiki.documents), 1)
 

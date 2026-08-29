@@ -8,6 +8,8 @@ from app.models import (
     MemoryRecord,
     MemoryRecordCreate,
     ManuscriptRevision,
+    NarrativeRelationCreate,
+    StoryThreadStatusUpdate,
     WritebackProposalCreate,
 )
 from app.review.writeback_apply import validate_update_proposal
@@ -48,13 +50,73 @@ def validate_writeback_payload(proposal: WritebackProposalCreate) -> None:
     changes. Anything malformed raises ValueError, which creation routes
     map to HTTP 422.
     """
-    if proposal.action == "update":
-        validate_update_proposal(proposal)
-        return
     if proposal.target == "canon_entity":
-        CanonEntityCreate.model_validate(proposal.payload)
+        if proposal.action == "update":
+            validate_update_proposal(proposal)
+        else:
+            CanonEntityCreate.model_validate(proposal.payload)
         return
-    MemoryRecordCreate.model_validate(proposal.payload)
+    if proposal.target == "memory_record":
+        if proposal.action != "create":
+            raise ValueError("Memory write-back proposals only support create actions.")
+        MemoryRecordCreate.model_validate(proposal.payload)
+        return
+    if proposal.target == "narrative_relation":
+        if proposal.action != "create":
+            raise ValueError("Narrative relation proposals only support create actions.")
+        allowed_fields = {
+            "source",
+            "target",
+            "relation",
+            "valid_from",
+            "valid_to",
+            "confidence",
+            "source_ref",
+            "status",
+            "evidence",
+        }
+        unknown_fields = set(proposal.payload) - allowed_fields
+        if unknown_fields:
+            raise ValueError(
+                "Narrative relation proposal contains unsupported fields: "
+                + ", ".join(sorted(unknown_fields))
+            )
+        payload = {key: value for key, value in proposal.payload.items() if key != "evidence"}
+        NarrativeRelationCreate.model_validate(payload)
+        _validate_clp_evidence(proposal)
+        return
+    if proposal.target == "story_thread_status":
+        if proposal.action != "update":
+            raise ValueError("Story thread lifecycle proposals must use update actions.")
+        subject_id = str(proposal.payload.get("subject_id", "")).strip()
+        from_state = str(proposal.payload.get("from_state", "")).strip()
+        proposed_state = str(proposal.payload.get("proposed_state", "")).strip()
+        if not subject_id or subject_id != proposal.target_record_id:
+            raise ValueError("Story thread lifecycle proposal target identity is invalid.")
+        StoryThreadStatusUpdate.model_validate({"status": from_state})
+        StoryThreadStatusUpdate.model_validate({"status": proposed_state})
+        if from_state == proposed_state:
+            raise ValueError("Story thread lifecycle proposal must change status.")
+        _validate_clp_evidence(proposal)
+        return
+    raise ValueError(f"Unsupported write-back target: {proposal.target}")
+
+
+def _validate_clp_evidence(proposal: WritebackProposalCreate) -> None:
+    payload_source = str(proposal.payload.get("source_ref", "")).strip()
+    if not proposal.source_ref or payload_source != proposal.source_ref:
+        raise ValueError("CLP proposal source_ref must match its candidate payload.")
+    evidence = proposal.payload.get("evidence")
+    if not isinstance(evidence, list) or not evidence:
+        raise ValueError("CLP proposals require traceable evidence.")
+    for item in evidence:
+        if not isinstance(item, dict):
+            raise ValueError("CLP proposal evidence must be structured objects.")
+        if str(item.get("source_ref", "")).strip() != proposal.source_ref:
+            raise ValueError("CLP proposal evidence must reference the accepted revision.")
+        excerpt = str(item.get("excerpt", "")).strip()
+        if not excerpt or len(excerpt) > 2000:
+            raise ValueError("CLP proposal evidence excerpt is invalid.")
 
 
 def build_provider_messages(

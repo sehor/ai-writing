@@ -1,0 +1,54 @@
+{
+  "name": "ai-writing-narrative",
+  "version": "1",
+  "authority": "projection_of_python_narrative_domain",
+  "entity_types": [
+    "Character",
+    "Location",
+    "Item",
+    "Event",
+    "StoryFact",
+    "StoryThread",
+    "Secret",
+    "Scene",
+    "Arc"
+  ],
+  "candidate_entity_types": [
+    "Character",
+    "Location",
+    "Item"
+  ],
+  "relation_types": [
+    "CAUSES",
+    "CHANGES_STATE",
+    "KNOWS",
+    "HIDES_FROM",
+    "LOVES",
+    "HATES",
+    "OWES",
+    "SUSPECTS",
+    "PLANTED_AT",
+    "REINFORCED_AT",
+    "MISDIRECTED_AT",
+    "PAYS_OFF_AT",
+    "REFERENCES",
+    "CONTRADICTS"
+  ],
+  "story_thread": {
+    "statuses": [
+      "planned",
+      "planted",
+      "developing",
+      "dormant",
+      "paid_off",
+      "abandoned"
+    ]
+  },
+  "candidate_contract": {
+    "requires_evidence": true,
+    "allows_mutation_commands": false,
+    "allows_review_status": false,
+    "allows_sql": false,
+    "allows_filesystem_paths": false
+  }
+}

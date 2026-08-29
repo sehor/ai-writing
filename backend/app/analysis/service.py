@@ -227,9 +227,11 @@ class AnalysisService:
             )
             if proposal is not None
         ]
-        if len(proposals) != len(proposal_ids) or not proposals:
+        if len(proposals) != len(proposal_ids):
             # The stored result no longer resolves; regenerate instead of
-            # returning a partial answer.
+            # returning a partial answer. An empty successful proposal set is
+            # still a complete cached result and must not re-run an external
+            # compiler/provider for unchanged input.
             return None
         return proposals, run
 

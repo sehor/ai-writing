@@ -8,6 +8,8 @@ from fastapi import Depends
 from app.cognition.registry import CognitionRegistry, get_cognition_registry
 from app.data import WritingDataStore, get_data_store
 from app.llm_wiki.dependencies import get_llm_wiki
+from app.integrations.knowledge_compiler import DisabledKnowledgeCompiler, KnowledgeCompiler
+from app.integrations.llmwiki_clp import get_knowledge_compiler
 from app.llm_wiki.interfaces import LlmWiki
 from app.observability import log_event
 from app.outbox.handlers import OUTBOX_HANDLERS, OutboxJobContext
@@ -24,10 +26,12 @@ class OutboxService:
         data_store: WritingDataStore,
         wiki: LlmWiki,
         cognition: CognitionRegistry | None = None,
+        compiler: KnowledgeCompiler | None = None,
     ):
         self.data_store = data_store
         self.wiki = wiki
         self.cognition = cognition
+        self.compiler = compiler or DisabledKnowledgeCompiler()
 
     def process_pending(self, project_id: str) -> list[OutboxJob]:
         """Run every pending job for a project; never raises.
@@ -98,6 +102,7 @@ class OutboxService:
             wiki=self.wiki,
             data_store=self.data_store,
             cognition=self.cognition,
+            compiler=self.compiler,
         )
         started = time.perf_counter()
         try:
@@ -144,4 +149,9 @@ def get_outbox_service(
     llm_wiki: LlmWiki = Depends(get_llm_wiki),
     cognition: CognitionRegistry = Depends(get_cognition_registry),
 ) -> OutboxService:
-    return OutboxService(data_store=data_store, wiki=llm_wiki, cognition=cognition)
+    return OutboxService(
+        data_store=data_store,
+        wiki=llm_wiki,
+        cognition=cognition,
+        compiler=get_knowledge_compiler(),
+    )

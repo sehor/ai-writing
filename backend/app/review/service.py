@@ -46,7 +46,9 @@ def ensure_writeback_proposals_acceptable(data_store, project_id: str, proposals
             validate_writeback_payload(proposal)
         except ValueError as exc:
             raise WritebackPreValidationError(str(exc)) from exc
-        if proposal.action == "update":
+        if proposal.target == "story_thread_status":
+            _ensure_story_thread_target_current(data_store, project_id, proposal)
+        elif proposal.action == "update":
             _ensure_update_target_current(data_store, project_id, proposal)
         elif proposal.target == "canon_entity":
             _ensure_canon_create_target_available(data_store, project_id, proposal)
@@ -64,6 +66,28 @@ def _ensure_update_target_current(data_store, project_id: str, proposal) -> None
             f"Update proposal '{proposal.title}' expects canon record "
             f"'{entity.name}' at version {proposal.expected_version}, but the "
             f"current version is {entity.version}."
+        )
+
+
+def _ensure_story_thread_target_current(data_store, project_id: str, proposal) -> None:
+    thread = next(
+        (
+            item
+            for item in data_store.list_story_threads(project_id)
+            if item.id == proposal.target_record_id
+        ),
+        None,
+    )
+    if thread is None:
+        raise WritebackPreValidationError(
+            f"Lifecycle proposal '{proposal.title}' targets StoryThread "
+            f"'{proposal.target_record_id}', which does not exist."
+        )
+    expected = str(proposal.payload.get("from_state", ""))
+    if thread.status != expected:
+        raise WritebackPreValidationError(
+            f"Lifecycle proposal '{proposal.title}' expects StoryThread '{thread.id}' "
+            f"at status '{expected}', but the current status is '{thread.status}'."
         )
 
 

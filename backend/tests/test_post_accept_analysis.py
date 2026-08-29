@@ -133,10 +133,16 @@ class PostAcceptAnalysisTests(unittest.TestCase):
         self.assertNotIn("X-Wiki-Index-Status", accepted.headers)
         self.assertNotIn("X-Analysis-Job-Status", accepted.headers)
 
-        # Three jobs left the acceptance transaction: index + two analyses.
+        # Four jobs leave the acceptance transaction: wiki index, both
+        # existing analyses, and the P4 CLP-derived candidate extraction.
         self.assertEqual(
             sorted(job.job_type for job in jobs),
-            ["consistency_analysis", "llm_wiki_ingest", "writeback_analysis"],
+            [
+                "clp_extraction",
+                "consistency_analysis",
+                "llm_wiki_ingest",
+                "writeback_analysis",
+            ],
         )
         self.assertTrue(all(job.status == "succeeded" for job in jobs))
         for job in jobs:
@@ -158,7 +164,7 @@ class PostAcceptAnalysisTests(unittest.TestCase):
         # One succeeded run row per processor came out of the same dispatch.
         self.assertEqual(
             sorted(run.processor for run in runs),
-            ["consistency_checker", "local_writeback"],
+            ["consistency_checker", "llmwiki_clp", "local_writeback"],
         )
         self.assertTrue(all(run.status == "succeeded" for run in runs))
 
@@ -209,7 +215,12 @@ class PostAcceptAnalysisTests(unittest.TestCase):
         self.assertIn("RuntimeError", failed_jobs[0].last_error)
         self.assertEqual(
             sorted(succeeded_jobs),
-            ["consistency_analysis", "llm_wiki_ingest", "writeback_analysis"],
+            [
+                "clp_extraction",
+                "consistency_analysis",
+                "llm_wiki_ingest",
+                "writeback_analysis",
+            ],
         )
 
         # Recovery: retry marks the job succeeded and the report appears.

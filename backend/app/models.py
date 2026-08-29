@@ -23,7 +23,12 @@ GraphRiskSeverity = Literal["info", "warning", "critical"]
 WorkflowRuntimeType = Literal["local_deterministic", "provider_deepseek"]
 ManuscriptProposalSource = Literal["scene_contract"]
 ManuscriptProposalStatus = Literal["pending_review", "accepted", "rejected", "superseded"]
-WritebackTarget = Literal["canon_entity", "memory_record"]
+WritebackTarget = Literal[
+    "canon_entity",
+    "memory_record",
+    "narrative_relation",
+    "story_thread_status",
+]
 WritebackAction = Literal["create", "update"]
 WritebackProposalStatus = Literal["pending_review", "accepted", "rejected", "superseded"]
 ReferenceScopeType = Literal[

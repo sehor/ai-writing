@@ -143,7 +143,12 @@ class AcceptManuscriptProposalAtomicityTests(unittest.TestCase):
             jobs = store.list_outbox_jobs(project_id)
             self.assertEqual(
                 sorted(job.job_type for job in jobs),
-                ["consistency_analysis", "llm_wiki_ingest", "writeback_analysis"],
+                [
+                    "clp_extraction",
+                    "consistency_analysis",
+                    "llm_wiki_ingest",
+                    "writeback_analysis",
+                ],
             )
             self.assertTrue(all(job.status == "pending" for job in jobs))
             self.assertTrue(all(job.aggregate_id == revisions[0].id for job in jobs))
@@ -152,7 +157,7 @@ class AcceptManuscriptProposalAtomicityTests(unittest.TestCase):
             replayed = store.accept_manuscript_proposal(project_id, proposal_id)
             self.assertEqual(replayed.id, accepted.id)
             self.assertEqual(len(store.list_manuscript_revisions(project_id)), 1)
-            self.assertEqual(len(store.list_outbox_jobs(project_id)), 3)
+            self.assertEqual(len(store.list_outbox_jobs(project_id)), 4)
 
     def test_failure_during_job_enqueue_rolls_back_the_whole_acceptance(self) -> None:
         with TemporaryDirectory() as temp_dir:

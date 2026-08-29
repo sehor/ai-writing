@@ -17,6 +17,7 @@ from app.data.helpers import make_record_id, utc_now
 from app.data.repositories.canon import CanonRepository
 from app.data.repositories.manuscript import ManuscriptRepository
 from app.data.repositories.memory import MemoryRepository
+from app.data.repositories.narrative import NarrativeRepository
 from app.data.repositories.outbox import OutboxRepository
 from app.data.repositories.projects import ProjectRepository
 from app.data.repositories.review import ReviewRepository
@@ -37,6 +38,7 @@ from app.models import (
     ManuscriptScene,
     ManuscriptSceneUpdate,
     MemoryRecordCreate,
+    NarrativeRelationCreate,
     SceneContract,
     SceneContractCreate,
     SceneProposal,
@@ -147,7 +149,7 @@ def enqueue_committed_revision_jobs(
     connection: sqlite3.Connection,
     *,
     revision: ManuscriptRevision,
-) -> tuple[str, str, str]:
+) -> tuple[str, str, str, str]:
     """Enqueue the full post-commit pipeline for one committed revision (P1-01).
 
     Every path that files a formal ManuscriptRevision - proposal accept,
@@ -160,7 +162,15 @@ def enqueue_committed_revision_jobs(
     consistency_job_id, writeback_job_id = enqueue_manuscript_revision_analysis_jobs(
         connection, revision=revision
     )
-    return index_job_id, consistency_job_id, writeback_job_id
+    clp_job_id = OutboxRepository(connection).insert(
+        project_id=revision.project_id,
+        job_type="clp_extraction",
+        aggregate_type="manuscript_revision",
+        aggregate_id=revision.id,
+        payload=manuscript_revision_analysis_payload(revision),
+        idempotency_key=f"clp_extraction:manuscript_revision:{revision.id}",
+    )
+    return index_job_id, consistency_job_id, writeback_job_id, clp_job_id
 
 
 def accept_manuscript_proposal(
@@ -458,12 +468,22 @@ def accept_writeback_proposal(
     if proposal.status != "pending_review":
         raise ValueError("Write-back proposal is already reviewed.")
 
-    if proposal.action == "update":
+    if proposal.target == "story_thread_status":
+        applied = _apply_story_thread_status_proposal(connection, project_id, proposal)
+    elif proposal.action == "update":
         applied = _apply_canon_update_proposal(canon_repo, project_id, proposal)
     elif proposal.target == "canon_entity":
         applied = canon_repo.create(
             project_id,
             CanonEntityCreate.model_validate(proposal.payload),
+        )
+    elif proposal.target == "narrative_relation":
+        relation_payload = {
+            key: value for key, value in proposal.payload.items() if key != "evidence"
+        }
+        applied = NarrativeRepository(connection).create_relation(
+            project_id,
+            NarrativeRelationCreate.model_validate(relation_payload),
         )
     else:
         applied = memory_repo.create(
@@ -490,6 +510,35 @@ def accept_writeback_proposal(
             reviewed_at=reviewed_at,
         )
     return review_repo.get_writeback(project_id, proposal_id)
+
+
+def _apply_story_thread_status_proposal(
+    connection: sqlite3.Connection,
+    project_id: str,
+    proposal: WritebackProposal,
+):
+    narrative = NarrativeRepository(connection)
+    thread = next(
+        (
+            item
+            for item in narrative.list_threads(project_id)
+            if item.id == proposal.target_record_id
+        ),
+        None,
+    )
+    if thread is None:
+        raise WritebackTargetMissingError(proposal.target_record_id)
+    expected = str(proposal.payload.get("from_state", ""))
+    proposed = str(proposal.payload.get("proposed_state", ""))
+    if thread.status != expected:
+        raise ValueError(
+            f"StoryThread '{thread.id}' changed since the proposal was created "
+            f"(expected status '{expected}', current status '{thread.status}')."
+        )
+    applied = narrative.set_thread_status(project_id, thread.id, proposed)
+    if applied is None:
+        raise WritebackTargetMissingError(proposal.target_record_id)
+    return applied
 
 
 def _apply_canon_update_proposal(

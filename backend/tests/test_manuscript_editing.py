@@ -11,7 +11,12 @@ from app.models import (
 )
 
 # P1-01: every committed revision must schedule exactly this job set.
-REVISION_JOB_TYPES = ["consistency_analysis", "llm_wiki_ingest", "writeback_analysis"]
+REVISION_JOB_TYPES = [
+    "clp_extraction",
+    "consistency_analysis",
+    "llm_wiki_ingest",
+    "writeback_analysis",
+]
 
 
 class ManuscriptEditingTests(unittest.TestCase):
