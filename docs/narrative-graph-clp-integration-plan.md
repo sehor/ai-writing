@@ -438,6 +438,17 @@ SQLite 始终是真相；Graph 与 CLP 都是派生层。
 - 旧 Wiki context / insight API 暂保兼容和 advisory 价值，主要服务 Snowflake 1-9 的 source evidence；不参与 Scene 权威状态判定。
 - CLP candidate pipeline 不变：accepted revision -> typed candidate -> WritebackProposal -> validation -> human review -> SQLite Narrative Domain。
 
+### P6：固化 Scene Snapshot 边界
+
+P5 完成后移除 scene-scoped Narrative 路径中的旧 Wiki 兼容注入，避免形成“虽然不调用但仍可注入”的第二上下文入口：
+
+- `NarrativeSnapshot.for_scene()` 不再接收 `llm_wiki`，Snapshot 也不再携带 `wiki_context`。
+- Chapter compile、Manuscript proposal、scene-scoped Reference 只依赖 SQLite Narrative Domain + Narrative Graph + accepted manuscript + Memory / Style / cognition context。
+- Snowflake 1-9 的旧 Wiki source/evidence retrieval 继续保留，不纳入本阶段迁移。
+- Consistency 与 Director 已直接使用 `NarrativeSnapshot`，保持 advisory 语义，不增加写权限。
+- CLP、Outbox、Writeback Review 主链保持不变。
+- 增加边界 contract test，防止未来重新把旧 Wiki 注入 scene Snapshot。
+
 ---
 
 ## 11. 明确不做

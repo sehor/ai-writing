@@ -9,10 +9,9 @@ from fastapi import Depends
 from app.agents.reference_workflow import scope_for_request
 from app.agents.writing_workflow import WorkflowNotConfiguredError
 from app.cognition.registry import CognitionRegistry, get_cognition_registry
-from app.cognition.snapshots import NarrativeSnapshot, build_project_snapshot
+from app.cognition.snapshots import build_project_snapshot
 from app.data import WritingDataStore, get_data_store
-from app.llm_wiki.dependencies import get_llm_wiki
-from app.llm_wiki.interfaces import LlmWiki
+from app.narrative import NarrativeSnapshot
 from app.integrations.provider_registry import (
     LocalDeterministicProvider,
     ProviderDependencies,
@@ -31,12 +30,10 @@ class ReferenceService:
         self,
         data_store: WritingDataStore,
         cognition: CognitionRegistry,
-        llm_wiki: LlmWiki,
         registry: ProviderRegistry | None = None,
     ):
         self.data_store = data_store
         self.cognition = cognition
-        self.llm_wiki = llm_wiki
         self.registry = registry if registry is not None else default_provider_registry
 
     def list_suggestions(self, project_id: str) -> list[ReferenceSuggestion]:
@@ -49,7 +46,6 @@ class ReferenceService:
                 scene_id=request.scope_ref,
                 data_store=self.data_store,
                 cognition=self.cognition,
-                llm_wiki=self.llm_wiki,
             )
             snapshot = narrative.as_project_snapshot()
             cognition_context = narrative.cognition_context
@@ -134,6 +130,5 @@ __all__ = [
 def get_reference_service(
     data_store: WritingDataStore = Depends(get_data_store),
     cognition: CognitionRegistry = Depends(get_cognition_registry),
-    llm_wiki: LlmWiki = Depends(get_llm_wiki),
 ) -> ReferenceService:
-    return ReferenceService(data_store, cognition, llm_wiki)
+    return ReferenceService(data_store, cognition)

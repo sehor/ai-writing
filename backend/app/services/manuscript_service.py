@@ -12,8 +12,6 @@ from app.integrations.provider_registry import (
     ProviderRegistry,
     default_provider_registry,
 )
-from app.llm_wiki.dependencies import get_llm_wiki
-from app.llm_wiki.interfaces import LlmWiki
 from app.manuscript_export import build_export_markdown
 from app.observability import timed_operation
 from app.models import (
@@ -32,11 +30,9 @@ class ManuscriptService:
     def __init__(
         self,
         data_store: WritingDataStore = Depends(get_data_store),
-        llm_wiki: LlmWiki = Depends(get_llm_wiki),
         cognition: CognitionRegistry = Depends(get_cognition_registry),
     ):
         self.data_store = data_store
-        self.llm_wiki = llm_wiki
         self.cognition = cognition
         # Constructor params double as FastAPI DI defaults, so provider
         # resolution stays a plain attribute instead of an injected argument.
@@ -212,6 +208,5 @@ class ManuscriptService:
             scene_id=scene.id,
             data_store=self.data_store,
             cognition=self.cognition,
-            llm_wiki=self.llm_wiki,
         )
         return snapshot.render_generation_context()

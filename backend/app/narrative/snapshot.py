@@ -4,7 +4,6 @@ from dataclasses import dataclass, field
 
 from app.cognition.interfaces import ContextPacket, ProjectCognitionSnapshot, WritingScope
 from app.data import WritingDataStore
-from app.llm_wiki.interfaces import WikiContextResult
 from app.models import (
     CanonEntity,
     ManuscriptScene,
@@ -53,9 +52,6 @@ class NarrativeSnapshot:
     future_fact_ids: list[str] = field(default_factory=list)
     future_relation_ids: list[str] = field(default_factory=list)
     cognition_context: list[ContextPacket] = field(default_factory=list)
-    wiki_context: WikiContextResult = field(
-        default_factory=lambda: WikiContextResult(summary="No LLM Wiki context loaded.")
-    )
 
     @classmethod
     def for_scene(
@@ -65,7 +61,6 @@ class NarrativeSnapshot:
         scene_id: str,
         data_store: WritingDataStore,
         cognition=None,
-        llm_wiki=None,
     ) -> "NarrativeSnapshot":
         project = data_store.get_project(project_id)
         if project is None:
@@ -143,13 +138,6 @@ class NarrativeSnapshot:
             if cognition is not None
             else []
         )
-        # P5 compatibility: callers may still pass the legacy LLM Wiki port, but
-        # scene retrieval is authoritative here. Earlier accepted prose already
-        # comes from SQLite, and facts/relations come from the Narrative Domain.
-        wiki_context = WikiContextResult(
-            summary="Legacy LLM Wiki retrieval is not used for scenes."
-        )
-
         return cls(
             project=project,
             scene=scene,
@@ -171,7 +159,6 @@ class NarrativeSnapshot:
             future_fact_ids=future_fact_ids,
             future_relation_ids=future_relation_ids,
             cognition_context=cognition_context,
-            wiki_context=wiki_context,
         )
 
     def as_project_snapshot(self) -> ProjectCognitionSnapshot:
@@ -346,17 +333,6 @@ class NarrativeSnapshot:
                     "\n\n".join(
                         f"## {packet.module}: {packet.title}\n{truncate(packet.content, 2600)}"
                         for packet in self.cognition_context
-                    ),
-                ]
-            )
-        if self.wiki_context.evidence:
-            sections.extend(
-                [
-                    "",
-                    "Earlier observed continuity evidence:",
-                    "\n\n".join(
-                        f"## {item.title}\nSource: {item.source_ref}\n{truncate(item.excerpt, 2600)}"
-                        for item in self.wiki_context.evidence
                     ),
                 ]
             )

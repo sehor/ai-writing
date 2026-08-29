@@ -6,7 +6,6 @@ from app.cognition.interfaces import ContextPacket
 from app.cognition.snapshots import NarrativeSnapshot as LegacyNarrativeSnapshot
 from app.data import SQLiteWritingDataStore
 from app.narrative import NarrativeSnapshot
-from app.llm_wiki.interfaces import WikiContextQuery, WikiContextResult, WikiEvidence
 from app.models import (
     CanonEntityCreate,
     KnowledgeStateCreate,
@@ -36,47 +35,6 @@ class RecordingCognition:
                 content=" | ".join(record.content for record in snapshot.memory_records),
             )
         ]
-
-
-class UnfilteredWiki:
-    def __init__(self) -> None:
-        self.queries: list[WikiContextQuery] = []
-
-    def retrieve_context(self, query: WikiContextQuery) -> WikiContextResult:
-        self.queries.append(query)
-        return WikiContextResult(
-            summary="unfiltered fake",
-            evidence=[
-                WikiEvidence(
-                    source_ref="revision:scene-19",
-                    title="Earlier observed scene",
-                    excerpt="EARLIER_OBSERVED_PROSE",
-                    knowledge_class="observed",
-                    snowflake_step=10,
-                    scope="scene-19",
-                    story_position=19,
-                ),
-                WikiEvidence(
-                    source_ref="revision:scene-21",
-                    title="Future observed scene",
-                    excerpt="FUTURE_OBSERVED_PROSE",
-                    knowledge_class="observed",
-                    snowflake_step=10,
-                    scope="scene-21",
-                    story_position=21,
-                ),
-                WikiEvidence(
-                    source_ref="snowflake:8",
-                    title="Full scene plan",
-                    excerpt="STEP8_FUTURE_PLAN",
-                    knowledge_class="planned",
-                    snowflake_step=8,
-                    scope="",
-                    story_position=None,
-                ),
-            ],
-            constraints=[],
-        )
 
 
 class NarrativeSnapshotTests(unittest.TestCase):
@@ -191,13 +149,11 @@ class NarrativeSnapshotTests(unittest.TestCase):
             )
 
             cognition = RecordingCognition()
-            wiki = UnfilteredWiki()
             snapshot = NarrativeSnapshot.for_scene(
                 project_id=project.id,
                 scene_id=scene_20.id,
                 data_store=store,
                 cognition=cognition,
-                llm_wiki=wiki,
             )
             context = snapshot.render_generation_context()
 
@@ -210,15 +166,11 @@ class NarrativeSnapshotTests(unittest.TestCase):
             self.assertIn("Earlier prose sample", cognition.memory_titles)
             self.assertIn("Global style rule", cognition.memory_titles)
             self.assertNotIn("Future prose sample", cognition.memory_titles)
-            self.assertEqual(wiki.queries, [])
-            self.assertEqual(snapshot.wiki_context.evidence, [])
 
             self.assertIn("EARLIER_ACCEPTED_PROSE", context)
-            self.assertNotIn("EARLIER_OBSERVED_PROSE", context)
             self.assertIn("EARLIER_PROSE_SAMPLE", context)
             self.assertIn("Do not reveal who forged the map.", context)
             self.assertNotIn("FUTURE_ACCEPTED_PROSE", context)
-            self.assertNotIn("FUTURE_OBSERVED_PROSE", context)
             self.assertNotIn("FUTURE_PROSE_SAMPLE", context)
             self.assertNotIn("STEP8_FUTURE_PLAN", context)
             self.assertNotIn("STEP8_SECRET", context)
@@ -586,7 +538,7 @@ class NarrativeSnapshotTests(unittest.TestCase):
                 scene_id=scene.id,
                 data_store=store,
             ).render_generation_context()
-            service = ManuscriptService(data_store=store, llm_wiki=None, cognition=None)
+            service = ManuscriptService(data_store=store, cognition=None)
             proposal = service.generate_local_proposal(project.id, scene.id)
 
             self.assertEqual(proposal.context, expected_context)
