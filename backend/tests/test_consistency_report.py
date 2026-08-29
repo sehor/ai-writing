@@ -299,6 +299,7 @@ class ConsistencyReportRouteTests(unittest.TestCase):
             try:
                 with TestClient(app) as client:
                     project_id, revision_id = self._setup(store, client)
+                    self._wait_for_automatic_consistency_run(store, project_id)
 
                     existing = client.get(
                         f"/api/projects/{project_id}/analysis/consistency"

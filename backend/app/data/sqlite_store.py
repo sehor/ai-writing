@@ -43,6 +43,8 @@ from app.models import (
     CanonEntity,
     CanonEntityCreate,
     CanonEntityUpdate,
+    CharacterKnowledge,
+    CharacterKnowledgeCreate,
     MemoryRecord,
     MemoryRecordCreate,
     MemoryRecordUpdate,
@@ -67,6 +69,13 @@ from app.models import (
     SceneProposalCreate,
     SceneProposalStatus,
     SnowflakeArtifact,
+    StoryFact,
+    StoryFactCreate,
+    StoryThread,
+    StoryThreadCreate,
+    StoryThreadEvent,
+    StoryThreadEventCreate,
+    StoryThreadStatusUpdate,
     WritebackProposal,
     WritebackProposalCreate,
     WritebackProposalStatus,
@@ -202,6 +211,78 @@ class SQLiteWritingDataStore:
     def delete_canon_entity(self, project_id: str, entity_id: str) -> bool:
         with SqliteUnitOfWork(self.database_path) as uow:
             return uow.canon.delete(project_id, entity_id)
+
+    # ------------------------------------------------------------------
+    # Narrative state: temporal facts / knowledge / story threads
+    # ------------------------------------------------------------------
+
+    def create_story_fact(self, project_id: str, fact: StoryFactCreate) -> StoryFact:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.narrative.create_fact(project_id, fact)
+
+    def list_story_facts(self, project_id: str) -> list[StoryFact]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.narrative.list_facts(project_id)
+
+    def list_story_facts_at(self, project_id: str, scene_position: int) -> list[StoryFact]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.narrative.facts_at(project_id, scene_position)
+
+    def list_reader_facts_at(self, project_id: str, scene_position: int) -> list[StoryFact]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.narrative.reader_facts_at(project_id, scene_position)
+
+    def set_character_knowledge(
+        self,
+        project_id: str,
+        fact_id: str,
+        knowledge: CharacterKnowledgeCreate,
+    ) -> CharacterKnowledge:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.narrative.set_character_knowledge(project_id, fact_id, knowledge)
+
+    def list_character_facts_at(
+        self,
+        project_id: str,
+        character: str,
+        scene_position: int,
+    ) -> list[StoryFact]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.narrative.character_facts_at(project_id, character, scene_position)
+
+    def create_story_thread(self, project_id: str, thread: StoryThreadCreate) -> StoryThread:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.narrative.create_thread(project_id, thread)
+
+    def list_story_threads(self, project_id: str) -> list[StoryThread]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.narrative.list_threads(project_id)
+
+    def update_story_thread_status(
+        self,
+        project_id: str,
+        thread_id: str,
+        update: StoryThreadStatusUpdate,
+    ) -> StoryThread | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.narrative.set_thread_status(project_id, thread_id, update.status)
+
+    def add_story_thread_event(
+        self,
+        project_id: str,
+        thread_id: str,
+        event: StoryThreadEventCreate,
+    ) -> StoryThreadEvent:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.narrative.add_thread_event(project_id, thread_id, event)
+
+    def list_story_thread_events(
+        self,
+        project_id: str,
+        thread_id: str,
+    ) -> list[StoryThreadEvent]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.narrative.list_thread_events(project_id, thread_id)
 
     # ------------------------------------------------------------------
     # Scene contracts

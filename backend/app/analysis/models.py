@@ -64,3 +64,32 @@ class ConsistencyReport(BaseModel):
     run_version: int = 1
     summary: ConsistencyReportSummary = Field(default_factory=ConsistencyReportSummary)
     findings: list[ConsistencyFinding] = Field(default_factory=list)
+
+
+StyleDriftSeverity = Literal["info", "warning", "critical"]
+
+
+class StyleProfile(BaseModel):
+    project_id: str
+    scope: str = "project"
+    sample_count: int = 0
+    character_count: int = 0
+    metrics: dict[str, float] = Field(default_factory=dict)
+    frequent_terms: list[str] = Field(default_factory=list)
+
+
+class StyleDriftFinding(BaseModel):
+    metric: str
+    severity: StyleDriftSeverity
+    baseline: float
+    observed: float
+    relative_change: float
+    explanation: str
+
+
+class StyleDriftReport(BaseModel):
+    project_id: str
+    source_ref: str
+    profile_scope: str
+    sample_count: int = 0
+    findings: list[StyleDriftFinding] = Field(default_factory=list)

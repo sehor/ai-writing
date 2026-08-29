@@ -327,7 +327,12 @@ class LocalFileLlmWiki:
     ) -> bool:
         if document.status != "approved":
             return False
-        if query.scope and document.scope and query.scope != document.scope:
+        if (
+            document.knowledge_class == "planned"
+            and query.scope
+            and document.scope
+            and query.scope != document.scope
+        ):
             return False
         if document.knowledge_class == "planned":
             if document.snowflake_step not in planned_source_steps:

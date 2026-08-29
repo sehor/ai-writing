@@ -50,10 +50,14 @@ class RecordingLlmWiki:
 
 
 def wait_for_jobs(store: SQLiteWritingDataStore, project_id: str, status: str):
+    def matching_jobs():
+        jobs = store.list_outbox_jobs(project_id)
+        if status == "succeeded":
+            return jobs if jobs and all(job.status == "succeeded" for job in jobs) else []
+        return [job for job in jobs if job.status == status]
+
     return wait_until(
-        lambda: [
-            job for job in store.list_outbox_jobs(project_id) if job.status == status
-        ],
+        matching_jobs,
         timeout_seconds=20,
         message=f"outbox jobs to reach '{status}' via the background dispatcher",
     )

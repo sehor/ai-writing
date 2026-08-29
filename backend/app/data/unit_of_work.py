@@ -15,6 +15,7 @@ from app.data.repositories.analysis import AnalysisRepository
 from app.data.repositories.canon import CanonRepository
 from app.data.repositories.manuscript import ManuscriptRepository
 from app.data.repositories.memory import MemoryRepository
+from app.data.repositories.narrative import NarrativeRepository
 from app.data.repositories.outbox import OutboxRepository
 from app.data.repositories.projects import ProjectRepository
 from app.data.repositories.review import ReviewRepository
@@ -119,6 +120,10 @@ class SqliteUnitOfWork:
     @property
     def review(self) -> ReviewRepository:
         return self._repository("review", ReviewRepository)
+
+    @property
+    def narrative(self) -> NarrativeRepository:
+        return self._repository("narrative", NarrativeRepository)
 
     @property
     def outbox(self) -> OutboxRepository:

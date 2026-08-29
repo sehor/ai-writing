@@ -19,6 +19,7 @@ RULE_FORBIDDEN_FACT_MENTION = "FORBIDDEN_FACT_MENTION"
 RULE_CONSTRAINT_CAPABILITY_USED = "CONSTRAINT_CAPABILITY_USED"
 RULE_REQUIRED_CANON_MISSING = "REQUIRED_CANON_MISSING"
 RULE_POV_NAME_ABSENT = "POV_NAME_ABSENT"
+RULE_READER_KNOWLEDGE_LEAK = "READER_KNOWLEDGE_LEAK"
 
 # Terms shorter than this are too noisy to match verbatim in prose.
 MIN_TERM_LENGTH = 4
@@ -32,7 +33,7 @@ _FORBIDDEN_PATTERNS = [
 ]
 
 
-def build_consistency_fingerprint(revision, scene, canon_entities) -> dict:
+def build_consistency_fingerprint(revision, scene, canon_entities, story_facts=()) -> dict:
     """Deterministic description of every input the checker reads."""
     return {
         "content": revision.content,
@@ -52,6 +53,11 @@ def build_consistency_fingerprint(revision, scene, canon_entities) -> dict:
         "canon": sorted(
             f"{entity.id}:{entity.name}:v{entity.version}:{entity.constraints}"
             for entity in canon_entities
+        ),
+        "story_facts": sorted(
+            f"{fact.id}:{fact.subject}:{fact.predicate}:{fact.value}:"
+            f"{fact.valid_from_scene}:{fact.valid_to_scene}:{fact.reader_visible_from}:{fact.status}"
+            for fact in story_facts
         ),
     }
 
@@ -139,7 +145,7 @@ def forbidden_capability_terms(constraints: str) -> list[str]:
     return terms
 
 
-def check_revision(revision, scene, canon_entities) -> list[ConsistencyFinding]:
+def check_revision(revision, scene, canon_entities, story_facts=()) -> list[ConsistencyFinding]:
     """Run every deterministic rule over one revision.
 
     ``revision`` is a ManuscriptRevision; ``scene`` may be ``None`` when the
@@ -179,6 +185,53 @@ def check_revision(revision, scene, canon_entities) -> list[ConsistencyFinding]:
                         confidence="exact",
                     )
                 )
+
+    # Narrative OS P1: a world fact can already be true while still hidden
+    # from the reader. A verbatim value appearing before reader_visible_from
+    # is explainable evidence of a possible reveal leak.
+    if scene is not None:
+        for fact in story_facts:
+            if fact.status != "confirmed":
+                continue
+            if fact.valid_from_scene > scene.sequence:
+                continue
+            if fact.valid_to_scene is not None and fact.valid_to_scene < scene.sequence:
+                continue
+            if fact.reader_visible_from is not None and fact.reader_visible_from <= scene.sequence:
+                continue
+            term = fact.value.strip()
+            if len(term) < MIN_TERM_LENGTH:
+                continue
+            position = content_lower.find(term.lower())
+            if position < 0:
+                continue
+            findings.append(
+                ConsistencyFinding(
+                    id=_finding_id(RULE_READER_KNOWLEDGE_LEAK, source_ref, fact.id),
+                    severity="critical",
+                    rule_code=RULE_READER_KNOWLEDGE_LEAK,
+                    title=f"Hidden story fact appears in prose: {fact.subject}",
+                    description=(
+                        "This fact is valid in world state at the scene, but its reader "
+                        "visibility boundary has not been reached."
+                    ),
+                    manuscript_source_ref=source_ref,
+                    manuscript_excerpt=_excerpt(content, position, len(term)),
+                    canon_entity_id=None,
+                    canon_field="reader_visible_from",
+                    expected_value=(
+                        f"Keep hidden until scene {fact.reader_visible_from}"
+                        if fact.reader_visible_from is not None
+                        else "Keep hidden from the reader"
+                    ),
+                    observed_value=term,
+                    suggested_action=(
+                        "Remove or obscure the reveal, or explicitly move the fact's reader "
+                        "visibility boundary earlier after author review."
+                    ),
+                    confidence="exact",
+                )
+            )
 
     # Plan rule 3: Canon declares a forbidden capability and the prose uses
     # that phrase.

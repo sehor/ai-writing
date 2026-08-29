@@ -116,15 +116,29 @@ def run_consistency_analysis_job(context: OutboxJobContext, payload: dict) -> ob
     # Lazy imports: see the import-cycle note at module top.
     from app.analysis.consistency import build_consistency_fingerprint, check_revision
     from app.analysis.service import AnalysisService
+    from app.cognition.snapshots import NarrativeSnapshot
 
     revision = _revision_from_payload(context, payload)
-    scene = context.data_store.get_scene_contract(revision.project_id, revision.scene_id)
-    canon_entities = context.data_store.list_canon_entities(revision.project_id)
+    snapshot = NarrativeSnapshot.for_scene(
+        project_id=revision.project_id,
+        scene_id=revision.scene_id,
+        data_store=context.data_store,
+    )
     outcome = AnalysisService(data_store=context.data_store).run_consistency_analysis(
         project_id=revision.project_id,
         source_ref=str(payload.get("source_ref") or f"manuscript_revision:{revision.id}"),
-        fingerprint=build_consistency_fingerprint(revision, scene, canon_entities),
-        check=lambda: check_revision(revision, scene, canon_entities),
+        fingerprint=build_consistency_fingerprint(
+            revision,
+            snapshot.scene,
+            snapshot.canon_entities,
+            snapshot.world_truth,
+        ),
+        check=lambda: check_revision(
+            revision,
+            snapshot.scene,
+            snapshot.canon_entities,
+            snapshot.world_truth,
+        ),
     )
     return outcome.run
 

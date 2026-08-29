@@ -285,6 +285,52 @@ class LlmWikiInterfaceTests(unittest.TestCase):
                 "Mira maps the archive. The archive erases uncommitted names.",
             )
 
+    def test_drafting_scope_allows_prior_observed_sources_from_other_scenes(self) -> None:
+        with TemporaryDirectory() as temp_dir:
+            wiki = LocalFileLlmWiki(Path(temp_dir))
+            wiki.ingest(
+                WikiSourceDocument(
+                    project_id="novel",
+                    source_kind="manuscript_revision",
+                    source_ref="revision:scene-19",
+                    title="Earlier accepted scene",
+                    content="Mira hid the brass key beneath the archive stair.",
+                    snowflake_step=10,
+                    artifact_type="manuscript",
+                    knowledge_class="observed",
+                    scope="scene-19",
+                    story_position=19,
+                )
+            )
+            wiki.ingest(
+                WikiSourceDocument(
+                    project_id="novel",
+                    source_kind="manuscript_revision",
+                    source_ref="revision:scene-21",
+                    title="Future accepted scene",
+                    content="Mira learns the archivist forged the map.",
+                    snowflake_step=10,
+                    artifact_type="manuscript",
+                    knowledge_class="observed",
+                    scope="scene-21",
+                    story_position=21,
+                )
+            )
+
+            result = wiki.retrieve_context(
+                WikiContextQuery(
+                    project_id="novel",
+                    snowflake_step=10,
+                    scope="scene-20",
+                    story_position=20,
+                    spoiler_horizon=20,
+                )
+            )
+            refs = {evidence.source_ref for evidence in result.evidence}
+
+            self.assertIn("revision:scene-19", refs)
+            self.assertNotIn("revision:scene-21", refs)
+
     def test_local_backend_hides_superseded_and_future_observed_sources(self) -> None:
         with TemporaryDirectory() as temp_dir:
             wiki = LocalFileLlmWiki(Path(temp_dir))

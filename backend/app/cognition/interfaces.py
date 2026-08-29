@@ -10,6 +10,8 @@ from app.models import (
     ProjectSummary,
     SceneContract,
     SnowflakeArtifact,
+    StoryThread,
+    StoryThreadEvent,
     WritebackProposalCreate,
 )
 
@@ -22,6 +24,8 @@ class ProjectCognitionSnapshot:
     scenes: list[SceneContract] = field(default_factory=list)
     memory_records: list[MemoryRecord] = field(default_factory=list)
     manuscript_scenes: list[ManuscriptScene] = field(default_factory=list)
+    story_threads: list[StoryThread] = field(default_factory=list)
+    story_thread_events: list[StoryThreadEvent] = field(default_factory=list)
 
 
 @dataclass(frozen=True)

@@ -4,6 +4,8 @@ from app.models import (
     CanonEntity,
     CanonEntityCreate,
     CanonEntityUpdate,
+    CharacterKnowledge,
+    CharacterKnowledgeCreate,
     MemoryRecord,
     MemoryRecordCreate,
     MemoryRecordUpdate,
@@ -28,6 +30,13 @@ from app.models import (
     SceneProposalCreate,
     SceneProposalStatus,
     SnowflakeArtifact,
+    StoryFact,
+    StoryFactCreate,
+    StoryThread,
+    StoryThreadCreate,
+    StoryThreadEvent,
+    StoryThreadEventCreate,
+    StoryThreadStatusUpdate,
     WritebackProposal,
     WritebackProposalCreate,
     WritebackProposalStatus,
@@ -84,6 +93,49 @@ class WritingDataStore(Protocol):
         pass
 
     def delete_canon_entity(self, project_id: str, entity_id: str) -> bool:
+        pass
+
+    def create_story_fact(self, project_id: str, fact: StoryFactCreate) -> StoryFact:
+        pass
+
+    def list_story_facts(self, project_id: str) -> list[StoryFact]:
+        pass
+
+    def list_story_facts_at(self, project_id: str, scene_position: int) -> list[StoryFact]:
+        pass
+
+    def list_reader_facts_at(self, project_id: str, scene_position: int) -> list[StoryFact]:
+        pass
+
+    def set_character_knowledge(
+        self, project_id: str, fact_id: str, knowledge: CharacterKnowledgeCreate
+    ) -> CharacterKnowledge:
+        pass
+
+    def list_character_facts_at(
+        self, project_id: str, character: str, scene_position: int
+    ) -> list[StoryFact]:
+        pass
+
+    def create_story_thread(self, project_id: str, thread: StoryThreadCreate) -> StoryThread:
+        pass
+
+    def list_story_threads(self, project_id: str) -> list[StoryThread]:
+        pass
+
+    def update_story_thread_status(
+        self, project_id: str, thread_id: str, update: StoryThreadStatusUpdate
+    ) -> StoryThread | None:
+        pass
+
+    def add_story_thread_event(
+        self, project_id: str, thread_id: str, event: StoryThreadEventCreate
+    ) -> StoryThreadEvent:
+        pass
+
+    def list_story_thread_events(
+        self, project_id: str, thread_id: str
+    ) -> list[StoryThreadEvent]:
         pass
 
     def list_scene_contracts(self, project_id: str) -> list[SceneContract]:

@@ -10,7 +10,14 @@ MemoryRecordType = Literal[
     "voice_sample",
     "style_rule",
 ]
-GraphNodeType = Literal["project", "snowflake_artifact", "canon_entity", "scene", "memory_record"]
+GraphNodeType = Literal[
+    "project",
+    "snowflake_artifact",
+    "canon_entity",
+    "scene",
+    "memory_record",
+    "story_thread",
+]
 GraphEdgeType = Literal["contains", "depends_on", "references", "informs"]
 GraphRiskSeverity = Literal["info", "warning", "critical"]
 WorkflowRuntimeType = Literal["local_deterministic", "provider_deepseek"]
@@ -41,6 +48,10 @@ ReferenceSuggestionStatus = Literal["pending_review", "accepted", "rejected", "s
 HermesProcessStatus = Literal["completed", "partial", "failed"]
 HermesWikiChangeAction = Literal["created", "updated", "skipped"]
 HermesIssueSeverity = Literal["info", "warning", "error"]
+StoryFactStatus = Literal["planned", "confirmed", "superseded"]
+StoryThreadType = Literal["foreshadow", "mystery", "relationship", "conflict", "promise", "subplot"]
+StoryThreadStatus = Literal["planned", "planted", "developing", "dormant", "paid_off", "abandoned"]
+StoryThreadAction = Literal["plant", "reinforce", "misdirect", "escalate", "partial_payoff", "payoff"]
 
 
 class HealthResponse(BaseModel):
@@ -162,6 +173,93 @@ class CanonEntity(CanonEntityCreate):
     project_id: str
     version: int = Field(default=1, ge=1)
     updated_at: str = ""
+
+
+class StoryFactCreate(BaseModel):
+    subject: str = Field(min_length=1, max_length=160)
+    predicate: str = Field(min_length=1, max_length=160)
+    value: str = Field(min_length=1, max_length=4000)
+    valid_from_scene: int = Field(ge=0, le=999)
+    valid_to_scene: int | None = Field(default=None, ge=0, le=999)
+    reader_visible_from: int | None = Field(default=None, ge=0, le=999)
+    source_ref: str = Field(default="", max_length=240)
+    status: StoryFactStatus = "confirmed"
+
+    @field_validator("subject", "predicate", "value", "source_ref")
+    @classmethod
+    def normalize_story_fact_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class StoryFact(StoryFactCreate):
+    id: str
+    project_id: str
+
+
+class CharacterKnowledgeCreate(BaseModel):
+    character: str = Field(min_length=1, max_length=160)
+    known_from_scene: int = Field(ge=0, le=999)
+
+    @field_validator("character")
+    @classmethod
+    def normalize_character_name(cls, value: str) -> str:
+        return value.strip()
+
+
+class CharacterKnowledge(CharacterKnowledgeCreate):
+    fact_id: str
+    project_id: str
+
+
+class StoryStateResponse(BaseModel):
+    project_id: str
+    scene_position: int
+    character: str = ""
+    world_truth: list[StoryFact] = Field(default_factory=list)
+    reader_knowledge: list[StoryFact] = Field(default_factory=list)
+    character_knowledge: list[StoryFact] = Field(default_factory=list)
+
+
+class StoryThreadCreate(BaseModel):
+    thread_type: StoryThreadType
+    title: str = Field(min_length=1, max_length=240)
+    status: StoryThreadStatus = "planned"
+    planted_at: int | None = Field(default=None, ge=0, le=999)
+    target_payoff_from: int | None = Field(default=None, ge=0, le=999)
+    target_payoff_to: int | None = Field(default=None, ge=0, le=999)
+    importance: int = Field(default=3, ge=1, le=5)
+    reveal_constraints: str = Field(default="", max_length=4000)
+
+    @field_validator("title", "reveal_constraints")
+    @classmethod
+    def normalize_story_thread_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class StoryThread(StoryThreadCreate):
+    id: str
+    project_id: str
+
+
+class StoryThreadStatusUpdate(BaseModel):
+    status: StoryThreadStatus
+
+
+class StoryThreadEventCreate(BaseModel):
+    scene_id: str = Field(min_length=1, max_length=160)
+    action: StoryThreadAction
+    note: str = Field(default="", max_length=2000)
+
+    @field_validator("scene_id", "note")
+    @classmethod
+    def normalize_story_thread_event_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class StoryThreadEvent(StoryThreadEventCreate):
+    id: str
+    project_id: str
+    thread_id: str
 
 
 class SceneContractCreate(BaseModel):

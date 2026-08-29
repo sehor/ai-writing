@@ -6,6 +6,8 @@ from app.models import (
     MemoryRecord,
     SceneContract,
     SnowflakeArtifact,
+    StoryThread,
+    StoryThreadEvent,
 )
 from app.text_utils import truncate
 
@@ -17,6 +19,7 @@ def build_graph_nodes(
     canon_entities: list[CanonEntity],
     scenes: list[SceneContract],
     memory_records: list[MemoryRecord],
+    story_threads: list[StoryThread] | None = None,
 ) -> list[GraphNode]:
     nodes = [
         GraphNode(
@@ -62,6 +65,15 @@ def build_graph_nodes(
         )
         for record in memory_records
     )
+    nodes.extend(
+        GraphNode(
+            id=f"thread:{thread.id}",
+            label=thread.title,
+            node_type="story_thread",
+            status=f"{thread.thread_type}:{thread.status}",
+        )
+        for thread in (story_threads or [])
+    )
     return nodes
 
 
@@ -71,6 +83,8 @@ def build_graph_edges(
     canon_entities: list[CanonEntity],
     scenes: list[SceneContract],
     memory_records: list[MemoryRecord],
+    story_threads: list[StoryThread] | None = None,
+    story_thread_events: list[StoryThreadEvent] | None = None,
 ) -> list[GraphEdge]:
     project_node = f"project:{project_id}"
     edges: list[GraphEdge] = []
@@ -109,6 +123,24 @@ def build_graph_edges(
             label=record.record_type,
         )
         for record in memory_records
+    )
+    edges.extend(
+        GraphEdge(
+            source=project_node,
+            target=f"thread:{thread.id}",
+            edge_type="contains",
+            label=thread.thread_type,
+        )
+        for thread in (story_threads or [])
+    )
+    edges.extend(
+        GraphEdge(
+            source=f"thread:{event.thread_id}",
+            target=f"scene:{event.scene_id}",
+            edge_type="references",
+            label=event.action,
+        )
+        for event in (story_thread_events or [])
     )
 
     artifact_steps = {artifact.step_number for artifact in artifacts}
@@ -170,6 +202,8 @@ def build_graph_risks(
     canon_entities: list[CanonEntity],
     scenes: list[SceneContract],
     memory_records: list[MemoryRecord],
+    story_threads: list[StoryThread] | None = None,
+    story_thread_events: list[StoryThreadEvent] | None = None,
 ) -> list[GraphRisk]:
     risks: list[GraphRisk] = []
     artifact_steps = {artifact.step_number for artifact in artifacts}
@@ -276,6 +310,164 @@ def build_graph_risks(
                 )
             )
 
+    risks.extend(build_director_risks(story_threads or [], story_thread_events or [], scenes))
+    return risks
+
+
+def build_director_risks(
+    story_threads: list[StoryThread],
+    events: list[StoryThreadEvent],
+    scenes: list[SceneContract],
+) -> list[GraphRisk]:
+    if not story_threads or not scenes:
+        return []
+    sequence_by_scene = {scene.id: scene.sequence for scene in scenes}
+    current_sequence = max(sequence_by_scene.values())
+    events_by_thread: dict[str, list[StoryThreadEvent]] = {}
+    for event in events:
+        events_by_thread.setdefault(event.thread_id, []).append(event)
+
+    risks: list[GraphRisk] = []
+    active_statuses = {"planted", "developing", "dormant"}
+    for thread in story_threads:
+        thread_events = events_by_thread.get(thread.id, [])
+        event_positions = [
+            sequence_by_scene[event.scene_id]
+            for event in thread_events
+            if event.scene_id in sequence_by_scene
+        ]
+        last_position = max(event_positions) if event_positions else thread.planted_at
+
+        if (
+            thread.status in active_statuses
+            and thread.target_payoff_to is not None
+            and current_sequence > thread.target_payoff_to
+        ):
+            overdue_by = current_sequence - thread.target_payoff_to
+            risks.append(
+                GraphRisk(
+                    id=f"thread-{thread.id}-overdue",
+                    severity="critical" if thread.importance >= 4 else "warning",
+                    title=f"Story thread payoff is overdue: {thread.title}",
+                    detail=(
+                        f"Target payoff window ended at scene {thread.target_payoff_to}; "
+                        f"the project is at scene {current_sequence} ({overdue_by} scene(s) late)."
+                    ),
+                    source_id=f"thread:{thread.id}",
+                )
+            )
+
+        if (
+            thread.status in active_statuses
+            and last_position is not None
+            and current_sequence - last_position >= 5
+        ):
+            risks.append(
+                GraphRisk(
+                    id=f"thread-{thread.id}-stalled",
+                    severity="warning" if thread.importance >= 3 else "info",
+                    title=f"Story thread has not advanced recently: {thread.title}",
+                    detail=(
+                        f"Its latest structured event is at scene {last_position}; "
+                        f"{current_sequence - last_position} scenes have passed without reinforcement."
+                    ),
+                    source_id=f"thread:{thread.id}",
+                )
+            )
+
+        payoff_positions = [
+            sequence_by_scene[event.scene_id]
+            for event in thread_events
+            if event.action == "payoff" and event.scene_id in sequence_by_scene
+        ]
+        if (
+            payoff_positions
+            and thread.importance >= 4
+            and thread.target_payoff_from is not None
+            and min(payoff_positions) < thread.target_payoff_from
+        ):
+            paid_at = min(payoff_positions)
+            risks.append(
+                GraphRisk(
+                    id=f"thread-{thread.id}-early-payoff",
+                    severity="warning",
+                    title=f"High-importance thread may resolve too early: {thread.title}",
+                    detail=(
+                        f"Structured payoff occurs at scene {paid_at}, before the target "
+                        f"window opens at scene {thread.target_payoff_from}."
+                    ),
+                    source_id=f"thread:{thread.id}",
+                )
+            )
+
+    high_importance_ids = {thread.id for thread in story_threads if thread.importance >= 4}
+    advanced_positions = {
+        sequence_by_scene[event.scene_id]
+        for event in events
+        if event.thread_id in high_importance_ids
+        and event.scene_id in sequence_by_scene
+        and event.action in {"reinforce", "escalate", "partial_payoff", "payoff"}
+    }
+    ordered_positions = sorted(sequence_by_scene.values())
+    scene_by_position = {scene.sequence: scene for scene in scenes}
+    if len(ordered_positions) >= 4:
+        if high_importance_ids:
+            for index in range(len(ordered_positions) - 3):
+                window = ordered_positions[index : index + 4]
+                if not any(position in advanced_positions for position in window):
+                    risks.append(
+                        GraphRisk(
+                            id=f"director-mainline-stall-{window[0]}-{window[-1]}",
+                            severity="warning",
+                            title="Four-scene stretch lacks high-importance thread advancement",
+                            detail=(
+                                f"Scenes {window[0]}-{window[-1]} contain no structured reinforce, "
+                                "escalate, partial payoff, or payoff event for an importance 4-5 thread."
+                            ),
+                            source_id=f"scene:{scene_by_position[window[-1]].id}",
+                        )
+                    )
+                    break
+
+        intensity_markers = (
+            "reveal",
+            "death",
+            "dies",
+            "kill",
+            "betray",
+            "explode",
+            "final",
+            "揭露",
+            "真相",
+            "死亡",
+            "杀",
+            "背叛",
+            "爆炸",
+            "决战",
+        )
+        for index in range(len(ordered_positions) - 3):
+            window = ordered_positions[index : index + 4]
+            intense = []
+            for position in window:
+                scene = scene_by_position[position]
+                text = f"{scene.conflict} {scene.turning_point}".lower()
+                if any(marker in text for marker in intensity_markers):
+                    intense.append(position)
+            if len(intense) >= 3:
+                risks.append(
+                    GraphRisk(
+                        id=f"director-intensity-cluster-{window[0]}-{window[-1]}",
+                        severity="warning",
+                        title="High-intensity turning points are tightly clustered",
+                        detail=(
+                            f"Scenes {window[0]}-{window[-1]} contain {len(intense)} high-intensity "
+                            "conflict/turning-point markers. Check whether the pacing leaves enough "
+                            "recovery and setup between major beats."
+                        ),
+                        source_id=f"scene:{scene_by_position[window[-1]].id}",
+                    )
+                )
+                break
     return risks
 
 

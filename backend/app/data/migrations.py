@@ -281,6 +281,66 @@ def _add_outbox_processing_lease(connection: sqlite3.Connection) -> None:
     ensure_column(connection, "outbox_jobs", "processing_started_at", "TEXT NOT NULL DEFAULT ''")
 
 
+def _add_narrative_state_tables(connection: sqlite3.Connection) -> None:
+    _run_script(
+        connection,
+        """
+        CREATE TABLE IF NOT EXISTS story_facts (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            subject TEXT NOT NULL,
+            predicate TEXT NOT NULL,
+            value TEXT NOT NULL,
+            valid_from_scene INTEGER NOT NULL,
+            valid_to_scene INTEGER,
+            reader_visible_from INTEGER,
+            source_ref TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'confirmed',
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_story_facts_project_interval
+            ON story_facts(project_id, valid_from_scene, valid_to_scene);
+        CREATE TABLE IF NOT EXISTS story_fact_character_knowledge (
+            project_id TEXT NOT NULL,
+            fact_id TEXT NOT NULL,
+            character TEXT NOT NULL,
+            known_from_scene INTEGER NOT NULL,
+            PRIMARY KEY (project_id, fact_id, character),
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY (fact_id) REFERENCES story_facts(id) ON DELETE CASCADE
+        );
+        CREATE TABLE IF NOT EXISTS story_threads (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            thread_type TEXT NOT NULL,
+            title TEXT NOT NULL,
+            status TEXT NOT NULL,
+            planted_at INTEGER,
+            target_payoff_from INTEGER,
+            target_payoff_to INTEGER,
+            importance INTEGER NOT NULL DEFAULT 3,
+            reveal_constraints TEXT NOT NULL DEFAULT '',
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_story_threads_project_status
+            ON story_threads(project_id, status);
+        CREATE TABLE IF NOT EXISTS story_thread_events (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            thread_id TEXT NOT NULL,
+            scene_id TEXT NOT NULL,
+            action TEXT NOT NULL,
+            note TEXT NOT NULL DEFAULT '',
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY (thread_id) REFERENCES story_threads(id) ON DELETE CASCADE,
+            FOREIGN KEY (scene_id) REFERENCES scene_contracts(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_story_thread_events_thread
+            ON story_thread_events(project_id, thread_id);
+        """,
+    )
+
+
 def _run_script(connection: sqlite3.Connection, script: str) -> None:
     """Execute DDL statement by statement (executescript would auto-commit)."""
     for statement in script.split(";"):
@@ -298,6 +358,7 @@ MIGRATIONS: list[Migration] = [
         apply=_add_writeback_optimistic_concurrency,
     ),
     Migration(version=5, name="outbox_processing_lease", apply=_add_outbox_processing_lease),
+    Migration(version=6, name="narrative_state_tables", apply=_add_narrative_state_tables),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1].version

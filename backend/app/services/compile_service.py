@@ -1,11 +1,11 @@
 from fastapi import Depends, HTTPException, status
 
-from app.cognition.interfaces import ContextPacket, WritingScope
+from app.cognition.interfaces import ContextPacket
 from app.cognition.registry import CognitionRegistry, get_cognition_registry
-from app.cognition.snapshots import build_project_snapshot
+from app.cognition.snapshots import NarrativeSnapshot
 from app.data import WritingDataStore, get_data_store
 from app.llm_wiki.dependencies import get_llm_wiki
-from app.llm_wiki.interfaces import LlmWiki, WikiContextQuery, WikiContextResult
+from app.llm_wiki.interfaces import LlmWiki, WikiContextResult
 from app.models import ChapterCompileResponse, SceneContract
 from app.text_utils import truncate as truncate_context
 
@@ -29,33 +29,14 @@ class CompileService:
                 detail="Scene contract not found.",
             )
 
-        project = self.data_store.get_project(project_id)
-        canon_entities = self.data_store.list_canon_entities(project_id)
-        memory_records = self.data_store.list_memory_records(project_id)
-        artifacts = self.data_store.list_snowflake_artifacts(project_id)
-        cognition_context = self.cognition.prepare_context(
-            build_project_snapshot(project_id, self.data_store),
-            WritingScope(kind="scene", ref=scene_id, instruction=scene.title),
+        snapshot = NarrativeSnapshot.for_scene(
+            project_id=project_id,
+            scene_id=scene_id,
+            data_store=self.data_store,
+            cognition=self.cognition,
+            llm_wiki=self.llm_wiki,
         )
-        llm_wiki_context = self.llm_wiki.retrieve_context(
-            WikiContextQuery(
-                project_id=project_id,
-                snowflake_step=10,
-                instruction=scene.title,
-                scope=scene.id,
-                story_position=scene.sequence,
-                spoiler_horizon=scene.sequence,
-            )
-        )
-        context = build_compile_context(
-            project.title if project else project_id,
-            scene,
-            canon_entities,
-            memory_records,
-            artifacts,
-            cognition_context,
-            llm_wiki_context,
-        )
+        context = snapshot.render_generation_context()
         return ChapterCompileResponse(
             project_id=project_id,
             scene_id=scene_id,

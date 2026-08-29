@@ -25,6 +25,7 @@ class LocalInfraGraphModule:
             snapshot.canon_entities,
             snapshot.scenes,
             snapshot.memory_records,
+            snapshot.story_threads,
         )
         edges = build_graph_edges(
             snapshot.project.id,
@@ -32,12 +33,16 @@ class LocalInfraGraphModule:
             snapshot.canon_entities,
             snapshot.scenes,
             snapshot.memory_records,
+            snapshot.story_threads,
+            snapshot.story_thread_events,
         )
         risks = build_graph_risks(
             snapshot.artifacts,
             snapshot.canon_entities,
             snapshot.scenes,
             snapshot.memory_records,
+            snapshot.story_threads,
+            snapshot.story_thread_events,
         )
         summary = GraphAnalysisSummary(
             node_count=len(nodes),
@@ -45,7 +50,15 @@ class LocalInfraGraphModule:
             risk_count=len(risks),
             critical_count=sum(1 for risk in risks if risk.severity == "critical"),
             warning_count=sum(1 for risk in risks if risk.severity == "warning"),
-            unresolved_thread_count=sum(1 for scene in snapshot.scenes if scene.open_threads),
+            unresolved_thread_count=(
+                sum(
+                    1
+                    for thread in snapshot.story_threads
+                    if thread.status not in {"paid_off", "abandoned"}
+                )
+                if snapshot.story_threads
+                else sum(1 for scene in snapshot.scenes if scene.open_threads)
+            ),
             canon_reference_count=sum(
                 1
                 for edge in edges

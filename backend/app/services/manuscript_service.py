@@ -2,9 +2,8 @@ from difflib import unified_diff
 from fastapi import Depends, HTTPException, status
 
 from app.agents.writing_workflow import WorkflowNotConfiguredError
-from app.cognition.interfaces import WritingScope
 from app.cognition.registry import CognitionRegistry, get_cognition_registry
-from app.cognition.snapshots import build_project_snapshot
+from app.cognition.snapshots import NarrativeSnapshot
 from app.data import WritingDataStore, get_data_store, utc_now
 from app.integrations.provider_registry import (
     ProviderConfigurationError,
@@ -14,7 +13,7 @@ from app.integrations.provider_registry import (
     default_provider_registry,
 )
 from app.llm_wiki.dependencies import get_llm_wiki
-from app.llm_wiki.interfaces import LlmWiki, WikiContextQuery
+from app.llm_wiki.interfaces import LlmWiki
 from app.manuscript_export import build_export_markdown
 from app.observability import timed_operation
 from app.models import (
@@ -26,11 +25,7 @@ from app.models import (
     ManuscriptSceneUpdate,
 )
 from app.review.service import conflict_from, decide
-from app.services.compile_service import (
-    build_compile_checklist,
-    build_compile_context,
-    build_scene_draft,
-)
+from app.services.compile_service import build_compile_checklist, build_scene_draft
 
 
 class ManuscriptService:
@@ -211,26 +206,12 @@ class ManuscriptService:
         return scene, project
 
     def _build_context(self, project_id: str, project, scene) -> str:
-        cognition_ctx = self.cognition.prepare_context(
-            build_project_snapshot(project.id if project else project_id, self.data_store),
-            WritingScope(kind="scene", ref=scene.id, instruction=scene.title),
+        resolved_project_id = project.id if project else project_id
+        snapshot = NarrativeSnapshot.for_scene(
+            project_id=resolved_project_id,
+            scene_id=scene.id,
+            data_store=self.data_store,
+            cognition=self.cognition,
+            llm_wiki=self.llm_wiki,
         )
-        wiki_ctx = self.llm_wiki.retrieve_context(
-            WikiContextQuery(
-                project_id=project.id if project else project_id,
-                snowflake_step=10,
-                instruction=scene.title,
-                scope=scene.id,
-                story_position=scene.sequence,
-                spoiler_horizon=scene.sequence,
-            )
-        )
-        return build_compile_context(
-            project.title if project else project_id,
-            scene,
-            self.data_store.list_canon_entities(project.id if project else project_id),
-            self.data_store.list_memory_records(project.id if project else project_id),
-            self.data_store.list_snowflake_artifacts(project.id if project else project_id),
-            cognition_ctx,
-            wiki_ctx,
-        )
+        return snapshot.render_generation_context()
