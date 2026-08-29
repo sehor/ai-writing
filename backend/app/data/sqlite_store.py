@@ -45,6 +45,8 @@ from app.models import (
     CanonEntityUpdate,
     CharacterKnowledge,
     CharacterKnowledgeCreate,
+    KnowledgeState,
+    KnowledgeStateCreate,
     MemoryRecord,
     MemoryRecordCreate,
     MemoryRecordUpdate,
@@ -69,6 +71,8 @@ from app.models import (
     SceneProposalCreate,
     SceneProposalStatus,
     SnowflakeArtifact,
+    NarrativeRelation,
+    NarrativeRelationCreate,
     StoryFact,
     StoryFactCreate,
     StoryThread,
@@ -232,6 +236,19 @@ class SQLiteWritingDataStore:
         with SqliteUnitOfWork(self.database_path) as uow:
             return uow.narrative.reader_facts_at(project_id, scene_position)
 
+    def set_knowledge_state(
+        self,
+        project_id: str,
+        fact_id: str,
+        knowledge: KnowledgeStateCreate,
+    ) -> KnowledgeState:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.narrative.set_knowledge_state(project_id, fact_id, knowledge)
+
+    def list_knowledge_states(self, project_id: str, fact_id: str) -> list[KnowledgeState]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.narrative.list_knowledge_states(project_id, fact_id)
+
     def set_character_knowledge(
         self,
         project_id: str,
@@ -249,6 +266,26 @@ class SQLiteWritingDataStore:
     ) -> list[StoryFact]:
         with SqliteUnitOfWork(self.database_path) as uow:
             return uow.narrative.character_facts_at(project_id, character, scene_position)
+
+    def create_narrative_relation(
+        self,
+        project_id: str,
+        relation: NarrativeRelationCreate,
+    ) -> NarrativeRelation:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.narrative.create_relation(project_id, relation)
+
+    def list_narrative_relations(self, project_id: str) -> list[NarrativeRelation]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.narrative.list_relations(project_id)
+
+    def list_narrative_relations_at(
+        self,
+        project_id: str,
+        scene_position: int,
+    ) -> list[NarrativeRelation]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.narrative.relations_at(project_id, scene_position)
 
     def create_story_thread(self, project_id: str, thread: StoryThreadCreate) -> StoryThread:
         with SqliteUnitOfWork(self.database_path) as uow:

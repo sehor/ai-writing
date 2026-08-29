@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 
 CanonEntityType = Literal["character", "location", "item", "faction", "rule"]
@@ -49,6 +49,8 @@ HermesProcessStatus = Literal["completed", "partial", "failed"]
 HermesWikiChangeAction = Literal["created", "updated", "skipped"]
 HermesIssueSeverity = Literal["info", "warning", "error"]
 StoryFactStatus = Literal["planned", "confirmed", "superseded"]
+KnowledgeScope = Literal["world_truth", "reader_knowledge", "character_knowledge"]
+NarrativeRelationStatus = Literal["planned", "confirmed", "superseded"]
 StoryThreadType = Literal["foreshadow", "mystery", "relationship", "conflict", "promise", "subplot"]
 StoryThreadStatus = Literal["planned", "planted", "developing", "dormant", "paid_off", "abandoned"]
 StoryThreadAction = Literal["plant", "reinforce", "misdirect", "escalate", "partial_payoff", "payoff"]
@@ -196,6 +198,33 @@ class StoryFact(StoryFactCreate):
     project_id: str
 
 
+class KnowledgeStateCreate(BaseModel):
+    scope: KnowledgeScope
+    character: str = Field(default="", max_length=160)
+    known_from_scene: int = Field(ge=0, le=999)
+    source_ref: str = Field(default="", max_length=240)
+    status: StoryFactStatus = "confirmed"
+
+    @field_validator("character", "source_ref")
+    @classmethod
+    def normalize_knowledge_text(cls, value: str) -> str:
+        return value.strip()
+
+    @model_validator(mode="after")
+    def validate_scope_subject(self) -> "KnowledgeStateCreate":
+        if self.scope == "character_knowledge" and not self.character:
+            raise ValueError("character is required for character_knowledge")
+        if self.scope != "character_knowledge" and self.character:
+            raise ValueError("character is only valid for character_knowledge")
+        return self
+
+
+class KnowledgeState(KnowledgeStateCreate):
+    id: str
+    fact_id: str
+    project_id: str
+
+
 class CharacterKnowledgeCreate(BaseModel):
     character: str = Field(min_length=1, max_length=160)
     known_from_scene: int = Field(ge=0, le=999)
@@ -208,6 +237,27 @@ class CharacterKnowledgeCreate(BaseModel):
 
 class CharacterKnowledge(CharacterKnowledgeCreate):
     fact_id: str
+    project_id: str
+
+
+class NarrativeRelationCreate(BaseModel):
+    source: str = Field(min_length=1, max_length=240)
+    target: str = Field(min_length=1, max_length=240)
+    relation: str = Field(min_length=1, max_length=160)
+    valid_from: int = Field(ge=0, le=999)
+    valid_to: int | None = Field(default=None, ge=0, le=999)
+    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
+    source_ref: str = Field(default="", max_length=240)
+    status: NarrativeRelationStatus = "confirmed"
+
+    @field_validator("source", "target", "relation", "source_ref")
+    @classmethod
+    def normalize_narrative_relation_text(cls, value: str) -> str:
+        return value.strip()
+
+
+class NarrativeRelation(NarrativeRelationCreate):
+    id: str
     project_id: str
 
 

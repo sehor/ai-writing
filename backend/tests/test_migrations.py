@@ -50,6 +50,9 @@ class MigrationTests(unittest.TestCase):
                     "outbox_jobs",
                     "analysis_runs",
                     "scene_proposals",
+                    "story_facts",
+                    "knowledge_states",
+                    "narrative_relations",
                     "schema_migrations",
                 }
                 self.assertTrue(expected_tables <= _table_names(connection))
@@ -174,6 +177,55 @@ class MigrationTests(unittest.TestCase):
                     "SELECT COUNT(*) FROM projects WHERE id = 'demo-novel'"
                 ).fetchone()[0]
                 self.assertEqual(count, 1)
+            finally:
+                connection.close()
+
+    def test_narrative_domain_migration_backfills_existing_knowledge(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            connection = sqlite3.connect(Path(temp_dir) / "app.db")
+            connection.row_factory = sqlite3.Row
+            try:
+                for migration in MIGRATIONS[:6]:
+                    migration.apply(connection)
+                connection.execute(
+                    "INSERT INTO projects (id, title, premise, current_step)"
+                    " VALUES ('p1', 'Legacy narrative', 'p', 1)"
+                )
+                connection.execute(
+                    """
+                    INSERT INTO story_facts (
+                        id, project_id, subject, predicate, value, valid_from_scene,
+                        valid_to_scene, reader_visible_from, source_ref, status
+                    ) VALUES ('f1', 'p1', 'letter', 'author', 'queen', 1, NULL, 80,
+                              'canon:f1', 'confirmed')
+                    """
+                )
+                connection.execute(
+                    """
+                    INSERT INTO story_fact_character_knowledge (
+                        project_id, fact_id, character, known_from_scene
+                    ) VALUES ('p1', 'f1', 'Mira', 84)
+                    """
+                )
+
+                MIGRATIONS[6].apply(connection)
+
+                states = connection.execute(
+                    """
+                    SELECT scope, character, known_from_scene, source_ref
+                    FROM knowledge_states
+                    WHERE project_id = 'p1' AND fact_id = 'f1'
+                    ORDER BY scope
+                    """
+                ).fetchall()
+                self.assertEqual(
+                    [tuple(row) for row in states],
+                    [
+                        ("character_knowledge", "Mira", 84, "canon:f1"),
+                        ("reader_knowledge", "", 80, "canon:f1"),
+                        ("world_truth", "", 1, "canon:f1"),
+                    ],
+                )
             finally:
                 connection.close()
 

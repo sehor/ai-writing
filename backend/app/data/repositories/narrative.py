@@ -6,6 +6,10 @@ from app.data.helpers import make_record_id
 from app.models import (
     CharacterKnowledge,
     CharacterKnowledgeCreate,
+    KnowledgeState,
+    KnowledgeStateCreate,
+    NarrativeRelation,
+    NarrativeRelationCreate,
     StoryFact,
     StoryFactCreate,
     StoryThread,
@@ -25,6 +29,34 @@ def _fact_from_row(row: sqlite3.Row) -> StoryFact:
         valid_from_scene=row["valid_from_scene"],
         valid_to_scene=row["valid_to_scene"],
         reader_visible_from=row["reader_visible_from"],
+        source_ref=row["source_ref"],
+        status=row["status"],
+    )
+
+
+def _knowledge_state_from_row(row: sqlite3.Row) -> KnowledgeState:
+    return KnowledgeState(
+        id=row["id"],
+        project_id=row["project_id"],
+        fact_id=row["fact_id"],
+        scope=row["scope"],
+        character=row["character"],
+        known_from_scene=row["known_from_scene"],
+        source_ref=row["source_ref"],
+        status=row["status"],
+    )
+
+
+def _relation_from_row(row: sqlite3.Row) -> NarrativeRelation:
+    return NarrativeRelation(
+        id=row["id"],
+        project_id=row["project_id"],
+        source=row["source"],
+        target=row["target"],
+        relation=row["relation"],
+        valid_from=row["valid_from"],
+        valid_to=row["valid_to"],
+        confidence=row["confidence"],
         source_ref=row["source_ref"],
         status=row["status"],
     )
@@ -91,6 +123,27 @@ class NarrativeRepository:
                 created.status,
             ),
         )
+        self.set_knowledge_state(
+            project_id,
+            created.id,
+            KnowledgeStateCreate(
+                scope="world_truth",
+                known_from_scene=created.valid_from_scene,
+                source_ref=created.source_ref,
+                status=created.status,
+            ),
+        )
+        if created.reader_visible_from is not None:
+            self.set_knowledge_state(
+                project_id,
+                created.id,
+                KnowledgeStateCreate(
+                    scope="reader_knowledge",
+                    known_from_scene=created.reader_visible_from,
+                    source_ref=created.source_ref,
+                    status=created.status,
+                ),
+            )
         return created
 
     def list_facts(self, project_id: str) -> list[StoryFact]:
@@ -122,39 +175,136 @@ class NarrativeRepository:
         ).fetchall()
         return [_fact_from_row(row) for row in rows]
 
+    def set_knowledge_state(
+        self,
+        project_id: str,
+        fact_id: str,
+        knowledge: KnowledgeStateCreate,
+    ) -> KnowledgeState:
+        fact_row = self.connection.execute(
+            "SELECT source_ref, status FROM story_facts WHERE project_id = ? AND id = ?",
+            (project_id, fact_id),
+        ).fetchone()
+        if not fact_row:
+            raise LookupError("Story fact not found")
+        existing = self.connection.execute(
+            """
+            SELECT id FROM knowledge_states
+            WHERE project_id = ? AND fact_id = ? AND scope = ? AND character = ?
+            """,
+            (project_id, fact_id, knowledge.scope, knowledge.character),
+        ).fetchone()
+        if existing:
+            state_id = existing["id"]
+        else:
+            existing_ids = {
+                row["id"] for row in self.connection.execute("SELECT id FROM knowledge_states")
+            }
+            state_id = make_record_id(
+                f"knowledge-{fact_id}-{knowledge.scope}-{knowledge.character}", existing_ids
+            )
+        source_ref = knowledge.source_ref or fact_row["source_ref"]
+        created = KnowledgeState(
+            id=state_id,
+            project_id=project_id,
+            fact_id=fact_id,
+            **knowledge.model_dump(exclude={"source_ref"}),
+            source_ref=source_ref,
+        )
+        self.connection.execute(
+            """
+            INSERT INTO knowledge_states (
+                id, project_id, fact_id, scope, character, known_from_scene, source_ref, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(project_id, fact_id, scope, character)
+            DO UPDATE SET known_from_scene = excluded.known_from_scene,
+                          source_ref = excluded.source_ref,
+                          status = excluded.status
+            """,
+            (
+                created.id,
+                project_id,
+                fact_id,
+                created.scope,
+                created.character,
+                created.known_from_scene,
+                created.source_ref,
+                created.status,
+            ),
+        )
+        if created.scope == "reader_knowledge":
+            self.connection.execute(
+                "UPDATE story_facts SET reader_visible_from = ? WHERE project_id = ? AND id = ?",
+                (created.known_from_scene, project_id, fact_id),
+            )
+        elif created.scope == "character_knowledge":
+            self.connection.execute(
+                """
+                INSERT INTO story_fact_character_knowledge (
+                    project_id, fact_id, character, known_from_scene
+                ) VALUES (?, ?, ?, ?)
+                ON CONFLICT(project_id, fact_id, character)
+                DO UPDATE SET known_from_scene = excluded.known_from_scene
+                """,
+                (project_id, fact_id, created.character, created.known_from_scene),
+            )
+        return created
+
+    def list_knowledge_states(self, project_id: str, fact_id: str) -> list[KnowledgeState]:
+        rows = self.connection.execute(
+            """
+            SELECT id, project_id, fact_id, scope, character, known_from_scene, source_ref, status
+            FROM knowledge_states
+            WHERE project_id = ? AND fact_id = ?
+            ORDER BY scope, lower(character), known_from_scene, id
+            """,
+            (project_id, fact_id),
+        ).fetchall()
+        return [_knowledge_state_from_row(row) for row in rows]
+
     def set_character_knowledge(
         self,
         project_id: str,
         fact_id: str,
         knowledge: CharacterKnowledgeCreate,
     ) -> CharacterKnowledge:
-        if not self.connection.execute(
-            "SELECT 1 FROM story_facts WHERE project_id = ? AND id = ?",
-            (project_id, fact_id),
-        ).fetchone():
-            raise LookupError("Story fact not found")
-        self.connection.execute(
-            """
-            INSERT INTO story_fact_character_knowledge (
-                project_id, fact_id, character, known_from_scene
-            ) VALUES (?, ?, ?, ?)
-            ON CONFLICT(project_id, fact_id, character)
-            DO UPDATE SET known_from_scene = excluded.known_from_scene
-            """,
-            (project_id, fact_id, knowledge.character, knowledge.known_from_scene),
+        state = self.set_knowledge_state(
+            project_id,
+            fact_id,
+            KnowledgeStateCreate(
+                scope="character_knowledge",
+                character=knowledge.character,
+                known_from_scene=knowledge.known_from_scene,
+            ),
         )
         return CharacterKnowledge(
             project_id=project_id,
             fact_id=fact_id,
-            **knowledge.model_dump(),
+            character=state.character,
+            known_from_scene=state.known_from_scene,
         )
 
     def reader_facts_at(self, project_id: str, scene_position: int) -> list[StoryFact]:
-        return [
-            fact
-            for fact in self.facts_at(project_id, scene_position)
-            if fact.reader_visible_from is not None and fact.reader_visible_from <= scene_position
-        ]
+        rows = self.connection.execute(
+            """
+            SELECT f.id, f.project_id, f.subject, f.predicate, f.value,
+                   f.valid_from_scene, f.valid_to_scene, f.reader_visible_from,
+                   f.source_ref, f.status
+            FROM story_facts f
+            JOIN knowledge_states k
+              ON k.project_id = f.project_id AND k.fact_id = f.id
+            WHERE f.project_id = ?
+              AND k.scope = 'reader_knowledge'
+              AND k.known_from_scene <= ?
+              AND k.status = 'confirmed'
+              AND f.status = 'confirmed'
+              AND f.valid_from_scene <= ?
+              AND (f.valid_to_scene IS NULL OR f.valid_to_scene >= ?)
+            ORDER BY f.subject, f.predicate, f.valid_from_scene DESC, f.id
+            """,
+            (project_id, scene_position, scene_position, scene_position),
+        ).fetchall()
+        return [_fact_from_row(row) for row in rows]
 
     def character_facts_at(
         self,
@@ -168,11 +318,13 @@ class NarrativeRepository:
                    f.valid_from_scene, f.valid_to_scene, f.reader_visible_from,
                    f.source_ref, f.status
             FROM story_facts f
-            JOIN story_fact_character_knowledge k
+            JOIN knowledge_states k
               ON k.project_id = f.project_id AND k.fact_id = f.id
             WHERE f.project_id = ?
+              AND k.scope = 'character_knowledge'
               AND lower(k.character) = lower(?)
               AND k.known_from_scene <= ?
+              AND k.status = 'confirmed'
               AND f.status = 'confirmed'
               AND f.valid_from_scene <= ?
               AND (f.valid_to_scene IS NULL OR f.valid_to_scene >= ?)
@@ -181,6 +333,75 @@ class NarrativeRepository:
             (project_id, character, scene_position, scene_position, scene_position),
         ).fetchall()
         return [_fact_from_row(row) for row in rows]
+
+    def create_relation(
+        self,
+        project_id: str,
+        relation: NarrativeRelationCreate,
+    ) -> NarrativeRelation:
+        if relation.valid_to is not None and relation.valid_to < relation.valid_from:
+            raise ValueError("valid_to cannot be before valid_from")
+        existing_ids = {
+            row["id"] for row in self.connection.execute("SELECT id FROM narrative_relations")
+        }
+        created = NarrativeRelation(
+            id=make_record_id(
+                f"{project_id}-{relation.source}-{relation.relation}-{relation.target}-{relation.valid_from}",
+                existing_ids,
+            ),
+            project_id=project_id,
+            **relation.model_dump(),
+        )
+        self.connection.execute(
+            """
+            INSERT INTO narrative_relations (
+                id, project_id, source, target, relation, valid_from, valid_to,
+                confidence, source_ref, status
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                created.id,
+                project_id,
+                created.source,
+                created.target,
+                created.relation,
+                created.valid_from,
+                created.valid_to,
+                created.confidence,
+                created.source_ref,
+                created.status,
+            ),
+        )
+        return created
+
+    def list_relations(self, project_id: str) -> list[NarrativeRelation]:
+        rows = self.connection.execute(
+            """
+            SELECT id, project_id, source, target, relation, valid_from, valid_to,
+                   confidence, source_ref, status
+            FROM narrative_relations
+            WHERE project_id = ?
+            ORDER BY valid_from, source, relation, target, id
+            """,
+            (project_id,),
+        ).fetchall()
+        return [_relation_from_row(row) for row in rows]
+
+    def relations_at(self, project_id: str, scene_position: int) -> list[NarrativeRelation]:
+        rows = self.connection.execute(
+            """
+            SELECT id, project_id, source, target, relation, valid_from, valid_to,
+                   confidence, source_ref, status
+            FROM narrative_relations
+            WHERE project_id = ?
+              AND status = 'confirmed'
+              AND valid_from <= ?
+              AND (valid_to IS NULL OR valid_to >= ?)
+            ORDER BY source, relation, target, valid_from DESC, id
+            """,
+            (project_id, scene_position, scene_position),
+        ).fetchall()
+        return [_relation_from_row(row) for row in rows]
 
     def create_thread(self, project_id: str, thread: StoryThreadCreate) -> StoryThread:
         if (

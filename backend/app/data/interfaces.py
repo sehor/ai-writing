@@ -6,6 +6,8 @@ from app.models import (
     CanonEntityUpdate,
     CharacterKnowledge,
     CharacterKnowledgeCreate,
+    KnowledgeState,
+    KnowledgeStateCreate,
     MemoryRecord,
     MemoryRecordCreate,
     MemoryRecordUpdate,
@@ -30,6 +32,8 @@ from app.models import (
     SceneProposalCreate,
     SceneProposalStatus,
     SnowflakeArtifact,
+    NarrativeRelation,
+    NarrativeRelationCreate,
     StoryFact,
     StoryFactCreate,
     StoryThread,
@@ -107,6 +111,14 @@ class WritingDataStore(Protocol):
     def list_reader_facts_at(self, project_id: str, scene_position: int) -> list[StoryFact]:
         pass
 
+    def set_knowledge_state(
+        self, project_id: str, fact_id: str, knowledge: KnowledgeStateCreate
+    ) -> KnowledgeState:
+        pass
+
+    def list_knowledge_states(self, project_id: str, fact_id: str) -> list[KnowledgeState]:
+        pass
+
     def set_character_knowledge(
         self, project_id: str, fact_id: str, knowledge: CharacterKnowledgeCreate
     ) -> CharacterKnowledge:
@@ -115,6 +127,19 @@ class WritingDataStore(Protocol):
     def list_character_facts_at(
         self, project_id: str, character: str, scene_position: int
     ) -> list[StoryFact]:
+        pass
+
+    def create_narrative_relation(
+        self, project_id: str, relation: NarrativeRelationCreate
+    ) -> NarrativeRelation:
+        pass
+
+    def list_narrative_relations(self, project_id: str) -> list[NarrativeRelation]:
+        pass
+
+    def list_narrative_relations_at(
+        self, project_id: str, scene_position: int
+    ) -> list[NarrativeRelation]:
         pass
 
     def create_story_thread(self, project_id: str, thread: StoryThreadCreate) -> StoryThread:

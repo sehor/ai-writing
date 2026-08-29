@@ -341,6 +341,77 @@ def _add_narrative_state_tables(connection: sqlite3.Connection) -> None:
     )
 
 
+def _add_narrative_domain_phase0_tables(connection: sqlite3.Connection) -> None:
+    _run_script(
+        connection,
+        """
+        CREATE TABLE IF NOT EXISTS knowledge_states (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            fact_id TEXT NOT NULL,
+            scope TEXT NOT NULL,
+            character TEXT NOT NULL COLLATE NOCASE DEFAULT '',
+            known_from_scene INTEGER NOT NULL,
+            source_ref TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'confirmed',
+            UNIQUE (project_id, fact_id, scope, character),
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY (fact_id) REFERENCES story_facts(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_knowledge_states_lookup
+            ON knowledge_states(project_id, scope, character, known_from_scene);
+        CREATE TABLE IF NOT EXISTS narrative_relations (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            source TEXT NOT NULL,
+            target TEXT NOT NULL,
+            relation TEXT NOT NULL,
+            valid_from INTEGER NOT NULL,
+            valid_to INTEGER,
+            confidence REAL NOT NULL DEFAULT 1.0,
+            source_ref TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL DEFAULT 'confirmed',
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_narrative_relations_project_interval
+            ON narrative_relations(project_id, valid_from, valid_to);
+        """,
+    )
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO knowledge_states (
+            id, project_id, fact_id, scope, character, known_from_scene, source_ref, status
+        )
+        SELECT 'knowledge-world-' || id, project_id, id, 'world_truth', '',
+               valid_from_scene, source_ref, status
+        FROM story_facts
+        """
+    )
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO knowledge_states (
+            id, project_id, fact_id, scope, character, known_from_scene, source_ref, status
+        )
+        SELECT 'knowledge-reader-' || id, project_id, id, 'reader_knowledge', '',
+               reader_visible_from, source_ref, status
+        FROM story_facts
+        WHERE reader_visible_from IS NOT NULL
+        """
+    )
+    connection.execute(
+        """
+        INSERT OR IGNORE INTO knowledge_states (
+            id, project_id, fact_id, scope, character, known_from_scene, source_ref, status
+        )
+        SELECT 'knowledge-character-' || k.fact_id || '-' || lower(k.character),
+               k.project_id, k.fact_id, 'character_knowledge', k.character,
+               k.known_from_scene, f.source_ref, f.status
+        FROM story_fact_character_knowledge k
+        JOIN story_facts f ON f.project_id = k.project_id AND f.id = k.fact_id
+        """
+    )
+
+
 def _run_script(connection: sqlite3.Connection, script: str) -> None:
     """Execute DDL statement by statement (executescript would auto-commit)."""
     for statement in script.split(";"):
@@ -359,6 +430,11 @@ MIGRATIONS: list[Migration] = [
     ),
     Migration(version=5, name="outbox_processing_lease", apply=_add_outbox_processing_lease),
     Migration(version=6, name="narrative_state_tables", apply=_add_narrative_state_tables),
+    Migration(
+        version=7,
+        name="narrative_domain_phase0_tables",
+        apply=_add_narrative_domain_phase0_tables,
+    ),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1].version
