@@ -34,6 +34,26 @@ class KnowledgeCompilerResponseError(KnowledgeCompilerError):
     pass
 
 
+class KnowledgeCompilerConfigurationError(KnowledgeCompilerError):
+    pass
+
+
+class UnavailableKnowledgeCompiler:
+    """Configured CLP adapter that could not be constructed safely.
+
+    Keep the application and authoritative authoring paths available, but
+    fail every CLP extraction so Outbox records the configuration error and
+    preserves its normal retry semantics instead of caching an empty success.
+    """
+
+    def __init__(self, *, compiler_version: str, error: Exception) -> None:
+        self.compiler_version = compiler_version.strip() or DEFAULT_CLP_COMPILER_VERSION
+        self._error_message = str(error)
+
+    def extract_revision(self, request: KnowledgeCompilerRequest) -> KnowledgeCompilerResult:
+        raise KnowledgeCompilerConfigurationError(self._error_message)
+
+
 class LlmWikiClpClient:
     """Local HTTP/JSON adapter for the LLM Wiki CLP sidecar.
 
@@ -103,23 +123,29 @@ class LlmWikiClpClient:
 
 
 def get_knowledge_compiler() -> KnowledgeCompiler:
-    """Resolve the optional local CLP bridge from environment configuration."""
+    """Resolve the optional local CLP bridge without owning app availability."""
     base_url = os.environ.get(CLP_BASE_URL_ENV, "").strip()
     if not base_url:
         return DisabledKnowledgeCompiler()
-    timeout_raw = os.environ.get(CLP_TIMEOUT_ENV, str(DEFAULT_CLP_TIMEOUT_SECONDS)).strip()
-    try:
-        timeout_seconds = float(timeout_raw)
-    except ValueError as exc:
-        raise ValueError(f"{CLP_TIMEOUT_ENV} must be numeric.") from exc
     compiler_version = os.environ.get(
         CLP_COMPILER_VERSION_ENV, DEFAULT_CLP_COMPILER_VERSION
     ).strip()
-    return LlmWikiClpClient(
-        base_url=base_url,
-        timeout_seconds=timeout_seconds,
-        compiler_version=compiler_version,
-    )
+    try:
+        timeout_raw = os.environ.get(CLP_TIMEOUT_ENV, str(DEFAULT_CLP_TIMEOUT_SECONDS)).strip()
+        try:
+            timeout_seconds = float(timeout_raw)
+        except ValueError as exc:
+            raise ValueError(f"{CLP_TIMEOUT_ENV} must be numeric.") from exc
+        return LlmWikiClpClient(
+            base_url=base_url,
+            timeout_seconds=timeout_seconds,
+            compiler_version=compiler_version,
+        )
+    except Exception as exc:
+        return UnavailableKnowledgeCompiler(
+            compiler_version=compiler_version,
+            error=exc,
+        )
 
 
 def _validate_loopback_base_url(base_url: str) -> None:

@@ -484,6 +484,18 @@ P8 后核对成功标准 6，确认正式写入已经与 Graph / cognition / CLP
 - 不吞掉正式写入事务、Review validation 或 Outbox job handler 自身的失败；仅隔离 commit 之后的 wake signal。
 - 增加 authoring failure-isolation contract test，证明 wake 故障时 save / accept / edit / restore / read 仍成功，且各 revision 的派生 jobs 已持久化等待恢复处理。
 
+### P10：固化 optional CLP configuration / startup failure 边界
+
+P9 后继续核对成功标准 6，确认 CLP 虽已位于 post-commit Outbox 派生链，但 dispatcher startup 与 retry dependency resolution 仍会同步构造 CLP adapter；显式配置错误因此可能在任何 authoring/read 请求之前阻断整个应用。
+
+- CLP 未配置时继续使用 `DisabledKnowledgeCompiler`，保留现有成功 zero-candidate 语义。
+- CLP 已配置但 timeout、loopback URL、path、compiler version 或其他 adapter construction 校验失败时，不再阻断 FastAPI lifespan / Outbox dispatcher 建立，也不阻断正式 authoring/read API。
+- malformed configuration 不降级成 `DisabledKnowledgeCompiler`；改用一个最小失败型 `KnowledgeCompiler`，在真正执行 `clp_extraction` 时抛出 configuration error。
+- CLP job 因此继续走既有 Outbox handler failure semantics：job 标记 `failed`、错误可观察、attempt 可递增、可通过现有 retry gate 重试；不会形成 successful zero-candidate analysis cache。
+- authoritative revision 与同事务持久化的 Outbox jobs 保持不变；其他 consistency / cognition / Wiki 派生 job 不受 CLP configuration failure 影响。
+- 不吞 SQLite transaction、Review validation 或 Outbox handler failure；只隔离 optional CLP adapter 的构造失败对应用可用性的影响。
+- 增加 failure-isolation contract test，证明 malformed CLP 配置下应用可启动，accept / manual save / restore / read / export 正常，CLP jobs 独立失败且可重试，其他派生 job 仍成功。
+
 ---
 
 ## 11. 明确不做
