@@ -149,13 +149,17 @@ class NarrativeSnapshot:
         )
         return replace(snapshot, cognition_context=cognition_context)
 
+    def scene_for_generation(self) -> SceneContract:
+        """Return the target Scene Contract without legacy narrative context fields."""
+        return self.scene.model_copy(update={"open_threads": ""})
+
     def as_project_snapshot(self) -> ProjectCognitionSnapshot:
         """Compatibility view for legacy cognition/reference consumers."""
         safe_canon = [
             entity.model_copy(update={"current_state": "", "last_seen": "", "timeline_notes": ""})
             for entity in self.canon_entities
         ]
-        safe_scene = self.scene.model_copy(update={"open_threads": ""})
+        safe_scene = self.scene_for_generation()
         return ProjectCognitionSnapshot(
             project=self.project,
             artifacts=[],

@@ -496,6 +496,18 @@ P9 后继续核对成功标准 6，确认 CLP 虽已位于 post-commit Outbox �
 - 不吞 SQLite transaction、Review validation 或 Outbox handler failure；只隔离 optional CLP adapter 的构造失败对应用可用性的影响。
 - 增加 failure-isolation contract test，证明 malformed CLP 配置下应用可启动，accept / manual save / restore / read / export 正常，CLP jobs 独立失败且可重试，其他派生 job 仍成功。
 
+### P11：固化 provider Manuscript generation 的 Snapshot 输入边界
+
+P10 后重新核对成功标准 3 和 7，确认 local / provider Manuscript 已共享 `NarrativeSnapshot` 渲染 context，但 provider 调用仍同时收到原始 `SceneContract`；因此旧 `open_threads` 可绕过安全 context，直接进入可替换 provider adapter。
+
+- provider Manuscript generation 继续只生成 proposal，不改变 Review / acceptance / Outbox 主链。
+- provider 使用与 local generation 相同的 `NarrativeSnapshot.for_scene()`；其 prose context 必须与该 Snapshot 的 `render_generation_context()` 完全一致。
+- provider 收到的目标 Scene Contract 改为 Snapshot-owned generation projection，仅移除 legacy `open_threads`；目标 scene 的 POV / goal / conflict / turning point / required / forbidden 等正式 scene contract 字段保持不变。
+- cognition compatibility projection 与 provider generation projection 共用同一 Scene 清理规则，避免未来出现两套 legacy-field stripping 逻辑。
+- future Scene、future StoryFact、reader / POV knowledge 隔离、legacy Canon `current_state` / `last_seen` / `timeline_notes` 继续由既有 Snapshot 边界负责；structured StoryThread 仍正常进入安全 generation context。
+- 不迁移 project-scoped Reference / Writeback cognition，不改旧 `/graph/analysis` advisory compatibility surface，不改变 SQLite authority 或 CLP candidate / Review semantics。
+- 增加 provider Manuscript boundary contract test，使用捕获 provider 输入的替身直接证明 raw `open_threads` 不能绕过 Snapshot，同时 future / legacy temporal data 不泄漏且 structured StoryThread 仍可见。
+
 ---
 
 ## 11. 明确不做

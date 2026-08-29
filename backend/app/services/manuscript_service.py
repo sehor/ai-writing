@@ -132,7 +132,8 @@ class ManuscriptService:
                 detail="DeepSeek provider not configured.",
             )
 
-        context = self._build_context(project_id, project, scene)
+        snapshot = self._build_snapshot(project_id, project, scene)
+        context = snapshot.render_generation_context()
         try:
             with timed_operation(
                 "provider_call",
@@ -140,7 +141,7 @@ class ManuscriptService:
                 provider=str(getattr(provider, "name", "unknown")),
                 project_id=project_id,
             ):
-                content = provider.generate_manuscript(scene, context)
+                content = provider.generate_manuscript(snapshot.scene_for_generation(), context)
         except WorkflowNotConfiguredError as exc:
             raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc))
         except Exception as exc:
@@ -201,12 +202,14 @@ class ManuscriptService:
         project = self.data_store.get_project(project_id)
         return scene, project
 
-    def _build_context(self, project_id: str, project, scene) -> str:
+    def _build_snapshot(self, project_id: str, project, scene) -> NarrativeSnapshot:
         resolved_project_id = project.id if project else project_id
-        snapshot = NarrativeSnapshot.for_scene(
+        return NarrativeSnapshot.for_scene(
             project_id=resolved_project_id,
             scene_id=scene.id,
             data_store=self.data_store,
             cognition=self.cognition,
         )
-        return snapshot.render_generation_context()
+
+    def _build_context(self, project_id: str, project, scene) -> str:
+        return self._build_snapshot(project_id, project, scene).render_generation_context()
