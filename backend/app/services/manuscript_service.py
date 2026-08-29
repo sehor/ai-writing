@@ -3,7 +3,7 @@ from fastapi import Depends, HTTPException, status
 
 from app.agents.writing_workflow import WorkflowNotConfiguredError
 from app.cognition.registry import CognitionRegistry, get_cognition_registry
-from app.cognition.snapshots import NarrativeSnapshot
+from app.narrative import NarrativeSnapshot
 from app.data import WritingDataStore, get_data_store, utc_now
 from app.integrations.provider_registry import (
     ProviderConfigurationError,
