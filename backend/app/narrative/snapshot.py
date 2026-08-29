@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from app.cognition.interfaces import ContextPacket, ProjectCognitionSnapshot, WritingScope
 from app.data import WritingDataStore
@@ -83,16 +83,6 @@ class NarrativeSnapshot:
             scene.sequence,
         )
         canon_entities = data_store.list_canon_entities(project_id)
-
-        project_snapshot = ProjectCognitionSnapshot(
-            project=project,
-            # Step 8/9 prose-planning artifacts remain outside scene generation.
-            artifacts=[],
-            canon_entities=canon_entities,
-            scenes=scenes,
-            memory_records=memory_records,
-            manuscript_scenes=manuscript_scenes,
-        )
         world_truth = data_store.list_story_facts_at(project_id, scene.sequence)
         reader_knowledge = data_store.list_reader_facts_at(project_id, scene.sequence)
         pov_knowledge = (
@@ -130,15 +120,7 @@ class NarrativeSnapshot:
         )
         safe_future_constraints = _safe_future_constraints(scene, active_threads)
 
-        cognition_context = (
-            cognition.prepare_context(
-                project_snapshot,
-                WritingScope(kind="scene", ref=scene.id, instruction=scene.title),
-            )
-            if cognition is not None
-            else []
-        )
-        return cls(
+        snapshot = cls(
             project=project,
             scene=scene,
             canon_entities=canon_entities,
@@ -158,8 +140,14 @@ class NarrativeSnapshot:
             safe_future_constraints=safe_future_constraints,
             future_fact_ids=future_fact_ids,
             future_relation_ids=future_relation_ids,
-            cognition_context=cognition_context,
         )
+        if cognition is None:
+            return snapshot
+        cognition_context = cognition.prepare_context(
+            snapshot.as_project_snapshot(),
+            WritingScope(kind="scene", ref=scene.id, instruction=scene.title),
+        )
+        return replace(snapshot, cognition_context=cognition_context)
 
     def as_project_snapshot(self) -> ProjectCognitionSnapshot:
         """Compatibility view for legacy cognition/reference consumers."""

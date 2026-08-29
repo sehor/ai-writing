@@ -461,6 +461,18 @@ P6 后继续收口成功标准 4，避免旧 `SceneContract.open_threads` 与结
 - 不改变 Director、CLP candidate、Writeback Review、Manuscript acceptance 或 Outbox 行为。
 - 增加 StoryThread boundary tests，证明旧字符串存在时不会污染 scene generation、Reference 或 Graph，且结构化线程仍正常可见。
 
+### P8：固化 scene-scoped cognition 输入边界
+
+P7 后继续收口成功标准 3 和 7，避免可替换 cognition adapter 通过旧项目级字段绕过 Narrative Snapshot 的时间/知识隔离：
+
+- `NarrativeSnapshot.for_scene()` 先完成 SQLite Domain + Graph 的确定性 scene snapshot，再从该 snapshot 生成 cognition 兼容投影。
+- scene-scoped cognition 只接收目标 Scene，不接收未来 Scene Contract。
+- 兼容投影继续清空 Canon `current_state` / `last_seen` / `timeline_notes` 与 Scene `open_threads`，避免旧 temporal/current-state 字段重新进入 prose context。
+- cognition 可见 StoryThread 只使用当前 scene 计算出的结构化 active threads / prior events；Memory 与 accepted manuscript 继续遵守现有 scene filtering。
+- Reference 继续复用同一安全兼容投影，不新增第二套 projection 规则。
+- 不改变非 scene-scoped cognition、Snowflake 1–9 source/evidence retrieval、Director、CLP、Review、Manuscript acceptance 或 Outbox。
+- 增加 cognition boundary contract test，使用会回显输入字段的 adapter 证明未来 Scene、旧 Canon temporal state 和旧 `open_threads` 均无法经 cognition 重新污染 scene generation，同时结构化 StoryThread 仍可见。
+
 ---
 
 ## 11. 明确不做
