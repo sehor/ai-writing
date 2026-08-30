@@ -22,6 +22,8 @@ const state = {
   revisions: [],
   writebacks: [],
   references: [],
+  graphAvailable: false,
+  graphRequestCount: 0,
 }
 
 function nextId(prefix, items) {
@@ -66,7 +68,15 @@ async function handleApi(route) {
   if (method === 'GET' && path.endsWith('/manuscript/revisions')) return route.fulfill(jsonResponse(state.revisions))
   if (method === 'GET' && path.endsWith('/writeback/proposals')) return route.fulfill(jsonResponse(state.writebacks))
   if (method === 'GET' && path.endsWith('/references/suggestions')) return route.fulfill(jsonResponse(state.references))
+  if (method === 'GET' && path.endsWith('/outbox-jobs')) return route.fulfill(jsonResponse([]))
+  if (method === 'GET' && path.includes('/analysis/consistency/from-revision/')) {
+    return route.fulfill(jsonResponse({ detail: 'analysis not ready' }, 404))
+  }
   if (method === 'GET' && path.endsWith('/graph/analysis')) {
+    state.graphRequestCount += 1
+    if (!state.graphAvailable) {
+      return route.fulfill(jsonResponse({ detail: 'advisory graph unavailable' }, 503))
+    }
     return route.fulfill(jsonResponse({
       project_id: state.project.id,
       summary: { node_count: 0, edge_count: 0, risk_count: 0, critical_count: 0, warning_count: 0, unresolved_thread_count: 0, canon_reference_count: 0 },
@@ -193,7 +203,7 @@ try {
   await waitForServer(frontendUrl)
   browser = await chromium.launch()
   const page = await browser.newPage()
-  await page.route('**/api/**', handleApi)
+  await page.route(`${frontendUrl}/api/**`, handleApi)
   await page.goto(frontendUrl)
 
   await page.getByRole('button', { name: 'Manuscript' }).click()
@@ -235,6 +245,18 @@ try {
 
   assert.equal(state.proposals[0].status, 'accepted')
   assert.equal(state.references[0].status, 'accepted')
+  assert.ok(
+    state.graphRequestCount > 0,
+    'authoring refreshes attempted advisory graph analysis while it was unavailable',
+  )
+
+  await page.getByRole('button', { name: 'Graph' }).click()
+  const graphWorkspace = page.locator('.graph-workspace')
+  await graphWorkspace.getByText('Graph analysis could not be loaded.').waitFor()
+
+  state.graphAvailable = true
+  await graphWorkspace.getByRole('button', { name: 'Refresh' }).click()
+  await graphWorkspace.getByText('No structural risks detected.').waitFor()
 } finally {
   await browser?.close()
   if (server.exitCode === null) {

@@ -535,3 +535,18 @@ P10 后重新核对成功标准 3 和 7，确认 local / provider Manuscript 已
 5. CLP 能从正文产生带 evidence 的 typed candidates，但无法绕过 Review 修改正式状态。
 6. Graphify 或 CLP 不可用时，作者仍可以正常编辑、保存、版本回滚和读取小说。
 7. 外部组件未来可替换，而不需要迁移小说权威数据模型。
+
+---
+
+## 13. 最终收官审计
+
+2026-08-30 已完成 P0–P11 与上述七条成功标准的最终代码、contract test、模拟故障与浏览器流程审计，详见：
+
+- `docs/narrative-graph-clp-final-audit.md`
+
+审计结论：
+
+- 七条成功标准 7/7 PASS。
+- provider、CLP、Graph 与 cognition 的外部依赖使用应用自有测试替身或模拟动作完成验证，不要求真实 API key。
+- 旧 `/projects/{project_id}/graph/analysis` 保留为只读、可失败、可替换的 advisory compatibility surface，不持有或修改权威状态。
+- 未发现需要新增 P12 的生产功能缺口；当前剩余阶段数为 0。
