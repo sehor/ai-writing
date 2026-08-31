@@ -4,7 +4,7 @@ import time
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.data import data_store
+from app.data import get_data_store
 from app.observability import bind_request_id, log_event, new_request_id
 from app.outbox.dispatcher import build_app_outbox_dispatcher
 from app.routers import (
@@ -28,7 +28,9 @@ from app.routers import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    data_store.init()
+    # Tests and local integrations must initialize the same store that their
+    # routes/dispatcher use, never the developer's default database.
+    app.dependency_overrides.get(get_data_store, get_data_store)().init()
     # P1-03: post-commit jobs are dispatched by this app-owned background
     # loop instead of inside mutation requests.
     dispatcher = build_app_outbox_dispatcher(app)

@@ -3,6 +3,7 @@ import re
 import shutil
 from hashlib import sha256
 from pathlib import Path
+from app.data.project_operations import project_operation
 
 from app.llm_wiki.interfaces import (
     WikiContextQuery,
@@ -23,6 +24,10 @@ class LocalFileLlmWiki:
         self.projects_root = projects_root
 
     def ingest(self, document: WikiSourceDocument) -> WikiIngestionResult:
+        with project_operation(document.project_id):
+            return self._ingest(document)
+
+    def _ingest(self, document: WikiSourceDocument) -> WikiIngestionResult:
         project_path = self._project_path(document.project_id)
         source_path = self._source_path(project_path, document)
         status = "updated" if source_path.is_file() else "stored"

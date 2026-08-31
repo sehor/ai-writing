@@ -34,6 +34,7 @@ from app.data.repositories.scenes import SceneRepository
 from app.data.repositories.snowflake import SnowflakeRepository
 from app.models import (
     CanonEntityCreate,
+    ManuscriptProposalAcceptance,
     ManuscriptRevision,
     ManuscriptScene,
     ManuscriptSceneUpdate,
@@ -178,6 +179,7 @@ def accept_manuscript_proposal(
     *,
     project_id: str,
     proposal_id: str,
+    draft: ManuscriptProposalAcceptance | None = None,
 ) -> ManuscriptScene | None:
     """Accept one pending proposal: scene upsert + revision + jobs + supersede.
 
@@ -198,6 +200,10 @@ def accept_manuscript_proposal(
         return None
 
     current_version = manuscripts.get_scene_version(project_id, proposal.scene_id)
+    if draft is not None and draft.expected_scene_version != (current_version or 0):
+        raise ValueError(
+            "The manuscript scene changed while this draft was being edited. Reload before accepting."
+        )
     version = current_version + 1 if current_version is not None else 1
     scene = ManuscriptScene(
         id=make_record_id(
@@ -209,8 +215,8 @@ def accept_manuscript_proposal(
         project_id=project_id,
         scene_id=proposal.scene_id,
         proposal_id=proposal.id,
-        title=proposal.title,
-        content=proposal.content,
+        title=draft.title if draft is not None else proposal.title,
+        content=draft.content if draft is not None else proposal.content,
         version=version,
         accepted_at=now,
     )
@@ -222,8 +228,8 @@ def accept_manuscript_proposal(
         project_id=project_id,
         scene_id=proposal.scene_id,
         proposal_id=proposal.id,
-        title=proposal.title,
-        content=proposal.content,
+        title=scene.title,
+        content=scene.content,
         version=version,
         created_at=now,
     )

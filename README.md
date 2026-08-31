@@ -190,7 +190,8 @@ Backend:
 
 ```bash
 cd backend
-uv run --with-requirements requirements.txt uvicorn app.main:app --reload --port 8000
+uv sync --frozen --extra dev
+uv run --frozen --extra dev uvicorn app.main:app --reload --port 8000
 ```
 
 AI runtime configuration lives in the repository `.env` file:
@@ -219,12 +220,12 @@ Use these checks after relevant changes (CI runs the same gates via [.github/wor
 
 ```bash
 # Backend
-python -m compileall backend/app
-pip install ruff==0.16.4
-ruff check backend
-ruff format --check backend
 cd backend
-python -m unittest discover -s tests
+uv sync --frozen --extra dev
+uv run --frozen --extra dev python -m compileall app
+uv run --frozen --extra dev ruff check .
+uv run --frozen --extra dev ruff format --check .
+uv run --frozen --extra dev python -m unittest discover -s tests
 cd ..
 
 # Frontend
@@ -235,6 +236,12 @@ pnpm test
 pnpm build
 ```
 
+`backend/pyproject.toml` and `backend/uv.lock` are the dependency source of truth.
+The compatibility `requirements.txt` is generated with
+`uv export --frozen --no-dev --no-hashes --no-emit-project --no-header --output-file requirements.txt`.
+Do not edit it independently. Frontend tests include real Pinia/component behavior
+tests as well as the remaining source-boundary checks.
+
 Browser E2E (optional, local only — boots a real backend on a temporary SQLite root plus Vite, then drives Chromium):
 
 ```bash
@@ -243,4 +250,4 @@ node full-review-loop.e2e.mjs   # happy path: accept -> auto-analysis -> review 
 node wiki-failure.e2e.mjs       # wiki ingest failure + UI retry recovery
 ```
 
-See [AGENTS.md](AGENTS.md) for Codex development rules and [docs/development-plan.md](docs/development-plan.md) for the active implementation plan.
+See [AGENTS.md](AGENTS.md) for Codex development rules, [docs/development-plan.md](docs/development-plan.md) for the active implementation plan, and [docs/ai-writing-remediation-plan.md](docs/ai-writing-remediation-plan.md) for the audit remediation roadmap.

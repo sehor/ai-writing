@@ -636,6 +636,9 @@ class ClpPostAcceptPipelineTests(unittest.TestCase):
 
             first = service.process_job(project_id, job.id)
             retried = service.retry(project_id, job.id)
+            self.assertEqual(retried.status, "pending")
+            self.assertEqual(compiler.calls, 1)
+            completed = service.process_job(project_id, job.id)
             proposals = [
                 item
                 for item in store.list_writeback_proposals(project_id)
@@ -643,7 +646,7 @@ class ClpPostAcceptPipelineTests(unittest.TestCase):
             ]
 
         self.assertEqual(first.status, "failed")
-        self.assertEqual(retried.status, "succeeded")
+        self.assertEqual(completed.status, "succeeded")
         self.assertEqual(compiler.calls, 2)
         self.assertEqual(len(proposals), 2)
 

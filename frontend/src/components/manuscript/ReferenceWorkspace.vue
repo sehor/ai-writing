@@ -171,10 +171,10 @@ const {
             </li>
           </ul>
         </section>
-        <section>
-          <p class="eyebrow">Used Context</p>
+        <details>
+          <summary>Used Context · 展开查看</summary>
           <pre>{{ activeReferenceSuggestion.used_context }}</pre>
-        </section>
+        </details>
       </section>
     </div>
   </section>

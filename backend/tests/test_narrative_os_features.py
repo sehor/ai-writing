@@ -22,7 +22,9 @@ class TemporalNarrativeStateTests(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             store = SQLiteWritingDataStore(Path(temp_dir) / "app.db")
             store.init()
-            project = store.create_project(ProjectCreate(title="Temporal", premise="Secrets move in time."))
+            project = store.create_project(
+                ProjectCreate(title="Temporal", premise="Secrets move in time.")
+            )
             fact = store.create_story_fact(
                 project.id,
                 StoryFactCreate(
@@ -41,9 +43,13 @@ class TemporalNarrativeStateTests(unittest.TestCase):
             )
 
             self.assertEqual(store.list_story_facts_at(project.id, 9), [])
-            self.assertEqual([item.id for item in store.list_story_facts_at(project.id, 10)], [fact.id])
+            self.assertEqual(
+                [item.id for item in store.list_story_facts_at(project.id, 10)], [fact.id]
+            )
             self.assertEqual(store.list_reader_facts_at(project.id, 19), [])
-            self.assertEqual([item.id for item in store.list_reader_facts_at(project.id, 20)], [fact.id])
+            self.assertEqual(
+                [item.id for item in store.list_reader_facts_at(project.id, 20)], [fact.id]
+            )
             self.assertEqual(store.list_character_facts_at(project.id, "Mira", 14), [])
             self.assertEqual(
                 [item.id for item in store.list_character_facts_at(project.id, "mira", 15)],
@@ -54,7 +60,9 @@ class TemporalNarrativeStateTests(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             store = SQLiteWritingDataStore(Path(temp_dir) / "app.db")
             store.init()
-            project = store.create_project(ProjectCreate(title="Intervals", premise="States change."))
+            project = store.create_project(
+                ProjectCreate(title="Intervals", premise="States change.")
+            )
             old = store.create_story_fact(
                 project.id,
                 StoryFactCreate(
@@ -77,8 +85,12 @@ class TemporalNarrativeStateTests(unittest.TestCase):
                 ),
             )
 
-            self.assertEqual([item.id for item in store.list_story_facts_at(project.id, 4)], [old.id])
-            self.assertEqual([item.id for item in store.list_story_facts_at(project.id, 5)], [new.id])
+            self.assertEqual(
+                [item.id for item in store.list_story_facts_at(project.id, 4)], [old.id]
+            )
+            self.assertEqual(
+                [item.id for item in store.list_story_facts_at(project.id, 5)], [new.id]
+            )
 
 
 class StoryThreadDirectorTests(unittest.TestCase):
@@ -86,7 +98,9 @@ class StoryThreadDirectorTests(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             store = SQLiteWritingDataStore(Path(temp_dir) / "app.db")
             store.init()
-            project = store.create_project(ProjectCreate(title="Threads", premise="Promises must pay off."))
+            project = store.create_project(
+                ProjectCreate(title="Threads", premise="Promises must pay off.")
+            )
             scenes = [
                 store.create_scene_contract(
                     project.id,
@@ -108,7 +122,9 @@ class StoryThreadDirectorTests(unittest.TestCase):
             store.add_story_thread_event(
                 project.id,
                 thread.id,
-                StoryThreadEventCreate(scene_id=scenes[0].id, action="plant", note="Map signature differs."),
+                StoryThreadEventCreate(
+                    scene_id=scenes[0].id, action="plant", note="Map signature differs."
+                ),
             )
             current_threads = store.list_story_threads(project.id)
             events = store.list_story_thread_events(project.id, thread.id)
@@ -166,21 +182,27 @@ class StoryThreadDirectorTests(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             store = SQLiteWritingDataStore(Path(temp_dir) / "app.db")
             store.init()
-            project = store.create_project(ProjectCreate(title="Payoff", premise="A thread resolves."))
+            project = store.create_project(
+                ProjectCreate(title="Payoff", premise="A thread resolves.")
+            )
             scene = store.create_scene_contract(
                 project.id,
                 SceneContractCreate(sequence=8, title="Reveal", pov="Mira"),
             )
             thread = store.create_story_thread(
                 project.id,
-                StoryThreadCreate(thread_type="promise", title="Open the sealed room", importance=4),
+                StoryThreadCreate(
+                    thread_type="promise", title="Open the sealed room", importance=4
+                ),
             )
             store.add_story_thread_event(
                 project.id,
                 thread.id,
                 StoryThreadEventCreate(scene_id=scene.id, action="payoff", note="The room opens."),
             )
-            refreshed = next(item for item in store.list_story_threads(project.id) if item.id == thread.id)
+            refreshed = next(
+                item for item in store.list_story_threads(project.id) if item.id == thread.id
+            )
             self.assertEqual(refreshed.status, "paid_off")
 
 
@@ -205,7 +227,9 @@ class StyleAndKnowledgeChecksTests(unittest.TestCase):
 
         self.assertTrue(report.findings)
         self.assertTrue(any(item.metric == "avg_sentence_length" for item in report.findings))
-        self.assertTrue(all("no rewrite is applied" in item.explanation for item in report.findings))
+        self.assertTrue(
+            all("no rewrite is applied" in item.explanation for item in report.findings)
+        )
         self.assertEqual(candidate[-3:], "！！！")
 
     def test_consistency_flags_verbatim_reader_knowledge_leak(self) -> None:

@@ -372,15 +372,21 @@ export async function startVite({ port, backendPort }) {
 /** Stop a Vite server started by startVite(). */
 export async function stopVite(handle) {
   if (!handle) return
+  let timer
   try {
     await Promise.race([
       handle.server.close(),
-      sleep(8000).then(() => {
-        console.warn('[harness] vite close timed out after 8s; continuing teardown')
+      new Promise((resolve) => {
+        timer = setTimeout(() => {
+          console.warn('[harness] vite close timed out after 8s; continuing teardown')
+          resolve()
+        }, 8000)
       }),
     ])
   } catch (error) {
     console.warn('[harness] vite close errored: ' + error.message)
+  } finally {
+    clearTimeout(timer)
   }
 }
 

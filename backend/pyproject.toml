@@ -3,6 +3,14 @@ name = "ai-writing-backend"
 version = "0.1.0"
 description = "Local-first long-form fiction workspace backend (FastAPI + SQLite)"
 requires-python = ">=3.11"
+dependencies = [
+    "fastapi==0.115.6",
+    "uvicorn[standard]==0.34.0",
+    "pydantic==2.10.4",
+    "openai==1.58.1",
+    "httpx==0.28.1",
+    "networkx==3.6.1",
+]
 
 [project.optional-dependencies]
 dev = ["ruff==0.16.4"]

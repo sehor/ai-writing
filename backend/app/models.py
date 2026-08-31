@@ -58,7 +58,9 @@ KnowledgeScope = Literal["world_truth", "reader_knowledge", "character_knowledge
 NarrativeRelationStatus = Literal["planned", "confirmed", "superseded"]
 StoryThreadType = Literal["foreshadow", "mystery", "relationship", "conflict", "promise", "subplot"]
 StoryThreadStatus = Literal["planned", "planted", "developing", "dormant", "paid_off", "abandoned"]
-StoryThreadAction = Literal["plant", "reinforce", "misdirect", "escalate", "partial_payoff", "payoff"]
+StoryThreadAction = Literal[
+    "plant", "reinforce", "misdirect", "escalate", "partial_payoff", "payoff"
+]
 
 
 class HealthResponse(BaseModel):
@@ -399,6 +401,19 @@ class ManuscriptProposalCreate(BaseModel):
 
 class ManuscriptProposalStatusUpdate(BaseModel):
     status: ManuscriptProposalStatus
+
+
+class ManuscriptProposalAcceptance(BaseModel):
+    """Author edits are committed without mutating the originating AI proposal."""
+
+    title: str = Field(min_length=1, max_length=160)
+    content: str = Field(min_length=1, max_length=40000)
+    expected_scene_version: int = Field(ge=0)
+
+    @field_validator("title", "content", mode="before")
+    @classmethod
+    def trim_draft(cls, value):
+        return value.strip() if isinstance(value, str) else value
 
 
 class ManuscriptProposal(ManuscriptProposalCreate):

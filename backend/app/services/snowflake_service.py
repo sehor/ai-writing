@@ -190,9 +190,7 @@ class SnowflakeService:
             artifact=step.artifact,
             content=content,
         )
-        return self.data_store.enqueue_snowflake_index_job(
-            artifact, advance_step_to=step_number
-        )
+        return self.data_store.enqueue_snowflake_index_job(artifact, advance_step_to=step_number)
 
     def generate(
         self, request: SnowflakeGenerationRequest, workflow: WritingWorkflow

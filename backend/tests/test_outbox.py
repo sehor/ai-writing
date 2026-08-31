@@ -112,11 +112,16 @@ class OutboxAcceptanceTests(unittest.TestCase):
                     self.assertGreaterEqual(job.attempt_count, 1)
                     self.assertIn("RuntimeError", job.last_error)
 
-                    # Recovery: retry marks the job succeeded without side effects.
+                    # Retry only queues work; the background dispatcher completes it.
                     wiki.remaining_failures = 0
                     retried = client.post(f"/api/projects/{project_id}/outbox-jobs/{job.id}/retry")
-                    self.assertEqual(retried.status_code, 200)
-                    self.assertEqual(retried.json()["status"], "succeeded")
+                    self.assertEqual(retried.status_code, 202)
+                    self.assertEqual(retried.json()["status"], "pending")
+                    wait_until(
+                        lambda: store.get_outbox_job(project_id, job.id).status == "succeeded",
+                        timeout_seconds=20,
+                        message="retried wiki job to finish",
+                    )
                     self.assertEqual(len(wiki.documents), 1)
                     self.assertEqual(
                         wiki.documents[0].source_ref, f"manuscript_revision:{revisions[0].id}"
@@ -175,8 +180,16 @@ class OutboxAcceptanceTests(unittest.TestCase):
                     retried = client.post(
                         f"/api/projects/{project_id}/outbox-jobs/{failed_jobs[0].id}/retry"
                     )
-                    self.assertEqual(retried.status_code, 200)
-                    self.assertEqual(retried.json()["status"], "succeeded")
+                    self.assertEqual(retried.status_code, 202)
+                    self.assertEqual(retried.json()["status"], "pending")
+                    wait_until(
+                        lambda: (
+                            store.get_outbox_job(project_id, failed_jobs[0].id).status
+                            == "succeeded"
+                        ),
+                        timeout_seconds=20,
+                        message="retried snowflake job to finish",
+                    )
                     self.assertEqual(len(wiki.documents), 1)
                     self.assertEqual(wiki.documents[0].content, "Mira must map the archive.")
 
@@ -410,17 +423,18 @@ class OutboxClaimRecoveryTests(unittest.TestCase):
                 store,
                 {"reset_failed_outbox_job": lambda: service_b.retry(self.PROJECT_ID, job_id)},
             )
-            retried = OutboxService(data_store=racing_store, wiki=wiki_a).retry(
-                self.PROJECT_ID, job_id
-            )
+            with self.assertRaises(ValueError):
+                OutboxService(data_store=racing_store, wiki=wiki_a).retry(self.PROJECT_ID, job_id)
 
-            # B's retry executed the handler; A lost the CAS race and skipped it.
-            self.assertEqual(len(wiki_b.documents), 1)
+            # B queued the retry, A lost the CAS race; neither ran a handler inline.
+            self.assertEqual(wiki_b.documents, [])
             self.assertEqual(wiki_a.documents, [])
+            self.assertEqual(store.get_outbox_job(self.PROJECT_ID, job_id).status, "pending")
+            service_b.process_pending(self.PROJECT_ID)
+            self.assertEqual(len(wiki_b.documents), 1)
             final = store.get_outbox_job(self.PROJECT_ID, job_id)
             self.assertEqual(final.status, "succeeded")
             self.assertEqual(final.attempt_count, 2)
-            self.assertEqual(retried.status, "succeeded")
             with self.assertRaises(ValueError):
                 service_b.retry(self.PROJECT_ID, job_id)
 

@@ -4,6 +4,7 @@ import time
 from datetime import UTC, datetime, timedelta
 
 from fastapi import Depends
+from app.data.project_operations import project_operation
 
 from app.cognition.registry import CognitionRegistry, get_cognition_registry
 from app.data import WritingDataStore, get_data_store
@@ -52,7 +53,7 @@ class OutboxService:
         return self._run(job)
 
     def retry(self, project_id: str, job_id: str) -> OutboxJob | None:
-        """Re-run a failed job. Raises ValueError for non-failed jobs."""
+        """Requeue a failed job; only the dispatcher executes its handler."""
         job = self.data_store.get_outbox_job(project_id, job_id)
         if job is None:
             return None
@@ -60,9 +61,8 @@ class OutboxService:
             raise ValueError("Only failed outbox jobs can be retried.")
         reset = self.data_store.reset_failed_outbox_job(project_id, job_id)
         if reset is None:
-            # Another caller's retry won the compare-and-set; never double-run.
-            return self.data_store.get_outbox_job(project_id, job_id)
-        return self._run(reset)
+            raise ValueError("Another request already retried this job.")
+        return reset
 
     def resume_pending_jobs(self) -> list[OutboxJob]:
         """Process leftover pending jobs across every project.
@@ -92,11 +92,18 @@ class OutboxService:
         return [*recovered, *self.resume_pending_jobs()]
 
     def _run(self, job: OutboxJob) -> OutboxJob:
+        with project_operation(job.project_id):
+            return self._run_locked(job)
+
+    def _run_locked(self, job: OutboxJob) -> OutboxJob:
         claimed = self.data_store.claim_outbox_job(job.project_id, job.id)
         if claimed is None:
             # Lost the claim race, or the job reached a terminal state in
             # between: this dispatcher must not execute the handler.
             return job
+        # A restore may have replaced this row while the sweep waited. Always
+        # execute the freshly claimed payload, not the old sweep's snapshot.
+        job = claimed
         handler = OUTBOX_HANDLERS.get(job.job_type)
         context = OutboxJobContext(
             wiki=self.wiki,

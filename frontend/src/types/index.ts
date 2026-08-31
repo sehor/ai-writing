@@ -220,7 +220,22 @@ export type ManuscriptExport = {
 export type ReviewStatus = 'pending_review' | 'accepted' | 'rejected' | 'superseded'
 
 export type WritebackProposalStatus = ReviewStatus
-export type WritebackTarget = 'canon_entity' | 'memory_record'
+export type WritebackTarget = 'canon_entity' | 'memory_record' | 'narrative_relation' | 'story_thread_status'
+export type StoryThreadStatus = 'planned' | 'planted' | 'developing' | 'dormant' | 'paid_off' | 'abandoned'
+export type StoryThread = {
+  id: string; project_id: string; title: string; thread_type: string
+  status: StoryThreadStatus; importance: number; planted_at: number | null
+  target_payoff_from: number | null; target_payoff_to: number | null; reveal_constraints: string
+}
+export type NarrativeRelation = {
+  id: string; project_id: string; source: string; target: string; relation: string
+  valid_from: number; valid_to: number | null; confidence: number; source_ref: string; status: string
+}
+export type DirectorReport = {
+  project_id: string; scene_id: string; scene_sequence: number
+  findings: { code: string; severity: string; title: string; detail: string; advisory: boolean }[]
+  thread_lifecycles: { thread_id: string; status: string; detail: string }[]
+}
 export type ReferenceSuggestionStatus = ReviewStatus
 export type ReferenceScopeType =
   | 'project'
@@ -263,11 +278,12 @@ export type WritebackProposal = {
 }
 
 // P1-07: outbox jobs surfaced in the UI (post-acceptance analysis status).
-export type OutboxJobType = 'llm_wiki_ingest' | 'consistency_analysis' | 'writeback_analysis'
+export type OutboxJobType = 'llm_wiki_ingest' | 'consistency_analysis' | 'writeback_analysis' | 'clp_extraction'
 
 export type OutboxJobStatus = 'pending' | 'processing' | 'succeeded' | 'failed'
 
 export type OutboxJob = {
+  processing_started_at: string
   id: string
   project_id: string
   job_type: OutboxJobType
@@ -420,6 +436,10 @@ export type ActiveSection = 'snowflake' | 'canon' | 'memory' | 'graph' | 'manusc
 
 // P2-07 on the frontend: project backup / restore packages.
 export type BackupPreviewSummary = {
+  format_version: number
+  legacy_incomplete: boolean
+  can_overwrite: boolean
+  warnings: string[]
   project: {
     id: string
     title: string
@@ -433,6 +453,8 @@ export type BackupPreviewSummary = {
 }
 
 export type BackupImportSummary = {
+  format_version: number
+  legacy_incomplete: boolean
   project: {
     id: string
     title: string

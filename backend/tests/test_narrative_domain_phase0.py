@@ -43,7 +43,9 @@ class NarrativeDomainPhase0Tests(unittest.TestCase):
             store = SQLiteWritingDataStore(Path(temp_dir) / "app.db")
             store.init()
             project = store.create_project(
-                ProjectCreate(title="Character knowledge", premise="Characters learn at different times.")
+                ProjectCreate(
+                    title="Character knowledge", premise="Characters learn at different times."
+                )
             )
             fact = store.create_story_fact(
                 project.id,
@@ -74,7 +76,9 @@ class NarrativeDomainPhase0Tests(unittest.TestCase):
                 [item.id for item in store.list_character_facts_at(project.id, "mira", 84)],
                 [fact.id],
             )
-            self.assertEqual([item.id for item in store.list_reader_facts_at(project.id, 80)], [fact.id])
+            self.assertEqual(
+                [item.id for item in store.list_reader_facts_at(project.id, 80)], [fact.id]
+            )
 
     def test_narrative_relation_persists_temporal_and_provenance_metadata(self) -> None:
         with TemporaryDirectory() as temp_dir:

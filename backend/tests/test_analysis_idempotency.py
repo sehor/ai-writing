@@ -69,9 +69,7 @@ class AnalysisIdempotencyTests(unittest.TestCase):
         wait_until(
             lambda: [
                 job
-                for job in store.list_outbox_jobs(
-                    project_id, job_status=expected_status
-                )
+                for job in store.list_outbox_jobs(project_id, job_status=expected_status)
                 if job.job_type == "writeback_analysis"
             ],
             timeout_seconds=20,

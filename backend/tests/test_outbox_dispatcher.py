@@ -195,12 +195,14 @@ class DispatcherHttpContractTests(unittest.TestCase):
                     self.assertEqual(len(wiki.documents), 0)
 
                     # The dispatcher finishes the work after the response.
-                    jobs = lambda: store.list_outbox_jobs(project_id)
+                    def jobs():
+                        return store.list_outbox_jobs(project_id)
+
                     wait_until(
-                        lambda: [
-                            job.status for job in jobs() if job.job_type == "llm_wiki_ingest"
-                        ]
-                        == ["succeeded"],
+                        lambda: (
+                            [job.status for job in jobs() if job.job_type == "llm_wiki_ingest"]
+                            == ["succeeded"]
+                        ),
                         timeout_seconds=20,
                         message="wiki ingest job to succeed in the background",
                     )
@@ -228,8 +230,7 @@ class DispatcherHttpContractTests(unittest.TestCase):
 
                     wait_until(
                         lambda: all(
-                            job.status == "succeeded"
-                            for job in store.list_outbox_jobs(project_id)
+                            job.status == "succeeded" for job in store.list_outbox_jobs(project_id)
                         ),
                         timeout_seconds=20,
                         message="all four post-commit jobs to succeed",
@@ -267,8 +268,7 @@ class DispatcherHttpContractTests(unittest.TestCase):
                 # resume the pending leftover (P1-02 crash + P1-03 startup).
                 with TestClient(app):
                     wait_until(
-                        lambda: store.get_outbox_job("crash-novel", job_id).status
-                        == "succeeded",
+                        lambda: store.get_outbox_job("crash-novel", job_id).status == "succeeded",
                         timeout_seconds=20,
                         message="leftover pending job to be consumed on startup",
                     )
@@ -296,8 +296,7 @@ class DispatcherHttpContractTests(unittest.TestCase):
             try:
                 with TestClient(app):
                     wait_until(
-                        lambda: store.get_outbox_job("stale-novel", job_id).status
-                        == "succeeded",
+                        lambda: store.get_outbox_job("stale-novel", job_id).status == "succeeded",
                         timeout_seconds=20,
                         message="stale processing job to be recovered and finished",
                     )

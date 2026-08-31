@@ -2,6 +2,7 @@
 import { storeToRefs } from 'pinia'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useGraphStore } from '../stores/graph'
+import NarrativePanel from './NarrativePanel.vue'
 
 const workspace = useWorkspaceStore()
 const { activeProject } = storeToRefs(workspace)
@@ -18,6 +19,7 @@ const {
 
 <template>
 <section class="graph-workspace">
+        <NarrativePanel />
         <div class="panel-header">
           <div>
             <p class="eyebrow">Graph / Structure</p>

@@ -18,6 +18,8 @@ import { useManuscriptStore } from './manuscript'
 import { useMemoryStore } from './memory'
 import { useReviewsStore } from './reviews'
 import { useGraphStore } from './graph'
+import { useNarrativeStore } from './narrative'
+import { useProposalDraftStore } from './proposalDraft'
 import type {
   WorkflowRuntimeStatus,
   ActiveSection,
@@ -107,13 +109,21 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   let suppressNextSelectionGuard = false
 
   let projectLoadController: AbortController | null = null
+  const projectReload = ref(0)
+  const isLoadingProject = ref(false)
 
-  watch(activeProjectId, async (projectId, prevProjectId) => {
+  function reloadActiveProject() {
+    flushAllDirtyDrafts()
+    projectReload.value++
+  }
+
+  watch([activeProjectId, projectReload], async ([projectId, reload], [prevProjectId, previousReload]) => {
     if (suppressNextSelectionGuard) {
       suppressNextSelectionGuard = false
-    } else if (prevProjectId) {
+    } else if (prevProjectId && reload === previousReload) {
       // Drafts still hold the outgoing project's values at this point.
       const leaving: Array<[string, string, unknown]> = [
+        [useProposalDraftStore().scopeKey, 'AI 草稿', useProposalDraftStore().snapshot()],
         [snowflake.artifactScopeKey(prevProjectId, activeStepNumber.value), 'Snowflake 草稿', snowflake.artifactDraft],
         [canon.canonScopeKey(prevProjectId, canon.activeCanonId), 'Canon 表单', canon.canonDraft],
         [manuscript.chapterScopeKey(prevProjectId, manuscript.activeChapterId), 'Chapter 表单', manuscript.chapterDraft],
@@ -137,6 +147,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     projectLoadController?.abort()
     const controller = new AbortController()
     projectLoadController = controller
+    isLoadingProject.value = !!projectId
 
     // Tell every domain store to drop the outgoing project's state.
     snowflake.resetProjectState()
@@ -145,6 +156,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     memory.resetProjectState()
     reviews.resetProjectState()
     graph.resetProjectState()
+    useNarrativeStore().reset()
+    useProposalDraftStore().reset()
 
     const project = projectsStore.projects.find((item) => item.id === projectId)
     activeStepNumber.value = project?.current_step ?? 1
@@ -288,12 +301,18 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       }, (message) => {
         reviews.referenceStatus = message
       })
-      await graph.loadGraphAnalysis(projectId, controller.signal)
+      await Promise.all([
+        graph.loadGraphAnalysis(projectId, controller.signal),
+        reviews.loadPostAcceptAnalysisJobs(projectId),
+        useNarrativeStore().load(projectId),
+      ])
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
         return
       }
       snowflake.artifactError = 'Project data could not be loaded.'
+    } finally {
+      if (!controller.signal.aborted) isLoadingProject.value = false
     }
   })
 
@@ -329,6 +348,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   /** Flush every dirty domain draft into the local cache (page-close safety). */
   function flushAllDirtyDrafts(): void {
+    useProposalDraftStore().persist()
     const snapshots: Array<[string, () => unknown]> = [
       ...snowflake.draftSnapshotEntries(),
       ...canon.draftSnapshotEntries(),
@@ -349,6 +369,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   }
 
   return {
+    reloadActiveProject,
+    isLoadingProject,
     activeProjectId,
     activeSection,
     activeStepNumber,

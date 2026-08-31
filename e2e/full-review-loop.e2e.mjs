@@ -110,8 +110,8 @@ async function clickNavButton(page, name) {
   await page.locator('.sidebar nav.nav button', { hasText: name }).first().click()
 }
 
-/** Click Refresh inside a panel until check(panel) holds (deterministic UI wait). */
-async function refreshPanelUntil(page, panelSelector, check, { timeoutMs = 60000, label } = {}) {
+/** Wait for API truth without refreshing the UI: the app must poll on its own. */
+async function waitForJobs(check, { timeoutMs = 60000, label } = {}) {
   const deadline = Date.now() + timeoutMs
   let lastError = null
   while (Date.now() < deadline) {
@@ -120,10 +120,6 @@ async function refreshPanelUntil(page, panelSelector, check, { timeoutMs = 60000
       if (value) return
     } catch (error) {
       lastError = error
-    }
-    const refresh = page.locator(panelSelector + ' button', { hasText: 'Refresh' }).first()
-    if (await refresh.isVisible().catch(() => false)) {
-      await refresh.click()
     }
     await sleep(700)
   }
@@ -278,9 +274,17 @@ async function run(page) {
   await page
     .locator('.proposal-workspace .proposal-detail h4', { hasText: '1. ' + SCENE_TITLE })
     .waitFor({ state: 'visible' })
+  const originalProposal = (await client.get('/projects/' + project.id + '/manuscript/proposals'))[0]
+  const editedContent = originalProposal.content + '\n\nAUTHOR_REVIEWED_EDIT: Mira keeps her own notes.'
+  await page.getByTestId('proposal-draft-content').fill(editedContent)
+  // Reload restores the local draft without changing the stored AI original.
+  await page.reload()
+  await page.locator('.project-list button', { hasText: PROJECT_TITLE }).click()
+  await clickNavButton(page, 'Manuscript')
+  assert.equal(await page.getByTestId('proposal-draft-content').inputValue(), editedContent)
   await page
     .locator('.proposal-workspace .proposal-detail')
-    .getByRole('button', { name: 'Accept', exact: true })
+    .getByRole('button', { name: 'Accept · 保存并分析', exact: true })
     .click()
 
   await page
@@ -289,20 +293,23 @@ async function run(page) {
     .waitFor({ state: 'visible' })
 
   // ------------------------------------------------------------------
-  // 7. Post-Acceptance Analysis: all three automatic jobs must succeed.
-  //    (Dispatched inline right after the acceptance commit.)
+  // 7. All four jobs run asynchronously; the UI reaches terminal state unaided.
   // ------------------------------------------------------------------
   step('wait for the automatic wiki index + consistency + write-back analysis jobs')
-  const POST_ACCEPT_TYPES = ['llm_wiki_ingest', 'consistency_analysis', 'writeback_analysis']
-  await refreshPanelUntil(
-    page,
-    '.post-accept-analysis',
+  const revision = (await client.get('/projects/' + project.id + '/manuscript/revisions'))[0]
+  assert.equal(revision.content, editedContent)
+  assert.equal((await client.get('/projects/' + project.id + '/manuscript/revisions')).length, 1)
+  assert.equal((await client.get('/projects/' + project.id + '/manuscript/proposals'))
+    .find((proposal) => proposal.id === originalProposal.id).content, originalProposal.content)
+  const POST_ACCEPT_TYPES = ['llm_wiki_ingest', 'consistency_analysis', 'writeback_analysis', 'clp_extraction']
+  await waitForJobs(
     async () => {
       const jobs = await client.get('/projects/' + project.id + '/outbox-jobs')
-      const relevant = jobs.filter((job) => POST_ACCEPT_TYPES.includes(job.job_type))
+      const relevant = jobs.filter((job) => job.aggregate_id === revision.id)
       // Canon and manuscript acceptances each enqueue their own wiki index job,
       // so require every type present and EVERY relevant job succeeded.
-      if (relevant.length < POST_ACCEPT_TYPES.length) return false
+      if (relevant.length !== POST_ACCEPT_TYPES.length) return false
+      assert.deepEqual(relevant.map((job) => job.job_type).sort(), [...POST_ACCEPT_TYPES].sort())
       return relevant.every((job) => job.status === 'succeeded')
     },
     { label: 'all post-acceptance jobs succeeding', timeoutMs: 90000 },
@@ -327,7 +334,9 @@ async function run(page) {
     .locator('.severity-chip', { hasText: 'succeeded' })
     .waitFor({ state: 'visible' })
   const chipCount = await jobChips.count()
-  assert.ok(chipCount >= 3, 'at least the three post-acceptance job chips are rendered')
+  await page.locator('.post-accept-analysis article').filter({ hasText: 'CLP extraction' })
+    .locator('.severity-chip', { hasText: 'succeeded' }).waitFor({ state: 'visible' })
+  assert.equal(chipCount, 4, 'all four revision job types are rendered')
   const succeededCount = await page
     .locator('.post-accept-analysis article .severity-chip', { hasText: 'succeeded' })
     .count()
@@ -406,6 +415,56 @@ async function run(page) {
     CANON_STATE_AFTER_WRITEBACK,
     'accepted update applies the proposed current_state',
   )
+
+  // Deterministic REST fixtures exercise the same human-review UI as CLP output.
+  step('review StoryThread and NarrativeRelation proposals through the browser')
+  const thread = await client.post('/projects/' + project.id + '/story-threads', {
+    thread_type: 'mystery', title: 'Who rewrote the map?', status: 'developing',
+  })
+  const sourceRef = 'manuscript_revision:' + revisions[0].id
+  const evidence = [{ source_ref: sourceRef, excerpt: 'Mira keeps her own notes.' }]
+  const narrativeCandidates = [
+    {
+      target: 'story_thread_status', action: 'update', title: 'Archive mystery becomes dormant',
+      target_record_id: thread.id,
+      payload: { subject_id: thread.id, from_state: 'developing', proposed_state: 'dormant',
+        confidence: 0.8, source_ref: sourceRef, evidence },
+    },
+    {
+      target: 'narrative_relation', action: 'create', title: 'Mira suspects the patron',
+      payload: { source: 'character:Mira', target: 'character:Patron', relation: 'SUSPECTS',
+        valid_from: 1, confidence: 0.9, source_ref: sourceRef, evidence },
+    },
+  ]
+  for (const candidate of narrativeCandidates) {
+    await client.post('/projects/' + project.id + '/writeback/proposals', {
+      ...candidate, rationale: 'Reviewable E2E fixture', source_ref: sourceRef,
+    })
+  }
+  await clickNavButton(page, 'Graph')
+  await page.getByRole('button', { name: '刷新 Narrative', exact: true }).click()
+  await page.locator(`[data-thread-id="${thread.id}"]`).waitFor({ state: 'visible' })
+  await clickNavButton(page, 'Manuscript')
+  await page.locator('.writeback-review button', { hasText: 'Refresh' }).first().click()
+  for (const candidate of narrativeCandidates) {
+    await page.locator('.writeback-review .proposal-list button', { hasText: candidate.title }).click()
+    const detail = page.locator('.writeback-review .proposal-detail')
+    await detail.locator('.clp-evidence blockquote', { hasText: 'Mira keeps her own notes.' }).waitFor({ state: 'visible' })
+    await detail.getByRole('button', { name: 'Accept', exact: true }).click()
+    await page.locator('.writeback-review .save-state', { hasText: 'Write-back accepted and applied.' }).waitFor({ state: 'visible' })
+  }
+  await clickNavButton(page, 'Graph')
+  await page.locator(`[data-thread-id="${thread.id}"] .step-chip`, { hasText: 'dormant' }).waitFor({ state: 'visible' })
+  await page.locator('.narrative-panel td', { hasText: 'SUSPECTS' }).waitFor({ state: 'visible' })
+  await page.locator('.director-report').waitFor({ state: 'visible' })
+  assert.equal((await client.get('/projects/' + project.id + '/story-threads'))[0].status, 'dormant')
+  assert.equal((await client.get('/projects/' + project.id + '/narrative/relations')).length, 1)
+  await clickNavButton(page, 'Manuscript')
+  if (process.env.AI_WRITING_E2E_SCREENSHOT) {
+    await page.locator('.manuscript-setup > summary').click()
+    await page.screenshot({ path: process.env.AI_WRITING_E2E_SCREENSHOT, fullPage: true })
+    await page.locator('.manuscript-setup > summary').click()
+  }
 
   // ------------------------------------------------------------------
   // 9. Export Markdown shows the chapter heading.

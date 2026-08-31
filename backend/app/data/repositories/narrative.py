@@ -98,7 +98,8 @@ class NarrativeRepository:
         existing_ids = {row["id"] for row in self.connection.execute("SELECT id FROM story_facts")}
         created = StoryFact(
             id=make_record_id(
-                f"{project_id}-{fact.subject}-{fact.predicate}-{fact.valid_from_scene}", existing_ids
+                f"{project_id}-{fact.subject}-{fact.predicate}-{fact.valid_from_scene}",
+                existing_ids,
             ),
             project_id=project_id,
             **fact.model_dump(),
@@ -410,7 +411,9 @@ class NarrativeRepository:
             and thread.target_payoff_to < thread.target_payoff_from
         ):
             raise ValueError("target_payoff_to cannot be before target_payoff_from")
-        existing_ids = {row["id"] for row in self.connection.execute("SELECT id FROM story_threads")}
+        existing_ids = {
+            row["id"] for row in self.connection.execute("SELECT id FROM story_threads")
+        }
         created = StoryThread(
             id=make_record_id(f"{project_id}-{thread.thread_type}-{thread.title}", existing_ids),
             project_id=project_id,

@@ -31,6 +31,7 @@ import type {
 import { useGraphStore } from './graph'
 import { useReviewsStore } from './reviews'
 import { useWorkspaceStore } from './workspace'
+import { useProposalDraftStore } from './proposalDraft'
 import type { WorkspaceShell } from './workspaceShell'
 
 /** Manuscript domain: chapters, scene contracts, review proposals, and the
@@ -695,10 +696,24 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     }
   }
 
+  /** Every committed revision refreshes the same authoring/review surfaces. */
+  async function refreshCommittedRevision(projectId: string) {
+    const reviews = useReviewsStore()
+    await Promise.all([
+      loadManuscriptScenes(projectId),
+      loadManuscriptRevisions(projectId),
+      reviews.loadWritebackProposals(projectId),
+    ])
+    if (!isActiveProject(projectId)) return
+    await Promise.all([
+      reviews.loadPostAcceptAnalysisJobs(projectId),
+      reviews.showLatestConsistencyReport(projectId),
+    ])
+  }
+
   async function updateProposalStatus(proposalId: string, status: ManuscriptProposalStatus) {
     manuscriptError.value = ''
     manuscriptStatus.value = ''
-    const reviews = useReviewsStore()
     const projectId = ws().activeProject?.id
 
     if (!projectId) {
@@ -706,18 +721,25 @@ export const useManuscriptStore = defineStore('manuscript', () => {
       return
     }
 
+    const draft = useProposalDraftStore()
+    if (status === 'accepted' && (draft.projectId !== projectId || draft.proposalId !== proposalId || !draft.title.trim() || !draft.content.trim())) {
+      manuscriptError.value = '请打开草稿并填写标题和正文后再接受。'
+      return
+    }
+
     isUpdatingProposal.value = true
     try {
       const response = await fetchApi(
-        `/projects/${projectId}/manuscript/proposals/${proposalId}/status`,
+        `/projects/${projectId}/manuscript/proposals/${proposalId}/${status === 'accepted' ? 'accept' : 'status'}`,
         {
-          method: 'PUT',
+          method: status === 'accepted' ? 'POST' : 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ status }),
+          body: JSON.stringify(status === 'accepted' ? draft.snapshot() : { status }),
         }
       )
       if (!response.ok) {
-        throw new Error('Could not update manuscript proposal')
+        if (response.status === 409 && status === 'accepted') await loadManuscriptScenes(projectId)
+        throw new Error((await readErrorDetail(response)).message || 'Could not update manuscript proposal')
       }
       const updated: ManuscriptProposal = await response.json()
       if (!isActiveProject(projectId)) {
@@ -727,20 +749,8 @@ export const useManuscriptStore = defineStore('manuscript', () => {
         proposal.id === updated.id ? updated : proposal
       )
       if (status === 'accepted') {
-        await Promise.all([
-          loadManuscriptScenes(projectId),
-          loadManuscriptRevisions(projectId),
-          reviews.loadWritebackProposals(projectId),
-        ])
-        if (!isActiveProject(projectId)) {
-          return
-        }
-        // P1-07: acceptance dispatched consistency + write-back analyses;
-        // surface their status and the finished report without a manual run.
-        await Promise.all([
-          reviews.loadPostAcceptAnalysisJobs(projectId),
-          reviews.showLatestConsistencyReport(projectId),
-        ])
+        draft.committed()
+        await refreshCommittedRevision(projectId)
         if (!isActiveProject(projectId)) {
           return
         }
@@ -750,8 +760,8 @@ export const useManuscriptStore = defineStore('manuscript', () => {
         status === 'accepted'
           ? 'Proposal accepted. Automatic analysis has been scheduled.'
           : 'Proposal rejected.'
-    } catch {
-      manuscriptError.value = 'Proposal update failed. Check that the API is running.'
+    } catch (error) {
+      manuscriptError.value = error instanceof Error ? error.message : 'Proposal update failed. Check that the API is running.'
     } finally {
       isUpdatingProposal.value = false
     }
@@ -794,7 +804,6 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   async function restoreRevision(revisionId: string) {
     manuscriptError.value = ''
     manuscriptStatus.value = ''
-    const reviews = useReviewsStore()
     const projectId = ws().activeProject?.id
 
     if (!projectId) {
@@ -814,17 +823,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
       if (!isActiveProject(projectId)) {
         return
       }
-      await loadManuscriptScenes(projectId)
-      await loadManuscriptRevisions(projectId)
-      if (!isActiveProject(projectId)) {
-        return
-      }
-      // P1-01: the restored revision re-entered the post-commit pipeline;
-      // surface its jobs and the finished consistency report.
-      await Promise.all([
-        reviews.loadPostAcceptAnalysisJobs(projectId),
-        reviews.showLatestConsistencyReport(projectId),
-      ])
+      await refreshCommittedRevision(projectId)
       if (!isActiveProject(projectId)) {
         return
       }
@@ -905,7 +904,6 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   async function saveManuscriptSceneEdit(sceneId: string) {
     manuscriptError.value = ''
     manuscriptStatus.value = ''
-    const reviews = useReviewsStore()
     const projectId = ws().activeProject?.id
     const title = manuscriptEditTitle.value.trim()
     const content = manuscriptEditContent.value.trim()
@@ -940,16 +938,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
       cancelEditingManuscriptScene()
       manuscriptExport.value = null
       revisionDiff.value = null
-      await loadManuscriptRevisions(projectId)
-      if (!isActiveProject(projectId)) {
-        return
-      }
-      // P1-01: a manual save commits a formal revision, so the same
-      // post-commit pipeline runs; surface its jobs and finished report.
-      await Promise.all([
-        reviews.loadPostAcceptAnalysisJobs(projectId),
-        reviews.showLatestConsistencyReport(projectId),
-      ])
+      await refreshCommittedRevision(projectId)
       if (!isActiveProject(projectId)) {
         return
       }

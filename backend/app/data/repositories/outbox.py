@@ -108,6 +108,7 @@ class OutboxRepository:
         project_id: str,
         job_status: OutboxJobStatus | None = None,
         limit: int = 100,
+        aggregate_type: str | None = None,
     ) -> list[OutboxJob]:
         query = f"""
             {OUTBOX_JOB_COLUMNS}
@@ -117,6 +118,9 @@ class OutboxRepository:
         if job_status is not None:
             query += " AND status = ?"
             params.append(job_status)
+        if aggregate_type is not None:
+            query += " AND aggregate_type = ?"
+            params.append(aggregate_type)
         query += " ORDER BY created_at DESC, rowid DESC LIMIT ?"
         params.append(limit)
         rows = self.connection.execute(query, params).fetchall()

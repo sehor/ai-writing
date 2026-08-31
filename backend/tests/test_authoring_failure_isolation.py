@@ -313,6 +313,14 @@ class AuthoringFailureIsolationTests(unittest.TestCase):
                         retry = client.post(
                             f"/api/projects/{project.id}/outbox-jobs/{first_clp_job.id}/retry"
                         )
+                        wait_until(
+                            lambda: (
+                                store.get_outbox_job(project.id, first_clp_job.id).status
+                                == "failed"
+                            ),
+                            timeout_seconds=20,
+                            message="malformed CLP retry to fail asynchronously",
+                        )
             finally:
                 app.dependency_overrides.clear()
 
@@ -324,7 +332,8 @@ class AuthoringFailureIsolationTests(unittest.TestCase):
             self.assertEqual(read_scenes.status_code, 200)
             self.assertEqual(read_revisions.status_code, 200)
             self.assertEqual(export.status_code, 200)
-            self.assertEqual(retry.status_code, 200)
+            self.assertEqual(retry.status_code, 202)
+            self.assertEqual(retry.json()["status"], "pending")
 
             revisions = store.list_manuscript_revisions(project.id)
             self.assertEqual(len(revisions), 3)

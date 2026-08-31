@@ -14,6 +14,7 @@ from app.models import (
     ManuscriptChapterCreate,
     ManuscriptChapterUpdate,
     ManuscriptProposal,
+    ManuscriptProposalAcceptance,
     ManuscriptProposalStatusUpdate,
     ManuscriptRevisionDiff,
     ManuscriptRevision,
@@ -242,6 +243,24 @@ def create_provider_manuscript_proposal_from_scene(
 ) -> ManuscriptProposal:
     require_project(project_id, data_store)
     return service.generate_provider_proposal(project_id, scene_id)
+
+
+@router.post(
+    "/projects/{project_id}/manuscript/proposals/{proposal_id}/accept",
+    response_model=ManuscriptProposal,
+)
+def accept_edited_manuscript_proposal(
+    project_id: str,
+    proposal_id: str,
+    draft: ManuscriptProposalAcceptance,
+    data_store: WritingDataStore = Depends(get_data_store),
+    service: ManuscriptService = Depends(),
+    dispatcher: OutboxDispatcher = Depends(get_outbox_dispatcher),
+) -> ManuscriptProposal:
+    require_project(project_id, data_store)
+    proposal = service.update_proposal_status(project_id, proposal_id, "accepted", draft=draft)
+    wake_outbox_best_effort(dispatcher, operation="accept_edited_draft", project_id=project_id)
+    return proposal
 
 
 @router.put(

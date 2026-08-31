@@ -5,6 +5,8 @@ import { statusText } from '../../utils/format'
 import { useCanonStore } from '../../stores/canon'
 import { useManuscriptStore } from '../../stores/manuscript'
 import { useReviewsStore } from '../../stores/reviews'
+import { useNarrativeStore } from '../../stores/narrative'
+import { writebackConflict } from '../../domain/writeback'
 import type { CanonEntity, ManuscriptRevision, WritebackFieldChange } from '../../types'
 
 const store = useReviewsStore()
@@ -19,6 +21,14 @@ const {
   pendingWritebackCount,
 } = storeToRefs(store)
 const { canonEntities } = storeToRefs(useCanonStore())
+const { threads, error: narrativeError } = storeToRefs(useNarrativeStore())
+const isThreadUpdate = computed(() => activeWritebackProposal.value?.target === 'story_thread_status')
+const targetThread = computed(() => threads.value.find((thread) => thread.id === activeWritebackProposal.value?.target_record_id))
+const clpEvidence = computed(() => {
+  const evidence = activeWritebackProposal.value?.payload.evidence
+  return Array.isArray(evidence) ? evidence.filter((item): item is { excerpt: string; source_ref: string } =>
+    !!item && typeof item === 'object' && typeof item.excerpt === 'string') : []
+})
 const { manuscriptRevisions } = storeToRefs(useManuscriptStore())
 const { loadWritebackProposals, updateWritebackStatus } = store
 
@@ -54,16 +64,11 @@ const targetRecord = computed<CanonEntity | undefined>(() => {
   return canonEntities.value.find((entity) => entity.id === proposal.target_record_id)
 })
 
-const versionConflict = computed(() => {
+const conflictReason = computed(() => {
   const proposal = activeWritebackProposal.value
-  if (!proposal || proposal.action !== 'update') {
-    return false
-  }
-  if (!targetRecord.value) {
-    return true
-  }
-  return targetRecord.value.version !== proposal.expected_version
+  return proposal ? writebackConflict(proposal, canonEntities.value, threads.value) : ''
 })
+const versionConflict = computed(() => !!conflictReason.value)
 
 const evidenceRevision = computed<ManuscriptRevision | undefined>(() => {
   const sourceRef = activeWritebackProposal.value?.source_ref ?? ''
@@ -102,7 +107,7 @@ function formatJson(value: Record<string, unknown> | undefined) {
     <div class="panel-header">
       <div>
         <p class="eyebrow">State Write-back</p>
-        <h3>Canon / Memory Proposals</h3>
+        <h3>Canon / Memory / Narrative Proposals</h3>
       </div>
       <div class="button-row">
         <span class="step-chip">{{ pendingWritebackCount }} pending</span>
@@ -192,10 +197,10 @@ function formatJson(value: Record<string, unknown> | undefined) {
           </div>
         </div>
 
-        <p v-if="isUpdateProposal && versionConflict && activeWritebackProposal.status === 'pending_review'" class="error">
-          Conflict warning: the target record changed since this proposal was created.
-          Review the current values below and regenerate the proposal if needed.
+        <p v-if="versionConflict && activeWritebackProposal.status === 'pending_review'" class="error" role="alert">
+          Conflict warning: {{ conflictReason }}
         </p>
+        <p v-if="narrativeError && isThreadUpdate" class="error">{{ narrativeError }}</p>
 
         <dl class="proposal-meta">
           <div>
@@ -216,7 +221,7 @@ function formatJson(value: Record<string, unknown> | undefined) {
           </div>
         </dl>
 
-        <section v-if="isUpdateProposal">
+        <section v-if="isUpdateProposal && !isThreadUpdate">
           <p class="eyebrow">Target Record</p>
           <dl class="proposal-meta">
             <div>
@@ -247,6 +252,21 @@ function formatJson(value: Record<string, unknown> | undefined) {
           </dl>
         </section>
 
+        <section v-if="isThreadUpdate" class="thread-status-proposal" data-testid="thread-status-proposal">
+          <p class="eyebrow">StoryThread 生命周期</p>
+          <h4>{{ targetThread?.title || activeWritebackProposal.target_record_id }}</h4>
+          <p>当前：{{ targetThread?.status ?? '未加载' }} · 提案基于：{{ activeWritebackProposal.payload.from_state }}</p>
+          <p>建议：{{ activeWritebackProposal.payload.proposed_state }} · 置信度：{{ activeWritebackProposal.payload.confidence }}</p>
+        </section>
+        <section v-if="activeWritebackProposal.target === 'narrative_relation'" class="relation-proposal">
+          <p class="eyebrow">Narrative relation</p>
+          <p>{{ activeWritebackProposal.payload.source }} → {{ activeWritebackProposal.payload.relation }} → {{ activeWritebackProposal.payload.target }}</p>
+          <p>场景区间 {{ activeWritebackProposal.payload.valid_from }}–{{ activeWritebackProposal.payload.valid_to ?? '持续' }} · 置信度 {{ activeWritebackProposal.payload.confidence }}</p>
+        </section>
+        <section v-if="clpEvidence.length" class="clp-evidence">
+          <p class="eyebrow">CLP Evidence</p>
+          <blockquote v-for="(item, index) in clpEvidence" :key="index">{{ item.excerpt }} <small>{{ item.source_ref }}</small></blockquote>
+        </section>
         <section>
           <p class="eyebrow">Rationale</p>
           <p class="proposal-rationale">

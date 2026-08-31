@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
+from app.narrative.director import DirectorAnalyzer, DirectorReport
 
 from app.data import WritingDataStore, get_data_store
 from app.dependencies import require_project
 from app.models import (
     CharacterKnowledge,
+    NarrativeRelation,
     CharacterKnowledgeCreate,
     StoryFact,
     StoryFactCreate,
@@ -17,6 +19,32 @@ from app.models import (
 
 
 router = APIRouter(tags=["narrative"])
+
+
+@router.get("/projects/{project_id}/narrative/relations", response_model=list[NarrativeRelation])
+def list_narrative_relations(
+    project_id: str,
+    data_store: WritingDataStore = Depends(get_data_store),
+) -> list[NarrativeRelation]:
+    require_project(project_id, data_store)
+    return data_store.list_narrative_relations(project_id)
+
+
+@router.get("/projects/{project_id}/narrative/director", response_model=DirectorReport | None)
+def narrative_director(
+    project_id: str,
+    scene_id: str = "",
+    data_store: WritingDataStore = Depends(get_data_store),
+) -> DirectorReport | None:
+    require_project(project_id, data_store)
+    if not scene_id:
+        scenes = data_store.list_scene_contracts(project_id)
+        if not scenes:
+            return None
+        scene_id = max(scenes, key=lambda scene: scene.sequence).id
+    if data_store.get_scene_contract(project_id, scene_id) is None:
+        raise HTTPException(status_code=404, detail="Scene contract not found.")
+    return DirectorAnalyzer(data_store).for_scene(project_id=project_id, scene_id=scene_id)
 
 
 @router.get("/projects/{project_id}/story-facts", response_model=list[StoryFact])
@@ -42,7 +70,9 @@ def create_story_fact(
     try:
         return data_store.create_story_fact(project_id, fact)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
 
 @router.put(
@@ -110,7 +140,9 @@ def create_story_thread(
     try:
         return data_store.create_story_thread(project_id, thread)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
 
 @router.put(
@@ -156,7 +188,9 @@ def add_story_thread_event(
 ) -> StoryThreadEvent:
     require_project(project_id, data_store)
     if data_store.get_scene_contract(project_id, event.scene_id) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Scene contract not found.")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Scene contract not found."
+        )
     try:
         return data_store.add_story_thread_event(project_id, thread_id, event)
     except LookupError as exc:

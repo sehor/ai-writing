@@ -31,7 +31,9 @@ from app.dependencies import require_project
 router = APIRouter(tags=["analysis"])
 
 
-def _accepted_style_texts(project_id: str, data_store: WritingDataStore, pov: str = "") -> list[str]:
+def _accepted_style_texts(
+    project_id: str, data_store: WritingDataStore, pov: str = ""
+) -> list[str]:
     contracts = {item.id: item for item in data_store.list_scene_contracts(project_id)}
     normalized_pov = pov.strip().lower()
     texts = []

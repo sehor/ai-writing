@@ -39,7 +39,7 @@ test('overwrite requires an explicit confirmation when the target exists', () =>
   // The confirm button stays disabled until the checkbox flips.
   assert.match(
     sidebar,
-    /:disabled="isImporting \|\| \(backupPreview\.target_exists && !overwriteConfirmed\)"/,
+    /:disabled="isImporting \|\| \(backupPreview\.target_exists && \(!backupPreview\.can_overwrite \|\| !overwriteConfirmed\)\)"/,
   )
 })
 

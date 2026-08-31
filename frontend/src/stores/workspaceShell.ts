@@ -7,6 +7,7 @@ import type { ProjectSummary, SnowflakeStep } from '../types'
  * the workspace store and the stores it orchestrates.
  */
 export interface WorkspaceShell {
+  reloadActiveProject(): void
   activeProjectId: string
   activeProject: ProjectSummary | undefined
   activeStepNumber: number

@@ -18,6 +18,5 @@ def wait_until(predicate, *, timeout_seconds: float = 15.0, message: str = "cond
             return last
         time.sleep(0.05)
     raise AssertionError(
-        f"Timed out after {timeout_seconds}s waiting for {message}; "
-        f"last value: {last!r}"
+        f"Timed out after {timeout_seconds}s waiting for {message}; last value: {last!r}"
     )

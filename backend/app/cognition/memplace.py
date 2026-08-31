@@ -1,4 +1,5 @@
 from pathlib import Path
+from app.data.project_operations import project_operation
 
 from app.cognition.interfaces import (
     CommittedContentEvent,
@@ -51,6 +52,12 @@ class LocalMemplaceModule:
         self,
         snapshot: ProjectCognitionSnapshot,
         event: CommittedContentEvent,
+    ) -> ModuleReport:
+        with project_operation(snapshot.project.id):
+            return self._ingest(snapshot, event)
+
+    def _ingest(
+        self, snapshot: ProjectCognitionSnapshot, event: CommittedContentEvent
     ) -> ModuleReport:
         project_path = self.project_path(snapshot.project.id)
         persist_sample(project_path, event)

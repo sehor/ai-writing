@@ -145,9 +145,7 @@ def marker_density(text: str, markers: tuple[str, ...]) -> float:
 
 def frequent_terms(text: str, limit: int = 12) -> list[str]:
     counter = Counter(
-        token.lower()
-        for token in _TOKEN_RE.findall(text)
-        if token.lower() not in _STOP_TERMS
+        token.lower() for token in _TOKEN_RE.findall(text) if token.lower() not in _STOP_TERMS
     )
     return [term for term, _ in counter.most_common(limit)]
 

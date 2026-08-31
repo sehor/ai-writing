@@ -1,5 +1,5 @@
 import { computed, ref, watch } from 'vue'
-import { defineStore } from 'pinia'
+import { defineStore, storeToRefs } from 'pinia'
 import { fetchApi } from '../api/client'
 import { readErrorDetail } from '../api/errors'
 import { queueAutosave } from '../services/draftSessions'
@@ -11,8 +11,6 @@ import type {
   ReferenceDraft,
   HermesRevisionProcessResponse,
   ConsistencyReport,
-  OutboxJob,
-  OutboxJobType
 } from '../types'
 import { useCanonStore } from './canon'
 import { useGraphStore } from './graph'
@@ -20,10 +18,15 @@ import { useManuscriptStore } from './manuscript'
 import { useMemoryStore } from './memory'
 import { useWorkspaceStore } from './workspace'
 import type { WorkspaceShell } from './workspaceShell'
+import { useAnalysisJobsStore, analysisJobLabel } from './analysisJobs'
+import { useNarrativeStore } from './narrative'
+import { supportedWriteback } from '../domain/writeback'
 
 /** Human review queues: write-back proposals, reference suggestions, and the
  *  consistency reports / post-acceptance analysis jobs they schedule. */
 export const useReviewsStore = defineStore('reviews', () => {
+  const analysisJobs = useAnalysisJobsStore()
+  const { jobs: postAcceptJobs, error: analysisJobsError } = storeToRefs(analysisJobs)
   // Lazy, explicitly-typed access keeps the store type graph acyclic.
   function ws(): WorkspaceShell {
     return useWorkspaceStore()
@@ -56,7 +59,6 @@ export const useReviewsStore = defineStore('reviews', () => {
   const consistencyError = ref('')
   const consistencyStatus = ref('')
   const isRunningConsistencyCheck = ref(false)
-  const postAcceptJobs = ref<OutboxJob[]>([])
 
   const activeWritebackProposal = computed(() =>
     writebackProposals.value.find((proposal) => proposal.id === activeWritebackId.value)
@@ -96,7 +98,7 @@ export const useReviewsStore = defineStore('reviews', () => {
     deep: true,
   })
 
-  async function loadWritebackProposals(projectId = ws().activeProject?.id) {
+  async function loadWritebackProposals(projectId = ws().activeProject?.id, signal?: AbortSignal) {
     writebackError.value = ''
     if (!projectId) {
       writebackProposals.value = []
@@ -105,12 +107,12 @@ export const useReviewsStore = defineStore('reviews', () => {
     }
 
     try {
-      const response = await fetchApi(`/projects/${projectId}/writeback/proposals`)
+      const response = await fetchApi(`/projects/${projectId}/writeback/proposals`, { signal })
       if (!response.ok) {
         throw new Error('Could not load write-back proposals')
       }
       const proposals = await response.json()
-      if (!isActiveProject(projectId)) {
+      if (signal?.aborted || !isActiveProject(projectId)) {
         return
       }
       writebackProposals.value = proposals
@@ -118,7 +120,7 @@ export const useReviewsStore = defineStore('reviews', () => {
         activeWritebackId.value = writebackProposals.value[0]?.id ?? ''
       }
     } catch {
-      writebackError.value = 'Write-back proposals could not be loaded.'
+      if (!signal?.aborted && isActiveProject(projectId)) writebackError.value = 'Write-back proposals could not be loaded.'
     }
   }
 
@@ -401,89 +403,28 @@ export const useReviewsStore = defineStore('reviews', () => {
 
   // ---- Post-acceptance analysis (P1-07): show job status, surface results ----
 
-  const POST_ACCEPT_JOB_TYPES: OutboxJobType[] = [
-    'llm_wiki_ingest',
-    'consistency_analysis',
-    'writeback_analysis',
-  ]
-
-  function analysisJobLabel(jobType: OutboxJobType): string {
-    if (jobType === 'consistency_analysis') {
-      return 'Consistency report'
-    }
-    if (jobType === 'llm_wiki_ingest') {
-      return 'Wiki index'
-    }
-    return 'Write-back suggestions'
-  }
-
   async function loadPostAcceptAnalysisJobs(projectId = ws().activeProject?.id) {
-    if (!projectId) {
-      postAcceptJobs.value = []
-      return
-    }
-
-    try {
-      const response = await fetchApi(`/projects/${projectId}/outbox-jobs`)
-      if (!response.ok) {
-        throw new Error('Could not load analysis jobs')
+    if (!projectId) { analysisJobs.stop(); return }
+    await analysisJobs.load(projectId, async (completed, signal) => {
+      const refreshes: Promise<void>[] = []
+      if (completed.some((job) => job.job_type === 'consistency_analysis')) {
+        refreshes.push(showLatestConsistencyReport(projectId, undefined, signal))
       }
-      const jobs: OutboxJob[] = await response.json()
-      if (!isActiveProject(projectId)) {
-        return
+      if (completed.some((job) => job.job_type === 'writeback_analysis' || job.job_type === 'clp_extraction')) {
+        refreshes.push(loadWritebackProposals(projectId, signal))
       }
-      postAcceptJobs.value = jobs.filter((job) => POST_ACCEPT_JOB_TYPES.includes(job.job_type))
-    } catch {
-      if (isActiveProject(projectId)) {
-        postAcceptJobs.value = []
-      }
-    }
+      await Promise.all(refreshes)
+    })
   }
 
   async function retryPostAcceptAnalysisJob(jobId: string) {
-    consistencyError.value = ''
-    consistencyStatus.value = ''
-    const projectId = ws().activeProject?.id
-
-    if (!projectId) {
-      consistencyError.value = 'Create or select a project first.'
-      return
-    }
-
-    try {
-      const response = await fetchApi(`/projects/${projectId}/outbox-jobs/${jobId}/retry`, {
-        method: 'POST',
-      })
-      if (!response.ok) {
-        const detail = await readErrorDetail(response)
-        throw new Error(detail.message || 'Could not retry the analysis job')
-      }
-      const retried: OutboxJob = await response.json()
-      if (!isActiveProject(projectId)) {
-        return
-      }
-      postAcceptJobs.value = postAcceptJobs.value.map((job) =>
-        job.id === retried.id ? retried : job
-      )
-      consistencyStatus.value =
-        `${analysisJobLabel(retried.job_type)} re-run: ${retried.status.replace('_', ' ')}.`
-      if (retried.status === 'succeeded' && retried.job_type === 'consistency_analysis') {
-        await showLatestConsistencyReport(projectId, retried.aggregate_id)
-      }
-      if (retried.status === 'succeeded' && retried.job_type === 'writeback_analysis') {
-        await loadWritebackProposals(projectId)
-      }
-    } catch (error) {
-      consistencyError.value =
-        error instanceof Error
-          ? `Retry failed. ${error.message}`
-          : 'Retry failed. Check that the API is running.'
-    }
+    await analysisJobs.retry(jobId)
   }
 
   async function showLatestConsistencyReport(
     projectId = ws().activeProject?.id,
-    revisionId?: string
+    revisionId?: string,
+    signal?: AbortSignal
   ) {
     if (!projectId) {
       return
@@ -498,13 +439,13 @@ export const useReviewsStore = defineStore('reviews', () => {
 
     try {
       const response = await fetchApi(
-        `/projects/${projectId}/analysis/consistency/from-revision/${revision.id}`
+        `/projects/${projectId}/analysis/consistency/from-revision/${revision.id}`, { signal }
       )
       if (!response.ok) {
         return
       }
       const report: ConsistencyReport = await response.json()
-      if (!isActiveProject(projectId)) {
+      if (signal?.aborted || !isActiveProject(projectId)) {
         return
       }
       consistencyReport.value = report
@@ -518,6 +459,11 @@ export const useReviewsStore = defineStore('reviews', () => {
     writebackError.value = ''
     writebackStatus.value = ''
     const projectId = ws().activeProject?.id
+    const proposal = writebackProposals.value.find((item) => item.id === proposalId)
+    if (status === 'accepted' && (!proposal || !supportedWriteback(proposal.target))) {
+      writebackError.value = '不支持的提案类型，不能接受。'
+      return
+    }
 
     if (!projectId) {
       writebackError.value = 'Create or select a project first.'
@@ -559,6 +505,7 @@ export const useReviewsStore = defineStore('reviews', () => {
           loadWritebackProposals(projectId),
           useGraphStore().loadGraphAnalysis(projectId),
           refreshCanonAndMemory(projectId),
+          useNarrativeStore().load(projectId),
         ])
         if (!isActiveProject(projectId)) {
           return
@@ -619,7 +566,7 @@ export const useReviewsStore = defineStore('reviews', () => {
     consistencyRevisionId.value = ''
     consistencyError.value = ''
     consistencyStatus.value = ''
-    postAcceptJobs.value = []
+    analysisJobs.stop()
   }
 
   function draftSnapshotEntries(): Array<[string, () => unknown]> {
@@ -650,6 +597,7 @@ export const useReviewsStore = defineStore('reviews', () => {
     consistencyStatus,
     isRunningConsistencyCheck,
     postAcceptJobs,
+    analysisJobsError,
     activeWritebackProposal,
     pendingWritebackCount,
     activeReferenceSuggestion,

@@ -38,7 +38,7 @@ test('editor session tracks the unified draft state shape', () => {
 
 // Selection guards now live next to the domain state they protect.
 const guardedWatchers = [
-  ['watch(activeProjectId', workspaceStore],
+  ['watch([activeProjectId, projectReload]', workspaceStore],
   ['watch(activeStepNumber', workspaceStore],
   ['watch(activeCanonId', canonStore],
   ['watch(activeChapterId', manuscriptStore],

@@ -187,6 +187,7 @@ class PostAcceptAnalysisTests(unittest.TestCase):
                     retried = client.post(
                         f"/api/projects/{project_id}/outbox-jobs/{failed_jobs[0].id}/retry"
                     )
+                    wait_for_jobs(store, project_id, "succeeded")
                     report_response = client.get(
                         f"/api/projects/{project_id}/analysis/consistency"
                         f"/from-revision/{revisions[0].id}",
@@ -224,8 +225,8 @@ class PostAcceptAnalysisTests(unittest.TestCase):
         )
 
         # Recovery: retry marks the job succeeded and the report appears.
-        self.assertEqual(retried.status_code, 200)
-        self.assertEqual(retried.json()["status"], "succeeded")
+        self.assertEqual(retried.status_code, 202)
+        self.assertEqual(retried.json()["status"], "pending")
         self.assertEqual(report_response.status_code, 200)
 
         # Re-dispatching finds nothing pending and duplicates nothing.

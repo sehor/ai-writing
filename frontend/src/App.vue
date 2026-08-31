@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, onBeforeUnmount } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorkspaceStore } from './stores/workspace'
+import { useAnalysisJobsStore } from './stores/analysisJobs'
 
 import AppSidebar from './components/AppSidebar.vue'
 import SnowflakeWorkspace from './components/SnowflakeWorkspace.vue'
@@ -11,12 +12,13 @@ import GraphWorkspace from './components/GraphWorkspace.vue'
 import ManuscriptWorkspace from './components/ManuscriptWorkspace.vue'
 
 const workspace = useWorkspaceStore()
-const { activeSection, activeProject, apiStatus, workflowRuntime, runtimeLabel, runtimeTitle } = storeToRefs(workspace)
+const { activeSection, activeProject, apiStatus, workflowRuntime, runtimeLabel, runtimeTitle, isLoadingProject } = storeToRefs(workspace)
 const { loadInitialData } = workspace
 
 onMounted(() => {
   loadInitialData()
 })
+onBeforeUnmount(() => useAnalysisJobsStore().stop())
 </script>
 
 <template>
@@ -44,11 +46,18 @@ onMounted(() => {
         </div>
       </header>
 
-      <SnowflakeWorkspace v-if="activeSection === 'snowflake'" />
-      <CanonWorkspace v-if="activeSection === 'canon'" />
-      <MemoryWorkspace v-if="activeSection === 'memory'" />
-      <GraphWorkspace v-if="activeSection === 'graph'" />
-      <ManuscriptWorkspace v-if="activeSection === 'manuscript'" />
+      <p v-if="isLoadingProject" role="status">正在加载项目，完成后可继续编辑…</p>
+      <fieldset class="workspace-content" :disabled="isLoadingProject" :aria-busy="isLoadingProject">
+        <SnowflakeWorkspace v-if="activeSection === 'snowflake'" />
+        <CanonWorkspace v-if="activeSection === 'canon'" />
+        <MemoryWorkspace v-if="activeSection === 'memory'" />
+        <GraphWorkspace v-if="activeSection === 'graph'" />
+        <ManuscriptWorkspace v-if="activeSection === 'manuscript'" />
+      </fieldset>
     </section>
   </main>
 </template>
+
+<style scoped>
+.workspace-content { border: 0; margin: 0; padding: 0; min-width: 0; }
+</style>

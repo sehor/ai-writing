@@ -54,6 +54,7 @@ from app.models import (
     ManuscriptChapterCreate,
     ManuscriptChapterUpdate,
     ManuscriptProposal,
+    ManuscriptProposalAcceptance,
     ManuscriptProposalCreate,
     ManuscriptProposalStatus,
     ManuscriptRevision,
@@ -504,11 +505,12 @@ class SQLiteWritingDataStore:
             return uow.manuscripts.get_revision(project_id, revision_id)
 
     def accept_manuscript_proposal(
-        self, project_id: str, proposal_id: str
+        self, project_id: str, proposal_id: str, draft: ManuscriptProposalAcceptance | None = None
     ) -> ManuscriptScene | None:
         with SqliteUnitOfWork(self.database_path) as uow:
+            uow.connection.execute("BEGIN IMMEDIATE")
             return accept_manuscript_proposal(
-                uow.connection, project_id=project_id, proposal_id=proposal_id
+                uow.connection, project_id=project_id, proposal_id=proposal_id, draft=draft
             )
 
     def restore_manuscript_revision(
@@ -716,9 +718,10 @@ class SQLiteWritingDataStore:
         project_id: str,
         job_status: OutboxJobStatus | None = None,
         limit: int = 100,
+        aggregate_type: str | None = None,
     ) -> list[OutboxJob]:
         with SqliteUnitOfWork(self.database_path) as uow:
-            return uow.outbox.list_jobs(project_id, job_status, limit)
+            return uow.outbox.list_jobs(project_id, job_status, limit, aggregate_type)
 
     def claim_outbox_job(self, project_id: str, job_id: str) -> OutboxJob | None:
         """Atomically claim a pending job (pending -> processing)."""

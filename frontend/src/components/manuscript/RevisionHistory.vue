@@ -3,10 +3,13 @@ import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useManuscriptStore } from '../../stores/manuscript'
 import { useReviewsStore } from '../../stores/reviews'
+import { useAnalysisJobsStore } from '../../stores/analysisJobs'
 import type { FindingSeverity, OutboxJobStatus } from '../../types'
 
 const store = useManuscriptStore()
 const reviews = useReviewsStore()
+const jobsStore = useAnalysisJobsStore()
+const { error: jobsError, retryingId, canLoadMore } = storeToRefs(jobsStore)
 const {
   manuscriptRevisions,
   diffLeftRevisionId,
@@ -115,7 +118,7 @@ const pendingAnalysisCount = computed(
     </section>
 
     <!-- P1-07: automatic analyses scheduled when a proposal was accepted -->
-    <section v-if="postAcceptJobs.length" class="post-accept-analysis">
+    <section class="post-accept-analysis">
       <div class="panel-header compact">
         <div>
           <p class="eyebrow">Post-Acceptance Analysis</p>
@@ -131,7 +134,9 @@ const pendingAnalysisCount = computed(
         </div>
       </div>
 
-      <article v-for="job in postAcceptJobs" :key="job.id" class="analysis-job-item">
+      <p v-if="jobsError" class="error-text" role="alert">{{ jobsError }}</p>
+      <p v-if="!postAcceptJobs.length" class="empty-state">暂无正文分析任务。保存正文后会自动显示；也可以点击 Refresh 重新加载。</p>
+      <article v-for="job in postAcceptJobs" :key="job.id" class="analysis-job-item" :data-aggregate-id="job.aggregate_id">
         <div class="panel-header compact">
           <div>
             <span :class="['severity-chip', jobStatusClass(job.status)]">{{ job.status }}</span>
@@ -139,13 +144,15 @@ const pendingAnalysisCount = computed(
           </div>
           <small>{{ job.completed_at || job.created_at }}</small>
         </div>
+        <small>{{ job.aggregate_id }} · attempt {{ job.attempt_count }}</small>
         <p v-if="job.last_error" class="error-text">{{ job.last_error }}</p>
         <div v-if="job.status === 'failed'" class="button-row">
-          <button class="secondary" type="button" @click="retryPostAcceptAnalysisJob(job.id)">
-            Retry
+          <button class="secondary" type="button" :disabled="!!retryingId" @click="retryPostAcceptAnalysisJob(job.id)">
+            {{ retryingId === job.id ? 'Retrying...' : 'Retry' }}
           </button>
         </div>
       </article>
+      <button v-if="canLoadMore" type="button" class="secondary" @click="jobsStore.loadMore()">加载更多历史任务</button>
       <p class="status-text">
         Analysis runs automatically; its write-back suggestions stay pending for review.
       </p>

@@ -15,6 +15,7 @@ from app.models import (
     ManuscriptChapterCreate,
     ManuscriptChapterUpdate,
     ManuscriptProposal,
+    ManuscriptProposalAcceptance,
     ManuscriptProposalCreate,
     ManuscriptProposalStatus,
     ManuscriptRevision,
@@ -45,10 +46,20 @@ from app.models import (
     WritebackProposalCreate,
     WritebackProposalStatus,
 )
+from app.outbox.models import OutboxJob, OutboxJobStatus
 
 
 class WritingDataStore(Protocol):
     def init(self) -> None:
+        pass
+
+    def list_outbox_jobs(
+        self,
+        project_id: str,
+        job_status: OutboxJobStatus | None = None,
+        limit: int = 100,
+        aggregate_type: str | None = None,
+    ) -> list[OutboxJob]:
         pass
 
     def list_projects(self) -> list[ProjectSummary]:
@@ -158,9 +169,7 @@ class WritingDataStore(Protocol):
     ) -> StoryThreadEvent:
         pass
 
-    def list_story_thread_events(
-        self, project_id: str, thread_id: str
-    ) -> list[StoryThreadEvent]:
+    def list_story_thread_events(self, project_id: str, thread_id: str) -> list[StoryThreadEvent]:
         pass
 
     def list_scene_contracts(self, project_id: str) -> list[SceneContract]:
@@ -243,7 +252,7 @@ class WritingDataStore(Protocol):
         pass
 
     def accept_manuscript_proposal(
-        self, project_id: str, proposal_id: str
+        self, project_id: str, proposal_id: str, draft: ManuscriptProposalAcceptance | None = None
     ) -> ManuscriptScene | None:
         pass
 

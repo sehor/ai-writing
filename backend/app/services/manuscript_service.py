@@ -17,6 +17,7 @@ from app.observability import timed_operation
 from app.models import (
     ManuscriptExportResponse,
     ManuscriptProposal,
+    ManuscriptProposalAcceptance,
     ManuscriptProposalCreate,
     ManuscriptRevisionDiff,
     ManuscriptScene,
@@ -159,7 +160,11 @@ class ManuscriptService:
         return self.data_store.create_manuscript_proposal(project_id, proposal)
 
     def update_proposal_status(
-        self, project_id: str, proposal_id: str, status_str: str
+        self,
+        project_id: str,
+        proposal_id: str,
+        status_str: str,
+        draft: ManuscriptProposalAcceptance | None = None,
     ) -> ManuscriptProposal:
         current = self.data_store.get_manuscript_proposal(project_id, proposal_id)
         if not current:
@@ -173,7 +178,12 @@ class ManuscriptService:
         except ValueError as exc:
             raise conflict_from(exc) from exc
         if status_str == "accepted":
-            scene = self.data_store.accept_manuscript_proposal(project_id, proposal_id)
+            try:
+                scene = self.data_store.accept_manuscript_proposal(
+                    project_id, proposal_id, draft=draft
+                )
+            except ValueError as exc:
+                raise conflict_from(exc) from exc
             proposal = self.data_store.get_manuscript_proposal(project_id, proposal_id)
             if not scene or not proposal:
                 raise HTTPException(

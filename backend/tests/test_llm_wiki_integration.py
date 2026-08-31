@@ -179,8 +179,7 @@ class LlmWikiIntegrationTests(unittest.TestCase):
                     # settled. Wait before leaving the app (and its loop).
                     wait_until(
                         lambda: all(
-                            job.status == "succeeded"
-                            for job in store.list_outbox_jobs(project_id)
+                            job.status == "succeeded" for job in store.list_outbox_jobs(project_id)
                         ),
                         timeout_seconds=20,
                         message="all scheduled wiki index jobs to settle",

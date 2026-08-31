@@ -1,69 +1,44 @@
-"""Project backup / restore packages (P2-07).
-
-A backup is a ZIP archive with three members:
-
-- ``manifest.json`` — kind marker, format/schema versions, project identity,
-  per-table row counts, exported timestamp;
-- ``data.json`` — every project-scoped table dumped as ordered row lists
-  (insertion order matches foreign-key dependencies);
-- ``modules/<relative path>`` — the file-backed knowledge stores under the
-  project's module root (LLM Wiki sources, memplace prose samples, ...).
-
-Import validates format + schema compatibility up front, replaces the
-project atomically inside one unit of work (the ``projects`` row cascades
-every child table), and restores module files after the commit.
-"""
+"""Complete project snapshots with validated, compensating file restoration."""
 
 import io
 import json
-import shutil
+import sqlite3
 import zipfile
 from pathlib import Path
-from typing import Any
 
 from app.data import SQLiteWritingDataStore
 from app.data.helpers import utc_now
 from app.data.migrations import LATEST_VERSION
+from app.data.project_operations import project_operation
 from app.data.unit_of_work import SqliteUnitOfWork
-
-BACKUP_KIND = "ai-writing-project-backup"
-FORMAT_VERSION = 1
-MIN_SCHEMA_VERSION = 1
-
-# Insertion order respects FK dependencies; every table carries project_id
-# except the root projects row.
-TABLES_IN_ORDER: tuple[str, ...] = (
-    "projects",
-    "snowflake_artifacts",
-    "canon_entities",
-    "scene_contracts",
-    "manuscript_chapters",
-    "memory_records",
-    "manuscript_proposals",
-    "manuscript_scenes",
-    "manuscript_revisions",
-    "writeback_proposals",
-    "reference_suggestions",
-    "outbox_jobs",
-    "analysis_runs",
-    "scene_proposals",
+from app.services.backup_files import checked_modules_dir, staged_modules
+from app.services.backup_format import (
+    BACKUP_KIND,
+    FORMAT_VERSION,
+    MAX_PACKAGE_BYTES,
+    MAX_EXPANDED_BYTES,
+    MAX_MEMBERS,
+    TABLES_IN_ORDER,
+    BackupConflictError,
+    BackupError,
+    BackupNotFoundError,
+    BackupVersionError,
+    insert_rows,
+    read_package,
+    validate_module_path,
+    validate_project_id,
 )
 
-
-class BackupError(Exception):
-    """Base class: message is safe to surface to API clients."""
-
-
-class BackupNotFoundError(BackupError):
-    pass
-
-
-class BackupConflictError(BackupError):
-    pass
-
-
-class BackupVersionError(BackupError):
-    pass
+__all__ = [
+    "ProjectBackupService",
+    "BackupError",
+    "BackupConflictError",
+    "BackupNotFoundError",
+    "BackupVersionError",
+    "TABLES_IN_ORDER",
+    "FORMAT_VERSION",
+    "BACKUP_KIND",
+]
 
 
 class ProjectBackupService:
@@ -71,201 +46,150 @@ class ProjectBackupService:
         self.data_store = data_store
         self.projects_root = projects_root
 
-    # -- export ----------------------------------------------------------
-
     def export_package(self, project_id: str) -> bytes:
-        """Build the ZIP package for one project; raises if unknown."""
-        with self.data_store.connect() as connection:
-            row = connection.execute(
-                "SELECT title FROM projects WHERE id = ?", (project_id,)
-            ).fetchone()
-            if row is None:
-                raise BackupNotFoundError(f"Project '{project_id}' does not exist.")
-            title = row[0]
-            counts: dict[str, int] = {}
-            tables: dict[str, list[dict[str, Any]]] = {}
-            for table in TABLES_IN_ORDER:
-                column = "id" if table == "projects" else "project_id"
-                rows = [
+        validate_project_id(project_id)
+        with project_operation(project_id), self.data_store.connect() as connection:
+            # The connection context does not start a transaction for SELECT.
+            # Pin every table to one WAL snapshot; author writes can continue.
+            connection.execute("BEGIN")
+            tables = {
+                table: [
                     dict(row)
                     for row in connection.execute(
-                        f"SELECT * FROM {table} WHERE {column} = ? ORDER BY rowid",
+                        f'SELECT * FROM "{table}" WHERE {"id" if table == "projects" else "project_id"} = ? ORDER BY rowid',
                         (project_id,),
                     )
                 ]
-                if rows:
-                    tables[table] = rows
-                    counts[table] = len(rows)
-
-        module_files = self._collect_module_files(project_id)
-        manifest = {
-            "kind": BACKUP_KIND,
-            "format_version": FORMAT_VERSION,
-            "schema_version": LATEST_VERSION,
-            "exported_at": utc_now(),
-            "project": {
-                "id": project_id,
-                "title": title,
-                "row_counts": counts,
-            },
-            "module_file_count": len(module_files),
-        }
-
+                for table in TABLES_IN_ORDER
+            }
+            if not tables["projects"]:
+                raise BackupNotFoundError(f"Project '{project_id}' does not exist.")
+            files = self._collect_module_files(project_id)
+            manifest = {
+                "kind": BACKUP_KIND,
+                "format_version": FORMAT_VERSION,
+                "schema_version": LATEST_VERSION,
+                "exported_at": utc_now(),
+                "tables": list(TABLES_IN_ORDER),
+                "project": {
+                    "id": project_id,
+                    "title": tables["projects"][0]["title"],
+                    "row_counts": {table: len(rows) for table, rows in tables.items()},
+                },
+                "module_file_count": len(files),
+            }
         buffer = io.BytesIO()
+        metadata = {
+            "manifest.json": json.dumps(manifest, ensure_ascii=False).encode("utf-8"),
+            "data.json": json.dumps({"tables": tables}, ensure_ascii=False).encode("utf-8"),
+        }
+        if (
+            len(files) + 2 > MAX_MEMBERS
+            or sum(map(len, metadata.values())) + sum(len(content) for _, content in files)
+            > MAX_EXPANDED_BYTES
+        ):
+            raise BackupError("Project exceeds the supported backup size or file count limit.")
         with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as bundle:
-            bundle.writestr("manifest.json", json.dumps(manifest, ensure_ascii=False, indent=2))
-            bundle.writestr(
-                "data.json",
-                json.dumps({"tables": tables}, ensure_ascii=False),
-            )
-            for relative_path, content in module_files:
-                bundle.writestr(f"modules/{relative_path}", content)
-        return buffer.getvalue()
+            for name, content in metadata.items():
+                bundle.writestr(name, content)
+            for name, content in files:
+                bundle.writestr(f"modules/{name}", content)
+        package = buffer.getvalue()
+        if len(package) > MAX_PACKAGE_BYTES:
+            raise BackupError("Project exceeds the supported 64 MiB ZIP limit.")
+        return package
 
-    # -- preview ---------------------------------------------------------
+    def _target_exists(self, connection: sqlite3.Connection, project_id: str) -> bool:
+        identities = connection.execute(
+            "SELECT id FROM projects WHERE lower(id) = lower(?)", (project_id,)
+        ).fetchall()
+        if any(row["id"] != project_id for row in identities):
+            raise BackupConflictError("Project id collides with another project's directory name.")
+        # An orphaned module directory still contains author data and needs confirmation.
+        return bool(identities) or checked_modules_dir(self.projects_root, project_id).exists()
 
-    def preview_import(self, package: bytes) -> dict[str, Any]:
-        """Validate a package and report what an import would change."""
-        manifest, tables, module_names = self._read_package(package)
+    def preview_import(self, package: bytes) -> dict:
+        manifest, _, files = read_package(package)
         project_id = manifest["project"]["id"]
+        checked_modules_dir(self.projects_root, project_id)
         with self.data_store.connect() as connection:
-            exists = (
-                connection.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone()
-                is not None
-            )
+            exists = self._target_exists(connection, project_id)
+        legacy = manifest["format_version"] == 1
         return {
-            "project": {
-                "id": project_id,
-                "title": manifest["project"]["title"],
-                "row_counts": manifest["project"]["row_counts"],
-            },
+            "project": manifest["project"],
             "schema_version": manifest["schema_version"],
             "current_schema_version": LATEST_VERSION,
-            "module_file_count": len(module_names),
+            "format_version": manifest["format_version"],
+            "module_file_count": len(files),
             "target_exists": exists,
             "would_replace_existing_project": exists,
+            "legacy_incomplete": legacy,
+            "can_overwrite": not legacy,
+            "warnings": ["旧版 v1 备份可能缺少 Narrative 数据，只允许导入为不存在的项目。"]
+            if legacy
+            else [],
         }
 
-    # -- import ----------------------------------------------------------
-
-    def import_package(self, package: bytes, *, overwrite: bool = False) -> dict[str, Any]:
-        manifest, tables, module_files = self._read_package(package)
+    def import_package(self, package: bytes, *, overwrite: bool = False) -> dict:
+        manifest, tables, files = read_package(package)
         project_id = manifest["project"]["id"]
-
-        with self.data_store.connect() as connection:
-            exists = (
-                connection.execute("SELECT 1 FROM projects WHERE id = ?", (project_id,)).fetchone()
-                is not None
-            )
-        if exists and not overwrite:
-            raise BackupConflictError(
-                f"Project '{project_id}' already exists; pass overwrite to replace it."
-            )
-
-        inserted: dict[str, int] = {}
-        with SqliteUnitOfWork(self.data_store.database_path) as uow:
-            connection = uow.connection
-            if exists:
-                # Children cascade from the projects row (FK ON in UoW).
-                connection.execute("DELETE FROM projects WHERE id = ?", (project_id,))
-            for table in TABLES_IN_ORDER:
-                rows = tables.get(table, [])
-                for row_values in rows:
-                    columns = list(row_values.keys())
-                    placeholders = ", ".join("?" for _ in columns)
-                    connection.execute(
-                        f"INSERT INTO {table} ({', '.join(columns)}) VALUES ({placeholders})",
-                        [row_values[column] for column in columns],
-                    )
-                if rows:
-                    inserted[table] = len(rows)
-
-        project_modules_dir = self._project_modules_dir(project_id)
-        if project_modules_dir.exists():
-            shutil.rmtree(project_modules_dir)
-        for relative_path, content in module_files:
-            target = (project_modules_dir / relative_path).resolve()
-            resolved_root = project_modules_dir.resolve()
-            if resolved_root != target and resolved_root not in target.parents:
-                raise BackupError(f"Unsafe module path in package: {relative_path}")
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text(content, encoding="utf-8")
-
+        legacy = manifest["format_version"] == 1
+        with project_operation(project_id):
+            try:
+                with staged_modules(self.projects_root, project_id, files) as install:
+                    with SqliteUnitOfWork(self.data_store.database_path) as uow:
+                        uow.connection.execute("BEGIN IMMEDIATE")
+                        exists = self._target_exists(uow.connection, project_id)
+                        if exists and (not overwrite or legacy):
+                            raise BackupConflictError(
+                                "Legacy v1 backups cannot overwrite an existing project."
+                                if legacy
+                                else "Project already exists; confirm overwrite first."
+                            )
+                        self._restore_database(uow.connection, project_id, tables)
+                        install()
+                    # Commit succeeded; only now discard the retained directory.
+            except (OSError, sqlite3.Error) as exc:
+                raise BackupError(
+                    "Restore failed; database changes and module replacement were rolled back."
+                ) from exc
         return {
             "project": manifest["project"],
             "replaced_existing": exists,
-            "restored_tables": inserted,
-            "restored_module_files": len(module_files),
+            "format_version": manifest["format_version"],
+            "legacy_incomplete": legacy,
+            "restored_tables": {table: len(rows) for table, rows in tables.items()},
+            "restored_module_files": len(files),
         }
 
-    # -- internals -------------------------------------------------------
+    def _restore_database(self, connection: sqlite3.Connection, project_id: str, tables: dict):
+        connection.execute("DELETE FROM projects WHERE id = ?", (project_id,))
+        insert_rows(connection, tables)
+        connection.execute(
+            "UPDATE outbox_jobs SET status = 'pending', processing_started_at = '' WHERE project_id = ? AND status = 'processing'",
+            (project_id,),
+        )
 
-    def _project_modules_dir(self, project_id: str) -> Path:
-        if not project_id or "/" in project_id or "\\" in project_id or ".." in project_id:
-            raise BackupError(f"Invalid project id: {project_id!r}")
-        return self.projects_root / project_id / "modules"
-
-    def _collect_module_files(self, project_id: str) -> list[tuple[str, str]]:
-        modules_dir = self._project_modules_dir(project_id)
-        if not modules_dir.exists():
-            return []
-        collected: list[tuple[str, str]] = []
-        for path in sorted(modules_dir.rglob("*")):
+    def _collect_module_files(self, project_id: str) -> list[tuple[str, bytes]]:
+        modules = checked_modules_dir(self.projects_root, project_id)
+        files = []
+        size = 0
+        names = set()
+        for path in sorted(modules.rglob("*")):
+            if path.is_symlink() or (hasattr(path, "is_junction") and path.is_junction()):
+                raise BackupError("Cannot export linked module files or directories.")
             if path.is_file():
-                collected.append(
-                    (path.relative_to(modules_dir).as_posix(), path.read_text(encoding="utf-8"))
-                )
-        return collected
-
-    def _read_package(
-        self, package: bytes
-    ) -> tuple[dict[str, Any], dict[str, list[dict[str, Any]]], list[tuple[str, str]]]:
-        try:
-            bundle = zipfile.ZipFile(io.BytesIO(package))
-        except zipfile.BadZipFile as exc:
-            raise BackupError("Package is not a valid ZIP archive.") from exc
-        try:
-            manifest = json.loads(bundle.read("manifest.json").decode("utf-8"))
-            payload = json.loads(bundle.read("data.json").decode("utf-8"))
-        except KeyError as exc:
-            raise BackupError(f"Package is missing {exc.args[0]}.") from exc
-        except json.JSONDecodeError as exc:
-            raise BackupError(f"Package JSON is malformed: {exc}") from exc
-
-        self._validate_manifest(manifest)
-
-        tables = payload.get("tables", {})
-        unknown = set(tables) - set(TABLES_IN_ORDER)
-        if unknown:
-            raise BackupError(f"Package contains unknown tables: {sorted(unknown)}")
-
-        module_files: list[tuple[str, str]] = []
-        for name in bundle.namelist():
-            if not name.startswith("modules/") or name.endswith("/"):
-                continue
-            module_files.append((name[len("modules/") :], bundle.read(name).decode("utf-8")))
-        expected_modules = manifest.get("module_file_count")
-        if expected_modules is not None and expected_modules != len(module_files):
-            raise BackupError(
-                f"Manifest claims {expected_modules} module files but the package has {len(module_files)}."
-            )
-        return manifest, tables, module_files
-
-    def _validate_manifest(self, manifest: dict[str, Any]) -> None:
-        if manifest.get("kind") != BACKUP_KIND:
-            raise BackupError("Not an AI Writing Studio project backup.")
-        if manifest.get("format_version") != FORMAT_VERSION:
-            raise BackupError(
-                f"Unsupported backup format version: {manifest.get('format_version')!r}."
-            )
-        schema_version = manifest.get("schema_version")
-        if not isinstance(schema_version, int) or not (
-            MIN_SCHEMA_VERSION <= schema_version <= LATEST_VERSION
-        ):
-            raise BackupVersionError(
-                f"Backup schema version {schema_version!r} is incompatible with this "
-                f"application (supported {MIN_SCHEMA_VERSION}..{LATEST_VERSION})."
-            )
-        project = manifest.get("project")
-        if not isinstance(project, dict) or not project.get("id"):
-            raise BackupError("Manifest is missing the project identity.")
+                name = validate_module_path(path.relative_to(modules).as_posix())
+                if name.casefold() in names:
+                    raise BackupError("Module filenames collide on case-insensitive filesystems.")
+                names.add(name.casefold())
+                size += path.stat().st_size
+                if size > MAX_EXPANDED_BYTES or len(names) + 2 > MAX_MEMBERS:
+                    raise BackupError("Module files exceed the supported backup limits.")
+                content = path.read_bytes()
+                try:
+                    content.decode("utf-8")
+                except UnicodeError as exc:
+                    raise BackupError("Module files must be UTF-8 text.") from exc
+                files.append((name, content))
+        return files

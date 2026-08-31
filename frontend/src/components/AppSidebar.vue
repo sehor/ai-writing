@@ -111,16 +111,19 @@ function rowCountSummary(counts: Record<string, number>): string {
             <small>{{ backupPreview.project.id }}</small>
           </p>
           <p class="backup-preview-meta">
-            schema v{{ backupPreview.schema_version }} ·
+            备份 v{{ backupPreview.format_version }} · schema v{{ backupPreview.schema_version }} ·
             {{ backupPreview.module_file_count }} 个模块文件
           </p>
           <p class="backup-preview-meta">
             {{ rowCountSummary(backupPreview.project.row_counts) }}
           </p>
+          <p v-for="warning in backupPreview.warnings" :key="warning" class="conflict-warning" role="alert">
+            {{ warning }}
+          </p>
           <p v-if="backupPreview.target_exists" class="conflict-warning" role="alert">
             目标项目已存在：导入将覆盖现有项目，请先确认覆盖。
           </p>
-          <label v-if="backupPreview.target_exists" class="backup-overwrite-confirm">
+          <label v-if="backupPreview.target_exists && backupPreview.can_overwrite" class="backup-overwrite-confirm">
             <input v-model="overwriteConfirmed" type="checkbox" />
             <span>确认覆盖现有项目</span>
           </label>
@@ -128,7 +131,7 @@ function rowCountSummary(counts: Record<string, number>): string {
             <button
               type="button"
               data-testid="confirm-import"
-              :disabled="isImporting || (backupPreview.target_exists && !overwriteConfirmed)"
+              :disabled="isImporting || (backupPreview.target_exists && (!backupPreview.can_overwrite || !overwriteConfirmed))"
               @click="backups.importPreviewedPackage()"
             >
               {{ isImporting ? '导入中...' : (backupPreview.target_exists ? '覆盖并导入' : '确认导入') }}

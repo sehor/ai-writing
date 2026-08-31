@@ -28,8 +28,13 @@ export const useBackupsStore = defineStore('backups', () => {
 
   /** The selected package file; kept outside reactivity on purpose. */
   let pendingPackage: File | null = null
+  let previewController: AbortController | undefined
+  let previewVersion = 0
 
   function resetPreviewState() {
+    previewController?.abort()
+    previewVersion++
+    isLoadingPreview.value = false
     pendingPackage = null
     importFileName.value = ''
     preview.value = null
@@ -71,9 +76,12 @@ export const useBackupsStore = defineStore('backups', () => {
 
   /** Preview-first import: validate the package and show what would change. */
   async function previewImportPackage(file: File) {
+    if (isImporting.value) return
     importError.value = ''
     importStatus.value = ''
     resetPreviewState()
+    const version = previewVersion
+    previewController = new AbortController()
     pendingPackage = file
     importFileName.value = file.name
     isLoadingPreview.value = true
@@ -82,26 +90,30 @@ export const useBackupsStore = defineStore('backups', () => {
         method: 'POST',
         headers: { 'Content-Type': 'application/zip' },
         body: file,
+        signal: previewController.signal,
       })
       if (!response.ok) {
         const detail = await readErrorDetail(response)
         throw new Error(detail.message || 'Preview failed')
       }
       const report: BackupPreviewSummary = await response.json()
+      if (version !== previewVersion) return
       preview.value = report
       overwriteConfirmed.value = false
     } catch (error) {
+      if (version !== previewVersion) return
       resetPreviewState()
       importError.value =
         error instanceof Error
           ? `Backup preview failed. ${error.message}`
           : 'Backup preview failed. Check that the API is running.'
     } finally {
-      isLoadingPreview.value = false
+      if (version === previewVersion) isLoadingPreview.value = false
     }
   }
 
   function discardPreview() {
+    if (isImporting.value) return
     importError.value = ''
     resetPreviewState()
   }
@@ -111,12 +123,17 @@ export const useBackupsStore = defineStore('backups', () => {
    *  A package whose project id already exists requires the explicit
    *  overwrite confirmation before this will send ``overwrite=true``. */
   async function importPreviewedPackage() {
+    if (isImporting.value || isLoadingPreview.value) return
     importError.value = ''
     importStatus.value = ''
     const file = pendingPackage
     const summary = preview.value
     if (!file || !summary) {
       importError.value = 'Select a project package first.'
+      return
+    }
+    if (summary.target_exists && !summary.can_overwrite) {
+      importError.value = '旧版备份不完整，不能覆盖现有项目。'
       return
     }
     if (summary.target_exists && !overwriteConfirmed.value) {
@@ -148,7 +165,8 @@ export const useBackupsStore = defineStore('backups', () => {
       if (projectsResponse.ok) {
         useProjectsStore().projects = await projectsResponse.json()
       }
-      ws().activeProjectId = result.project.id
+      if (ws().activeProjectId === result.project.id) ws().reloadActiveProject()
+      else ws().activeProjectId = result.project.id
     } catch (error) {
       importError.value =
         error instanceof Error

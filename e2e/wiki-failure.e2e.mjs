@@ -129,7 +129,7 @@ async function run(page) {
     .waitFor({ state: 'visible' })
   await page
     .locator('.proposal-workspace .proposal-detail')
-    .getByRole('button', { name: 'Accept', exact: true })
+    .getByRole('button', { name: 'Accept · 保存并分析', exact: true })
     .click()
 
   // Core data MUST persist despite the failed indexing.
@@ -151,10 +151,13 @@ async function run(page) {
   const jobs = await pollApi(
     client,
     '/projects/' + project.id + '/outbox-jobs',
-    (list) => list.length >= 3,
-    { label: 'three outbox jobs to exist' },
+    (list) => {
+      const revisionJobs = list.filter((job) => job.aggregate_id === revisions[0].id)
+      return revisionJobs.length === 4 && revisionJobs.every((job) => ['succeeded', 'failed'].includes(job.status))
+    },
+    { label: 'all four revision jobs to reach a terminal status' },
   )
-  const byType = Object.fromEntries(jobs.map((job) => [job.job_type, job]))
+  const byType = Object.fromEntries(jobs.filter((job) => job.aggregate_id === revisions[0].id).map((job) => [job.job_type, job]))
   assert.equal(byType.llm_wiki_ingest.status, 'failed', 'wiki ingestion job failed')
   assert.equal(byType.writeback_analysis.status, 'failed', 'write-back analysis job failed (memplace writes under the blocked projects root)')
   assert.match(byType.llm_wiki_ingest.last_error || '', /NotADirectoryError|FileExistsError|ENOTDIR|Error/, 'wiki failure carries an error message')
@@ -191,7 +194,7 @@ async function run(page) {
     .waitFor({ state: 'visible', timeout: 60000 })
 
   const retried = await client.get('/projects/' + project.id + '/outbox-jobs')
-  const retriedByType = Object.fromEntries(retried.map((job) => [job.job_type, job]))
+  const retriedByType = Object.fromEntries(retried.filter((job) => job.aggregate_id === revisions[0].id).map((job) => [job.job_type, job]))
   assert.equal(
     retriedByType.writeback_analysis.status,
     'succeeded',
@@ -213,7 +216,7 @@ async function run(page) {
     .waitFor({ state: 'visible', timeout: 60000 })
 
   const retriedAgain = await client.get('/projects/' + project.id + '/outbox-jobs')
-  const retriedAgainByType = Object.fromEntries(retriedAgain.map((job) => [job.job_type, job]))
+  const retriedAgainByType = Object.fromEntries(retriedAgain.filter((job) => job.aggregate_id === revisions[0].id).map((job) => [job.job_type, job]))
   assert.equal(
     retriedAgainByType.llm_wiki_ingest.status,
     'succeeded',

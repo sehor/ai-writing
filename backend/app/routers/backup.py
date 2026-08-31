@@ -10,9 +10,11 @@ so no multipart dependency is required.
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import Response
+from starlette.concurrency import run_in_threadpool
 
 from app.config import resolve_data_root
 from app.data import SQLiteWritingDataStore, get_data_store
+from app.services.backup_format import MAX_PACKAGE_BYTES
 from app.services.backup_service import (
     BackupConflictError,
     BackupError,
@@ -22,6 +24,17 @@ from app.services.backup_service import (
 )
 
 router = APIRouter(tags=["backups"])
+
+
+async def read_upload(request: Request) -> bytes:
+    package = bytearray()
+    async for chunk in request.stream():
+        if len(package) + len(chunk) > MAX_PACKAGE_BYTES:
+            raise HTTPException(
+                status_code=413, detail="Backup ZIP exceeds the 64 MiB upload limit."
+            )
+        package.extend(chunk)
+    return bytes(package)
 
 
 def get_backup_service(
@@ -65,9 +78,9 @@ async def preview_project_backup(
     request: Request,
     service: ProjectBackupService = Depends(get_backup_service),
 ) -> dict:
-    package = await request.body()
+    package = await read_upload(request)
     try:
-        return service.preview_import(package)
+        return await run_in_threadpool(service.preview_import, package)
     except BackupError as exc:
         raise _map_backup_errors(exc) from exc
 
@@ -78,8 +91,8 @@ async def import_project_backup(
     overwrite: bool = False,
     service: ProjectBackupService = Depends(get_backup_service),
 ) -> dict:
-    package = await request.body()
+    package = await read_upload(request)
     try:
-        return service.import_package(package, overwrite=overwrite)
+        return await run_in_threadpool(service.import_package, package, overwrite=overwrite)
     except BackupError as exc:
         raise _map_backup_errors(exc) from exc
