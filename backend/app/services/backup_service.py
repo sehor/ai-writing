@@ -12,6 +12,7 @@ from app.data.migrations import LATEST_VERSION
 from app.data.project_operations import project_operation
 from app.data.unit_of_work import SqliteUnitOfWork
 from app.services.backup_files import checked_modules_dir, staged_modules
+from app.services.backup_recovery import recover_pending, restore_lock
 from app.services.backup_format import (
     BACKUP_KIND,
     FORMAT_VERSION,
@@ -132,12 +133,35 @@ class ProjectBackupService:
 
     def import_package(self, package: bytes, *, overwrite: bool = False) -> dict:
         manifest, tables, files = read_package(package)
-        project_id = manifest["project"]["id"]
         legacy = manifest["format_version"] == 1
+        with restore_lock:
+            self.recover_interrupted_imports()
+            return self._import_validated(
+                manifest, tables, files, overwrite=overwrite, legacy=legacy
+            )
+
+    def recover_interrupted_imports(self) -> int:
+        with restore_lock:
+            try:
+                return recover_pending(self.data_store.database_path, self.projects_root)
+            except (OSError, sqlite3.Error) as exc:
+                raise BackupError(
+                    "Interrupted restore recovery failed. Preserve .restore-* directories and "
+                    "stop other processes using this data root before retrying."
+                ) from exc
+
+    def _import_validated(self, manifest, tables, files, *, overwrite: bool, legacy: bool) -> dict:
+        project_id = manifest["project"]["id"]
         with project_operation(project_id):
             try:
-                with staged_modules(self.projects_root, project_id, files) as install:
+                with staged_modules(
+                    self.projects_root,
+                    project_id,
+                    files,
+                    database_path=self.data_store.database_path,
+                ) as install:
                     with SqliteUnitOfWork(self.data_store.database_path) as uow:
+                        uow.connection.execute("PRAGMA synchronous = FULL")
                         uow.connection.execute("BEGIN IMMEDIATE")
                         exists = self._target_exists(uow.connection, project_id)
                         if exists and (not overwrite or legacy):
@@ -147,11 +171,13 @@ class ProjectBackupService:
                                 else "Project already exists; confirm overwrite first."
                             )
                         self._restore_database(uow.connection, project_id, tables)
+                        install.record_commit(uow.connection)
                         install()
                     # Commit succeeded; only now discard the retained directory.
             except (OSError, sqlite3.Error) as exc:
                 raise BackupError(
-                    "Restore failed; database changes and module replacement were rolled back."
+                    "Restore did not finish. Preserve any .restore-* directories and restart "
+                    "the backend to reconcile recovery state before retrying."
                 ) from exc
         return {
             "project": manifest["project"],

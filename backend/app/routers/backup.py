@@ -12,7 +12,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from fastapi.responses import Response
 from starlette.concurrency import run_in_threadpool
 
-from app.config import resolve_data_root
 from app.data import SQLiteWritingDataStore, get_data_store
 from app.services.backup_format import MAX_PACKAGE_BYTES
 from app.services.backup_service import (
@@ -42,7 +41,7 @@ def get_backup_service(
 ) -> ProjectBackupService:
     return ProjectBackupService(
         data_store,
-        resolve_data_root() / "projects",
+        data_store.database_path.parent / "projects",
     )
 
 

@@ -54,6 +54,7 @@ class MigrationTests(unittest.TestCase):
                     "knowledge_states",
                     "narrative_relations",
                     "schema_migrations",
+                    "backup_restore_commits",
                 }
                 self.assertTrue(expected_tables <= _table_names(connection))
                 self.assertTrue({"chapter_id"} <= _column_names(connection, "scene_contracts"))

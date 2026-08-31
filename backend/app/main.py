@@ -30,7 +30,13 @@ from app.routers import (
 async def lifespan(app: FastAPI):
     # Tests and local integrations must initialize the same store that their
     # routes/dispatcher use, never the developer's default database.
-    app.dependency_overrides.get(get_data_store, get_data_store)().init()
+    data_store = app.dependency_overrides.get(get_data_store, get_data_store)()
+    data_store.init()
+    # Recovery must precede all readers and background file writers. A damaged
+    # journal aborts startup instead of serving mixed database/file state.
+    backup_factory = app.dependency_overrides.get(backup.get_backup_service)
+    backup_service = backup_factory() if backup_factory else backup.get_backup_service(data_store)
+    backup_service.recover_interrupted_imports()
     # P1-03: post-commit jobs are dispatched by this app-owned background
     # loop instead of inside mutation requests.
     dispatcher = build_app_outbox_dispatcher(app)

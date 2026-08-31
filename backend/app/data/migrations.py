@@ -419,6 +419,16 @@ def _run_script(connection: sqlite3.Connection, script: str) -> None:
             connection.execute(statement)
 
 
+def _add_backup_restore_commits(connection: sqlite3.Connection) -> None:
+    # Operational recovery metadata, never part of an exported project snapshot.
+    connection.execute(
+        """CREATE TABLE backup_restore_commits (
+            operation_id TEXT PRIMARY KEY,
+            target_project TEXT NOT NULL
+        )"""
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(version=1, name="baseline_schema", apply=_apply_baseline_schema),
     Migration(version=2, name="scene_contracts_chapter_id", apply=_add_scene_contracts_chapter_id),
@@ -435,6 +445,7 @@ MIGRATIONS: list[Migration] = [
         name="narrative_domain_phase0_tables",
         apply=_add_narrative_domain_phase0_tables,
     ),
+    Migration(version=8, name="backup_restore_commits", apply=_add_backup_restore_commits),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1].version

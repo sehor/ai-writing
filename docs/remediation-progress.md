@@ -67,7 +67,7 @@ perform every proposed refactor.
 
 ## Verification results
 
-- Backend: **224 tests passed**, including 21 backup tests and edited-draft/API tests.
+- First-pass backend: **224 tests passed**, including 21 backup tests and edited-draft/API tests.
 - Frontend: **27 source-boundary checks + 13 behavior tests passed**.
 - Ruff check / format check, compileall, ESLint, Vue type check, production build,
   generated requirements comparison and `git diff --check`: passed.
@@ -80,14 +80,60 @@ perform every proposed refactor.
   final changes. The Vite teardown timer now cancels after a successful close,
   eliminating misleading timeout messages and the lingering timer.
 
+## Follow-up: interrupted restore recovery
+
+The first pass was committed as `18c24f1`. The follow-up adds persistent restore
+journals and migration 8 (`backup_restore_commits`). This table records operational
+commit decisions only and is deliberately excluded from project ZIP packages.
+
+The journal is written before directory replacement and contains the operation,
+project and database identities. Prepared file contents and journal writes are
+flushed before committing. The restore transaction explicitly uses SQLite
+`synchronous=FULL`; its marker commits together with the project rows. Recovery
+runs before HTTP requests and the Outbox dispatcher start, and before another
+import begins. Restores are serialized within the backend process.
+
+| Durable evidence | Recovery decision |
+| --- | --- |
+| No commit marker, preparation only | Leave the original files; remove staging data |
+| No commit marker, directory replacement begun | Restore the old directory, or remove only the uncommitted new directory |
+| Commit marker present | Keep the new directory and finish removing the old copy |
+| Rollback already completed | Clean remaining staging files without touching later author work |
+| Invalid identity, damaged journal, missing committed files, or legacy unjournaled restore | Stop startup; preserve the evidence for manual recovery |
+
+Recovery itself is restartable. The journal is removed last during cleanup, and
+the database marker is removed only after filesystem cleanup. A failed commit
+acknowledgment cannot roll files back after SQLite has committed. Cleanup failures
+retain evidence and emit an operational log instead of misreporting core success.
+
+Verification includes real child processes terminated with `os._exit` before
+journal creation, after staging, after each directory rename, before/after commit,
+and during cleanup; it also terminates recovery itself and restarts it. Other cases
+cover first-time imports, startup ordering, invalid/foreign journals, missing files,
+deferred cleanup, commit acknowledgments, and exclusion of operational markers from
+ZIP exports. All use temporary databases and directories.
+
+Follow-up final verification: **236 backend tests passed**, including 12 recovery
+tests with multiple real process-termination checkpoints. The 40 frontend checks,
+both real-browser E2E suites, Ruff check/format, compileall, ESLint, production build
+and whitespace checks passed. Temporary E2E service ports were released.
+
 ## Explicit limits / deferred work
 
 - The filesystem coordination lock supports one backend process (the current
   local-first deployment). Multiple server workers/processes need a shared lock.
-- Compensating rollback covers reported exceptions, including commit and rename
-  failures. It is **not a power-loss/process-kill recovery journal**. A hard stop
-  during the directory swap may leave `.restore-*` with original module files;
-  stop the application and preserve those directories for manual recovery.
+- Process-kill/restart recovery is now implemented and tested. This is not a
+  promise against arbitrary physical power loss, broken storage, or filesystem
+  corruption. Python file fsync flushes file contents; portable directory fsync
+  is not available on Windows. POSIX directory updates are explicitly synced.
+  References: [Python fsync](https://docs.python.org/3/library/os.html#os.fsync)
+  and [SQLite synchronous](https://www.sqlite.org/pragma.html#pragma_synchronous).
+- Do not delete `.restore-*` folders or move the database while recovery is pending.
+  On a startup recovery error, stop all backend processes, preserve a copy of the
+  entire data root (including `app.db`, its WAL/SHM files, and restore directories),
+  resolve storage/permission issues, then restart on the same path. Unknown legacy
+  restore directories have no reliable commit marker and require manual inspection;
+  never infer which copy to keep from modification times alone.
 - Full OpenAPI-generated frontend types, a repository-wide store rewrite, a rich
   text editor, Copilot Apply and a complete workstation redesign are deferred.
   This pass supplies the usable draft/review workspace and necessary boundaries;
