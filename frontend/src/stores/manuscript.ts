@@ -34,6 +34,8 @@ import { useWorkspaceStore } from './workspace'
 import { useProposalDraftStore } from './proposalDraft'
 import type { WorkspaceShell } from './workspaceShell'
 
+type ManuscriptEditDraft = { title: string; content: string; expected_scene_version: number | null }
+
 /** Manuscript domain: chapters, scene contracts, review proposals, and the
  *  accepted scenes / revisions / diff / export pipeline. */
 export const useManuscriptStore = defineStore('manuscript', () => {
@@ -87,6 +89,21 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   const editingManuscriptSceneId = ref('')
   const manuscriptEditTitle = ref('')
   const manuscriptEditContent = ref('')
+  const manuscriptEditVersion = ref<number | null>(null)
+  const manuscriptSaveConflict = ref(false)
+  const manuscriptEditReviewReady = ref(false)
+  const isRefreshingManuscriptEdit = ref(false)
+  let manuscriptEditProjectId = ''
+  let manuscriptEditSession = 0
+  let hydratingManuscriptEdit = false
+  const editingManuscriptScene = computed(() =>
+    manuscriptScenes.value.find((scene) => scene.scene_id === editingManuscriptSceneId.value)
+  )
+  const manuscriptEditNeedsReview = computed(() =>
+    !!editingManuscriptSceneId.value && (manuscriptSaveConflict.value ||
+      manuscriptEditVersion.value === null ||
+      manuscriptEditVersion.value !== editingManuscriptScene.value?.version)
+  )
 
   /** Set while a save/programmatic change moves a selection itself. */
   let suppressNextSelectionGuard = false
@@ -178,8 +195,12 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     return `manuscript:${projectId}:${sceneId || 'new'}`
   }
 
-  function currentManuscriptEdits(): { title: string; content: string } {
-    return { title: manuscriptEditTitle.value, content: manuscriptEditContent.value }
+  function currentManuscriptEdits(): ManuscriptEditDraft {
+    return {
+      title: manuscriptEditTitle.value,
+      content: manuscriptEditContent.value,
+      expected_scene_version: manuscriptEditVersion.value,
+    }
   }
 
   watch(chapterDraft, () => queueAutosave(chapterScopeKey(), () => chapterDraft.value), {
@@ -189,8 +210,17 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     deep: true,
   })
   watch(
-    [manuscriptEditTitle, manuscriptEditContent],
-    () => queueAutosave(manuscriptEditScopeKey(), currentManuscriptEdits)
+    [manuscriptEditTitle, manuscriptEditContent, manuscriptEditVersion],
+    () => {
+      if (hydratingManuscriptEdit || !editingManuscriptSceneId.value) return
+      const key = manuscriptEditScopeKey(manuscriptEditProjectId)
+      const snapshot = currentManuscriptEdits()
+      if (isScopeDirty(key, snapshot)) editorSession.markDirty(key)
+      else editorSession.markClean(key)
+      // A delayed autosave must not read a different scene or project.
+      queueAutosave(key, () => snapshot)
+    },
+    { flush: 'sync' }
   )
 
   watch(activeChapterId, (next, prev) => {
@@ -867,7 +897,8 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   }
 
   function startEditingManuscriptScene(scene: ManuscriptScene) {
-    const currentScope = manuscriptEditScopeKey()
+    if (isSavingManuscriptScene.value) return
+    const currentScope = manuscriptEditScopeKey(manuscriptEditProjectId)
     if (
       editingManuscriptSceneId.value &&
       isScopeDirty(currentScope, currentManuscriptEdits())
@@ -879,29 +910,88 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     }
     manuscriptError.value = ''
     manuscriptStatus.value = ''
+    hydratingManuscriptEdit = true
+    manuscriptEditSession++
+    manuscriptEditProjectId = ws().activeProjectId
+    manuscriptSaveConflict.value = false
+    manuscriptEditReviewReady.value = true
+    isRefreshingManuscriptEdit.value = false
     editingManuscriptSceneId.value = scene.scene_id
     const nextScope = manuscriptEditScopeKey(ws().activeProjectId, scene.scene_id)
-    const baseline = { title: scene.title, content: scene.content }
+    const baseline = { title: scene.title, content: scene.content, expected_scene_version: scene.version }
     setBaseline(nextScope, baseline)
-    const cached = restoreCachedDraft<{ title: string; content: string }>(nextScope)
-    if (cached && cached.value && typeof cached.value === 'object') {
-      manuscriptEditTitle.value = cached.value.title ?? scene.title
-      manuscriptEditContent.value = cached.value.content ?? scene.content
+    const cached = restoreCachedDraft<ManuscriptEditDraft>(nextScope)
+    if (cached && typeof cached.value?.title === 'string' && typeof cached.value.content === 'string') {
+      manuscriptEditTitle.value = cached.value.title
+      manuscriptEditContent.value = cached.value.content
+      const version = cached.value.expected_scene_version
+      manuscriptEditVersion.value = typeof version === 'number' && Number.isInteger(version) && version >= 1 ? version : null
       editorSession.markDirty(nextScope, cached.savedAt)
       manuscriptStatus.value = `已恢复本地草稿（自动保存于 ${formatSavedAt(cached.savedAt)}）`
     } else {
       manuscriptEditTitle.value = scene.title
       manuscriptEditContent.value = scene.content
+      manuscriptEditVersion.value = scene.version
     }
+    hydratingManuscriptEdit = false
   }
 
   function cancelEditingManuscriptScene() {
+    const key = manuscriptEditScopeKey(manuscriptEditProjectId)
+    if (editingManuscriptSceneId.value && isScopeDirty(key, currentManuscriptEdits())) {
+      persistDraft(key, currentManuscriptEdits())
+    }
+    hydratingManuscriptEdit = true
+    manuscriptEditSession++
     editingManuscriptSceneId.value = ''
     manuscriptEditTitle.value = ''
     manuscriptEditContent.value = ''
+    manuscriptEditVersion.value = null
+    manuscriptEditProjectId = ''
+    manuscriptSaveConflict.value = false
+    manuscriptEditReviewReady.value = false
+    isRefreshingManuscriptEdit.value = false
+    isSavingManuscriptScene.value = false
+    hydratingManuscriptEdit = false
+  }
+
+  async function refreshManuscriptEditConflict() {
+    if (!editingManuscriptSceneId.value || isRefreshingManuscriptEdit.value) return
+    const projectId = manuscriptEditProjectId
+    const session = manuscriptEditSession
+    manuscriptEditReviewReady.value = false
+    isRefreshingManuscriptEdit.value = true
+    try {
+      const response = await fetchApi(`/projects/${projectId}/manuscript/scenes`)
+      if (!response.ok) throw new Error('Could not load current text')
+      const scenes: ManuscriptScene[] = await response.json()
+      if (session !== manuscriptEditSession || !isActiveProject(projectId)) return
+      manuscriptScenes.value = scenes
+      manuscriptEditReviewReady.value = !!editingManuscriptScene.value
+      manuscriptError.value = editingManuscriptScene.value
+        ? '正文版本已变更。你的编辑已保留，请核对当前正文后再保存。'
+        : '当前正文已不存在。你的编辑已保留，请先检查项目状态。'
+    } catch {
+      if (session === manuscriptEditSession && isActiveProject(projectId)) {
+        manuscriptError.value = '读取当前正文失败。你的编辑已保留，请重试读取后再确认版本。'
+      }
+    } finally {
+      if (session === manuscriptEditSession) isRefreshingManuscriptEdit.value = false
+    }
+  }
+
+  function rebaseManuscriptSceneEdit() {
+    if (!manuscriptEditReviewReady.value || isRefreshingManuscriptEdit.value ||
+        isSavingManuscriptScene.value || !editingManuscriptScene.value) return
+    manuscriptEditVersion.value = editingManuscriptScene.value.version
+    manuscriptSaveConflict.value = false
+    persistDraft(manuscriptEditScopeKey(manuscriptEditProjectId), currentManuscriptEdits())
+    manuscriptError.value = ''
+    manuscriptStatus.value = `已确认当前 v${manuscriptEditVersion.value}；编辑内容保留，尚未保存。`
   }
 
   async function saveManuscriptSceneEdit(sceneId: string) {
+    if (isSavingManuscriptScene.value || sceneId !== editingManuscriptSceneId.value) return
     manuscriptError.value = ''
     manuscriptStatus.value = ''
     const projectId = ws().activeProject?.id
@@ -916,37 +1006,61 @@ export const useManuscriptStore = defineStore('manuscript', () => {
       manuscriptError.value = 'Title and content are required before saving.'
       return
     }
+    if (manuscriptEditNeedsReview.value || manuscriptEditVersion.value === null) {
+      manuscriptError.value = '请先核对当前正文并确认版本。你的编辑已保留。'
+      return
+    }
 
+    const session = manuscriptEditSession
+    const isCurrentEdit = () => session === manuscriptEditSession && isActiveProject(projectId)
+    const snapshot = currentManuscriptEdits()
+    persistDraft(manuscriptEditScopeKey(projectId, sceneId), snapshot)
     isSavingManuscriptScene.value = true
     try {
       const response = await fetchApi(`/projects/${projectId}/manuscript/scenes/${sceneId}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title, content }),
+        body: JSON.stringify({ title, content, expected_scene_version: snapshot.expected_scene_version }),
       })
+      if (!isCurrentEdit()) return
+      if (response.status === 409) {
+        manuscriptSaveConflict.value = true
+        await refreshManuscriptEditConflict()
+        return
+      }
       if (!response.ok) {
         throw new Error('Could not save manuscript scene')
       }
       const updated: ManuscriptScene = await response.json()
-      if (!isActiveProject(projectId)) {
+      if (!isCurrentEdit()) {
         return
       }
       manuscriptScenes.value = manuscriptScenes.value.map((scene) =>
         scene.scene_id === updated.scene_id ? updated : scene
       )
-      clearDraft(manuscriptEditScopeKey(projectId, sceneId))
-      cancelEditingManuscriptScene()
+      const unchanged = JSON.stringify(snapshot) === JSON.stringify(currentManuscriptEdits())
+      setBaseline(manuscriptEditScopeKey(projectId, sceneId), snapshot)
+      if (unchanged) {
+        clearDraft(manuscriptEditScopeKey(projectId, sceneId))
+        cancelEditingManuscriptScene()
+      } else {
+        // Keep any input made while the request was in flight.
+        manuscriptEditVersion.value = updated.version
+        persistDraft(manuscriptEditScopeKey(projectId, sceneId), currentManuscriptEdits())
+      }
       manuscriptExport.value = null
       revisionDiff.value = null
+      const savedSession = manuscriptEditSession
       await refreshCommittedRevision(projectId)
-      if (!isActiveProject(projectId)) {
+      if (!isActiveProject(projectId) || savedSession !== manuscriptEditSession) {
         return
       }
-      manuscriptStatus.value = `Scene saved as version ${updated.version}.`
+      manuscriptStatus.value = unchanged ? `Scene saved as version ${updated.version}.`
+        : `已保存 v${updated.version}；后续编辑已保留，尚未保存。`
     } catch {
-      manuscriptError.value = 'Manuscript scene save failed. Check that the API is running.'
+      if (isCurrentEdit()) manuscriptError.value = '正文保存失败。你的编辑已保留，请检查 API 后重试。'
     } finally {
-      isSavingManuscriptScene.value = false
+      if (session === manuscriptEditSession) isSavingManuscriptScene.value = false
     }
   }
 
@@ -956,6 +1070,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
 
   /** Drop project-scoped state before the workspace loads another project. */
   function resetProjectState() {
+    cancelEditingManuscriptScene()
     chapterError.value = ''
     chapterStatus.value = ''
     sceneError.value = ''
@@ -1027,6 +1142,12 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     editingManuscriptSceneId,
     manuscriptEditTitle,
     manuscriptEditContent,
+    manuscriptEditVersion,
+    manuscriptEditNeedsReview,
+    manuscriptEditReviewReady,
+    isRefreshingManuscriptEdit,
+    refreshManuscriptEditConflict,
+    rebaseManuscriptSceneEdit,
     activeChapter,
     activeSceneContract,
     activeProposal,

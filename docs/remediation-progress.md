@@ -118,6 +118,31 @@ tests with multiple real process-termination checkpoints. The 40 frontend checks
 both real-browser E2E suites, Ruff check/format, compileall, ESLint, production build
 and whitespace checks passed. Temporary E2E service ports were released.
 
+## Follow-up: manual manuscript save conflicts
+
+Manual scene updates now require `expected_scene_version` (a positive integer).
+The version check, scene update, revision and four Outbox jobs share a
+`BEGIN IMMEDIATE` transaction. Stale saves return HTTP 409 without changing any
+records or waking the dispatcher; missing/invalid versions return 422. Existing
+API clients must include the version they actually edited, not fetch and silently
+substitute a newer version at save time. No data migration is required.
+
+The editor caches the original version alongside title/content. A conflict keeps
+the author's input and displays the current official text; acknowledgment rebases
+the draft but does not save it. Failed refreshes cannot be acknowledged. Legacy
+local drafts without a version preserve their text and require the same explicit
+review. Delayed autosaves and save responses are bound to the editor session so
+switching scenes/projects cannot overwrite another draft. Successful saves clear
+the cache; input changed during the request remains unsaved and recoverable.
+
+Regression coverage includes simultaneous writers, rejection with no database or
+Outbox effects, rollback after a write failure, legacy drafts, failed refreshes,
+late responses, and a real-browser competing-writer conflict/review/save flow.
+
+Verification: **241 backend tests**, **27 frontend boundary checks + 23 behavior
+tests**, both real-browser E2E suites, Ruff check/format, compileall, ESLint,
+Vue type checking, production build and Git whitespace checks passed.
+
 ## Explicit limits / deferred work
 
 - The filesystem coordination lock supports one backend process (the current

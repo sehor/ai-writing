@@ -525,6 +525,8 @@ class SQLiteWritingDataStore:
         self, project_id: str, scene_id: str, update: ManuscriptSceneUpdate
     ) -> ManuscriptScene | None:
         with SqliteUnitOfWork(self.database_path) as uow:
+            # Serialize the version check and all revision/outbox writes.
+            uow.connection.execute("BEGIN IMMEDIATE")
             return update_manuscript_scene(
                 uow.connection, project_id=project_id, scene_id=scene_id, update=update
             )

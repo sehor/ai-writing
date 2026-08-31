@@ -675,6 +675,38 @@ async function run(page) {
   await page
     .locator('.revision-history .revision-item p.eyebrow', { hasText: 'Version 3' })
     .waitFor({ state: 'visible' })
+
+  // A stale browser edit must survive a competing writer and an explicit review.
+  step('reject a stale manual save and preserve the draft through conflict review')
+  await archiveItem.getByRole('button', { name: 'Edit', exact: true }).click()
+  const staleDraft = 'MY_UNSAVED_CONFLICT_DRAFT'
+  await page.locator('.manuscript-edit textarea').fill(staleDraft)
+  await client.put('/projects/' + project.id + '/manuscript/scenes/' + editedScene.scene_id, {
+    title: editedScene.title,
+    content: 'OTHER_WINDOW_SAVED_TEXT',
+    expected_scene_version: 3,
+  })
+  const rejected = page.waitForResponse(response =>
+    response.request().method() === 'PUT' && response.url().endsWith('/manuscript/scenes/' + editedScene.scene_id),
+  )
+  await page.getByRole('button', { name: 'Save Version', exact: true }).click()
+  assert.equal((await rejected).status(), 409)
+  const conflict = page.getByRole('region', { name: '正文版本冲突' })
+  await conflict.getByText('OTHER_WINDOW_SAVED_TEXT', { exact: true }).waitFor()
+  assert.equal(await page.locator('.manuscript-edit textarea').inputValue(), staleDraft)
+  assert.equal(await page.getByRole('button', { name: 'Save Version', exact: true }).isDisabled(), true)
+  const afterConflict = await client.get('/projects/' + project.id + '/manuscript/revisions')
+  assert.equal(afterConflict.length, 4, 'rejected save did not file a revision')
+  assert.equal(afterConflict.find(revision => revision.version === 4).content, 'OTHER_WINDOW_SAVED_TEXT')
+  await conflict.getByRole('button', { name: '已核对当前正文，保留我的编辑' }).click()
+  assert.equal(await page.locator('.manuscript-edit textarea').inputValue(), staleDraft)
+  assert.equal((await client.get('/projects/' + project.id + '/manuscript/revisions')).length, 4,
+    'acknowledging the current version must not save automatically')
+  await page.getByRole('button', { name: 'Save Version', exact: true }).click()
+  await page.locator('.accepted-manuscript .accepted-item p.eyebrow', { hasText: 'Version 5' }).waitFor()
+  const afterRebase = await client.get('/projects/' + project.id + '/manuscript/scenes')
+  assert.equal(afterRebase[0].version, 5)
+  assert.equal(afterRebase[0].content, staleDraft)
 }
 
 async function main() {

@@ -438,6 +438,7 @@ class ManuscriptScene(BaseModel):
 class ManuscriptSceneUpdate(BaseModel):
     title: str = Field(min_length=1, max_length=160)
     content: str = Field(min_length=1, max_length=40000)
+    expected_scene_version: int = Field(ge=1, strict=True)
 
     @field_validator("title", "content")
     @classmethod

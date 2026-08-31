@@ -74,6 +74,7 @@ class ManuscriptEditingTests(unittest.TestCase):
                 project_id,
                 scene_id,
                 ManuscriptSceneUpdate(
+                    expected_scene_version=1,
                     title="Opening Draft Revised",
                     content="# Opening Draft Revised\n\nMira tests the sealed doors again.",
                 ),
@@ -99,6 +100,7 @@ class ManuscriptEditingTests(unittest.TestCase):
                 project_id,
                 scene_id,
                 ManuscriptSceneUpdate(
+                    expected_scene_version=1,
                     title="Opening Draft Revised",
                     content="# Opening Draft Revised\n\nRewritten prose.",
                 ),
@@ -162,6 +164,7 @@ class ManuscriptEditingTests(unittest.TestCase):
                 project.id,
                 scene.id,
                 ManuscriptSceneUpdate(
+                    expected_scene_version=1,
                     title="Opening Draft Revised",
                     content="# Opening Draft Revised\n\nMira tests the sealed doors again.",
                 ),
@@ -189,6 +192,7 @@ class ManuscriptEditingTests(unittest.TestCase):
                 project.id,
                 "missing-scene",
                 ManuscriptSceneUpdate(
+                    expected_scene_version=1,
                     title="No Scene",
                     content="This should not be saved.",
                 ),

@@ -32,7 +32,8 @@ const staleGuardedFunctions = [
   ['saveSceneContract', '../src/stores/manuscript.ts'],
   ['createProposalFromScene', '../src/stores/manuscript.ts'],
   ['generateReferenceSuggestion', '../src/stores/reviews.ts'],
-  ['saveManuscriptSceneEdit', '../src/stores/manuscript.ts'],
+  // Manual saves use an editor-session guard as well as project identity.
+  // Their late-response behavior is covered by manuscript-conflicts.test.ts.
   ['createWritebackFromRevision', '../src/stores/reviews.ts'],
   ['saveMemoryRecord', '../src/stores/memory.ts'],
 ]

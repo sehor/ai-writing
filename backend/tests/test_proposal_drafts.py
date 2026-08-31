@@ -105,7 +105,9 @@ class ProposalDraftAcceptanceTests(unittest.TestCase):
         self.store.update_manuscript_scene(
             self.project.id,
             self.scene.id,
-            ManuscriptSceneUpdate(title="Manual", content="Newer official text"),
+            ManuscriptSceneUpdate(
+                title="Manual", content="Newer official text", expected_scene_version=1
+            ),
         )
         before = self.store.list_manuscript_revisions(self.project.id)
         response = self.accept(pending, expected_scene_version=1)

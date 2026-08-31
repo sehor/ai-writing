@@ -94,6 +94,7 @@ class AuthoringFailureIsolationTests(unittest.TestCase):
                         json={
                             "title": "Archive Threshold Revised",
                             "content": "MANUAL_EDIT_PROSE",
+                            "expected_scene_version": 1,
                         },
                     )
                     restore = client.post(
@@ -189,6 +190,7 @@ class AuthoringFailureIsolationTests(unittest.TestCase):
                         json={
                             "title": "Archive Threshold Revised",
                             "content": "MANUAL_EDIT_PROSE",
+                            "expected_scene_version": 1,
                         },
                     )
                     restore = client.post(
@@ -285,6 +287,7 @@ class AuthoringFailureIsolationTests(unittest.TestCase):
                             json={
                                 "title": "Archive Threshold Revised",
                                 "content": "MANUAL_EDIT_PROSE",
+                                "expected_scene_version": 1,
                             },
                         )
                         restore = client.post(

@@ -316,6 +316,11 @@ def update_manuscript_scene(
     current_scene = manuscripts.get_scene(project_id, scene_id)
     if current_scene is None:
         return None
+    if update.expected_scene_version != current_scene.version:
+        raise ValueError(
+            f"The manuscript scene changed from v{update.expected_scene_version} "
+            f"to v{current_scene.version}. Review the latest text before saving."
+        )
     version = current_scene.version + 1
     manuscripts.update_scene_fields(
         project_id=project_id,

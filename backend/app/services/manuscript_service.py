@@ -42,7 +42,10 @@ class ManuscriptService:
     def update_scene(
         self, project_id: str, scene_id: str, update: ManuscriptSceneUpdate
     ) -> ManuscriptScene:
-        scene = self.data_store.update_manuscript_scene(project_id, scene_id, update)
+        try:
+            scene = self.data_store.update_manuscript_scene(project_id, scene_id, update)
+        except ValueError as exc:
+            raise conflict_from(exc) from exc
         if scene is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="Accepted manuscript scene not found."
