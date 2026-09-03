@@ -44,6 +44,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
   const activeRevisionId = ref('')
   const artifactDraft = ref('')
   const generationInstruction = ref('')
+  const previousArtifactsContextChars = ref(64000)
   const manuscriptProgress = ref<SnowflakeManuscriptProgress | null>(null)
   const records = ref<SnowflakeRecordRevision[]>([])
   const recordPage = ref(1)
@@ -297,9 +298,14 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     workflowTrace.value = []
     const projectId = ws().activeProject?.id
     const instruction = generationInstruction.value.trim() || ws().activeProject?.premise.trim()
+    const contextChars = Number(previousArtifactsContextChars.value)
 
     if (!projectId || !ws().activeStep || !instruction) {
       artifactError.value = 'Create or select a project first.'
+      return
+    }
+    if (!Number.isInteger(contextChars) || contextChars < 1000 || contextChars > 400000) {
+      artifactError.value = 'Context budget must be an integer from 1,000 to 400,000 characters.'
       return
     }
 
@@ -320,6 +326,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
           instruction,
           base_revision_id: activeStepState.value?.accepted_revision?.id ?? '',
           generation_mode: 'replace',
+          previous_artifacts_context_chars: contextChars,
         }),
       })
       if (!response.ok) {
@@ -681,6 +688,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     activeRevisionId,
     artifactDraft,
     generationInstruction,
+    previousArtifactsContextChars,
     manuscriptProgress,
     records,
     recordPage,

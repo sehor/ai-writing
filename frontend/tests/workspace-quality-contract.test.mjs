@@ -11,6 +11,7 @@ const manuscriptStore = read('../src/stores/manuscript.ts')
 const appSidebar = read('../src/components/AppSidebar.vue')
 const projectDialog = read('../src/components/ProjectDialog.vue')
 const snowflakeWorkspace = read('../src/components/SnowflakeWorkspace.vue')
+const snowflakeStore = read('../src/stores/snowflake.ts')
 
 test('workspace global status keeps narrow safe patterns', () => {
   assert.match(workspaceStore, /type ApiStatus = 'checking' \| 'ok' \| 'offline'/)
@@ -51,4 +52,18 @@ test('the entire Snowflake step card is the selector target', () => {
   assert.match(snowflakeWorkspace, /v-if="!isStepWorkspaceOpen" class="pipeline"/)
   assert.match(snowflakeWorkspace, /<template v-else>/)
   assert.match(snowflakeWorkspace, /All Snowflake steps/)
+})
+
+test('Snowflake generation exposes and sends a bounded upstream context budget', () => {
+  assert.match(snowflakeWorkspace, /v-model\.number="previousArtifactsContextChars"/)
+  assert.match(snowflakeWorkspace, /min="1000"/)
+  assert.match(snowflakeWorkspace, /max="400000"/)
+  assert.match(
+    snowflakeStore,
+    /previous_artifacts_context_chars: contextChars/,
+  )
+  assert.match(
+    snowflakeStore,
+    /contextChars < 1000 \|\| contextChars > 400000/,
+  )
 })

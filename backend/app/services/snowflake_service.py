@@ -442,6 +442,7 @@ class SnowflakeService:
                 target_record_ids=request.target_record_ids,
                 target_records=target_records,
                 generation_mode=request.generation_mode,
+                previous_artifacts_context_chars=request.previous_artifacts_context_chars,
             ),
             workflow,
         )[0]

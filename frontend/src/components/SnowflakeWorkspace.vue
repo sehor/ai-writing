@@ -22,6 +22,7 @@ const {
   artifactError,
   artifactDraft,
   generationInstruction,
+  previousArtifactsContextChars,
   activeRevision,
   revisions,
   activeStepState,
@@ -246,16 +247,35 @@ function openManuscript() {
           :placeholder="`Write the ${activeStep?.artifact ?? 'artifact'} for the active project.`"
         />
 
-        <label class="generation-instruction">
-          <span>AI instruction</span>
-          <textarea
-            v-model="generationInstruction"
-            rows="3"
-            maxlength="4000"
-            :disabled="!activeProject"
-            placeholder="Describe what to generate or revise. The current artifact is kept separate."
-          />
-        </label>
+        <div class="generation-controls">
+          <label class="generation-instruction">
+            <span>AI instruction</span>
+            <textarea
+              v-model="generationInstruction"
+              rows="3"
+              maxlength="4000"
+              :disabled="!activeProject"
+              placeholder="Describe what to generate or revise. The current artifact is kept separate."
+            />
+          </label>
+
+          <label class="context-budget">
+            <span>Upstream artifact context budget</span>
+            <input
+              v-model.number="previousArtifactsContextChars"
+              type="number"
+              min="1000"
+              max="400000"
+              step="1000"
+              inputmode="numeric"
+              :disabled="!activeProject"
+              aria-describedby="snowflake-context-budget-help"
+            />
+            <small id="snowflake-context-budget-help">
+              Characters shared by all earlier steps. Most recent steps are kept first.
+            </small>
+          </label>
+        </div>
 
         <div class="form-actions artifact-actions">
           <p v-if="artifactError" class="error">{{ artifactError }}</p>
@@ -530,6 +550,25 @@ function openManuscript() {
 .generation-instruction textarea {
   min-height: 5rem;
   font-weight: 400;
+}
+
+.generation-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(16rem, 20rem);
+  gap: 1rem;
+  align-items: start;
+}
+
+.context-budget small {
+  color: var(--text-muted, #6b7280);
+  font-weight: 400;
+  line-height: 1.4;
+}
+
+@media (max-width: 760px) {
+  .generation-controls {
+    grid-template-columns: 1fr;
+  }
 }
 
 .manuscript-milestone {

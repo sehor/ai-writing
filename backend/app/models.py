@@ -281,6 +281,7 @@ class SnowflakeGenerationCreate(BaseModel):
     base_revision_id: str = Field(default="", max_length=160)
     target_record_ids: list[str] = Field(default_factory=list, max_length=200)
     generation_mode: Literal["replace", "continue", "selection"] = "replace"
+    previous_artifacts_context_chars: int = Field(default=64000, ge=1000, le=400000)
 
     @field_validator("instruction")
     @classmethod
@@ -299,6 +300,7 @@ class SnowflakeGenerationRequest(BaseModel):
     target_record_ids: list[str] = Field(default_factory=list, max_length=200)
     target_records: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
     generation_mode: Literal["replace", "continue", "selection"] = "replace"
+    previous_artifacts_context_chars: int = Field(default=64000, ge=1000, le=400000)
 
     @field_validator("project_id", "user_input")
     @classmethod

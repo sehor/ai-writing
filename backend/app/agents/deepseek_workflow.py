@@ -216,7 +216,10 @@ def build_stable_context_prefix(state: WritingWorkflowState) -> str:
         f"Purpose: {step_description}",
         "",
         "## Previous Snowflake Artifacts",
-        format_previous_artifacts(state.previous_artifacts),
+        format_previous_artifacts(
+            state.previous_artifacts,
+            state.request.previous_artifacts_context_chars,
+        ),
         "",
         "## Canon Constraints",
         format_canon_entities(state.canon_entities),
@@ -287,18 +290,25 @@ def build_generation_instruction(state: WritingWorkflowState) -> str:
     return "\n".join(output_rules)
 
 
-def format_previous_artifacts(artifacts: list[SnowflakeArtifact]) -> str:
+def format_previous_artifacts(
+    artifacts: list[SnowflakeArtifact], max_chars: int
+) -> str:
     if not artifacts:
         return "No previous artifacts saved."
-    return "\n\n".join(
+    context = "\n\n".join(
         "\n".join(
             [
                 f"### Step {artifact.step_number}: {artifact.artifact}",
-                truncate_context(artifact.content, 4000),
+                artifact.content.strip(),
             ]
         )
-        for artifact in artifacts
+        for artifact in sorted(
+            artifacts,
+            key=lambda item: item.step_number,
+            reverse=True,
+        )
     )
+    return truncate_context(context, max_chars)
 
 
 def format_canon_entities(entities: list[CanonEntity]) -> str:
