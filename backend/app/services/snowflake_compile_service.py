@@ -1,10 +1,10 @@
 """Structured Snowflake compiler service (P1-05).
 
-Orchestrates the two compile paths from the improvement plan:
+Orchestrates the two record-authoritative compile paths from the improvement plan:
 
-- Step 7: artifact -> Canon Extractor -> Canon create / update
+- Step 7: accepted Character Bible records -> Canon create / update
   write-back proposals (reviewed through the existing write-back flow).
-- Step 8: artifact -> Scene Contract Parser -> persisted Scene
+- Step 8: accepted Scene List records -> persisted Scene
   Proposals with parse warnings, batch-accepted into scene contracts.
 
 Both paths are idempotent through the P1-04 analysis_runs table: an
@@ -30,8 +30,8 @@ from app.snowflake_compiler import (
     CANON_EXTRACT_STEP,
     SCENE_PARSE_STEP,
     ArtifactNotParseableError,
-    extract_canon_proposals,
-    parse_scene_artifact,
+    extract_canon_record_proposals,
+    parse_scene_records,
 )
 
 
@@ -89,21 +89,31 @@ class SnowflakeCompileService:
         *,
         force: bool = False,
     ) -> CanonExtractionReport:
-        artifact = self.data_store.get_snowflake_artifact(project_id, step_number)
-        if artifact is None:
-            raise LookupError(f"Snowflake artifact for step {step_number} not found.")
+        records = self.data_store.list_accepted_snowflake_records(project_id, step_number)
+        if not records:
+            raise LookupError(
+                f"Snowflake step {step_number} has no accepted records to compile."
+            )
 
         canon_entities = self.data_store.list_canon_entities(project_id)
-        source_ref = f"snowflake_artifact:{project_id}:{step_number}"
+        source_ref = f"snowflake_records:{project_id}:{step_number}"
         fingerprint = {
-            "content": artifact.content,
+            "records": [
+                {
+                    "record_id": record.record_id,
+                    "revision_id": record.id,
+                    "position": record.position,
+                    "payload": record.payload,
+                }
+                for record in records
+            ],
             "canon": _canon_fingerprint(canon_entities),
             "step": step_number,
         }
 
         def _generate() -> list:
-            extraction = extract_canon_proposals(
-                artifact.content,
+            extraction = extract_canon_record_proposals(
+                records,
                 canon_entities,
                 source_ref=source_ref,
             )
@@ -117,7 +127,7 @@ class SnowflakeCompileService:
                 return extraction.proposals
 
             # Idempotency guard: an identical proposal that is still
-            # pending for this artifact must not be created twice, even
+            # pending for this accepted record set must not be created twice, even
             # when the Canon context changed enough to miss the cached
             # run (for example right after accepting a sibling proposal).
             pending_keys = {
@@ -171,18 +181,24 @@ class SnowflakeCompileService:
         *,
         force: bool = False,
     ) -> SceneParseReport:
-        artifact = self.data_store.get_snowflake_artifact(project_id, step_number)
-        if artifact is None:
-            raise LookupError(f"Snowflake artifact for step {step_number} not found.")
+        records = self.data_store.list_accepted_snowflake_records(project_id, step_number)
+        if not records:
+            raise LookupError(
+                f"Snowflake step {step_number} has no accepted records to compile."
+            )
 
-        source_ref = f"snowflake_artifact:{project_id}:{step_number}"
+        source_ref = f"snowflake_records:{project_id}:{step_number}"
         fingerprint = {
-            "content": artifact.content,
+            "records": [
+                {
+                    "record_id": record.record_id,
+                    "revision_id": record.id,
+                    "position": record.position,
+                    "payload": record.payload,
+                }
+                for record in records
+            ],
             "canon": _canon_fingerprint(self.data_store.list_canon_entities(project_id)),
-            "chapters": sorted(
-                f"{chapter.id}:{chapter.title}"
-                for chapter in self.data_store.list_manuscript_chapters(project_id)
-            ),
             "step": step_number,
         }
         input_hash = compute_input_hash(fingerprint)
@@ -209,10 +225,9 @@ class SnowflakeCompileService:
                 )
 
         try:
-            outcome = parse_scene_artifact(
-                artifact.content,
+            outcome = parse_scene_records(
+                records,
                 canon_entities=self.data_store.list_canon_entities(project_id),
-                chapters=self.data_store.list_manuscript_chapters(project_id),
             )
         except ArtifactNotParseableError:
             # Record the failed attempt; nothing was written anywhere else.

@@ -14,7 +14,7 @@ from app.models import (
     NarrativeRelationCreate,
     ProjectCreate,
     SceneContractCreate,
-    SnowflakeArtifactRevisionCreate,
+    SnowflakeRecordRevisionCreate,
     StoryFactCreate,
     StoryThreadCreate,
     StoryThreadEventCreate,
@@ -91,18 +91,32 @@ class NarrativeSnapshotTests(unittest.TestCase):
                     source_ref="author:canon",
                 ),
             )
-            revision = store.create_snowflake_revision(
+            revision = store.create_snowflake_record_revision(
                 project.id,
-                SnowflakeArtifactRevisionCreate(
+                SnowflakeRecordRevisionCreate(
                     step_number=8,
-                    content="STEP8_SECRET: scene 21 reveals the archivist forged the map.",
+                    record_id="scene-21",
+                    position=21,
+                    payload={
+                        "title": "The Forged Map",
+                        "pov": "Mira",
+                        "goal": "Find who forged the map.",
+                        "conflict": "The archive conceals its author.",
+                        "turning_point": "The archivist's mark is exposed.",
+                        "outcome": "STEP8_SECRET: scene 21 reveals the archivist forged the map.",
+                        "required_canon_ids": [],
+                        "forbidden_facts": [],
+                        "information_delta": "The map was forged.",
+                        "character_state_delta": "Mira distrusts the archivist.",
+                        "story_thread_actions": [],
+                    },
                 ),
             )
-            store.decide_snowflake_revision(
-                project_id=project.id,
-                revision_id=revision.id,
+            store.decide_snowflake_record_revision(
+                project.id,
+                revision.id,
                 decision="accepted",
-                expected_head_revision_id="",
+                expected_revision_id="",
             )
 
             earlier = store.create_manuscript_proposal(

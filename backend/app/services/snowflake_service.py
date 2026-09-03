@@ -44,17 +44,18 @@ from app.models import (
     SnowflakeRecordRevisionCreate,
     SnowflakeStep,
     SnowflakeStepState,
+    SnowflakeValidationReport,
     WorkflowRuntimeStatus,
 )
 from app.outbox.handlers import snowflake_index_payload
 from app.agents.writing_workflow import WritingWorkflow
 from app.snowflake.step_spec import SNOWFLAKE_STEP_SPECS, get_step_spec
-from pydantic import ValidationError
 from app.snowflake.validators import (
-    record_contract_for,
     structured_payload_from_content,
+    validate_scene_record_set_context,
     validate_snowflake_payload,
     validate_snowflake_record_generation,
+    validate_snowflake_record_payload,
 )
 
 
@@ -72,6 +73,35 @@ SNOWFLAKE_STEPS = [
     )
     for spec in SNOWFLAKE_STEP_SPECS
 ]
+
+
+def merge_validation_reports(
+    step_number: int,
+    authoritative: SnowflakeValidationReport,
+    workflow_report: SnowflakeValidationReport | None,
+) -> SnowflakeValidationReport:
+    """Preserve reviewer findings while de-duplicating service-side contract checks."""
+    findings = list(authoritative.findings)
+    seen = {
+        (item.code, item.path, item.message, item.evidence)
+        for item in findings
+    }
+    for item in workflow_report.findings if workflow_report else []:
+        key = (item.code, item.path, item.message, item.evidence)
+        if key not in seen:
+            findings.append(item)
+            seen.add(key)
+    if any(item.severity == "critical" for item in findings):
+        status = "failed"
+    elif findings:
+        status = "warnings"
+    else:
+        status = "passed"
+    return SnowflakeValidationReport(
+        step_number=step_number,
+        status=status,
+        findings=findings,
+    )
 
 
 class StepNotFoundError(LookupError):
@@ -174,13 +204,27 @@ class SnowflakeService:
                 if head.accepted_revision_id
                 else None
             )
+            state = head.state
+            stale_reason = head.stale_reason
+            if (
+                step.number in {6, 7, 8, 9}
+                and accepted is not None
+                and not self.data_store.list_accepted_snowflake_records(
+                    project_id, step.number
+                )
+            ):
+                state = "stale"
+                stale_reason = (
+                    "Legacy Artifact is preserved for reference, but this step requires "
+                    "accepted structured records before it is authoritative."
+                )
             result.append(
                 SnowflakeStepState(
                     step=step,
-                    state=head.state,
+                    state=state,
                     accepted_revision=accepted,
                     pending_count=pending.get(step.number, 0),
-                    stale_reason=head.stale_reason,
+                    stale_reason=stale_reason,
                     stale_trigger_revision_id=head.stale_trigger_revision_id,
                 )
             )
@@ -284,15 +328,12 @@ class SnowflakeService:
     def create_record_revision(
         self, project_id: str, create: SnowflakeRecordRevisionCreate
     ) -> SnowflakeRecordRevision:
-        try:
-            contract = record_contract_for(create.step_number, create.payload)
-            if contract is None:
-                raise KeyError(create.step_number)
-            contract.model_validate(create.payload)
-        except (ValidationError, KeyError) as exc:
+        validation = validate_snowflake_record_payload(create.step_number, create.payload)
+        if validation.status == "failed":
             raise SnowflakeRecordValidationError(
-                f"Step {create.step_number} record does not match its structured contract."
-            ) from exc
+                f"Step {create.step_number} record does not match its structured contract.",
+                validation,
+            )
         return self.data_store.create_snowflake_record_revision(project_id, create)
 
     def list_record_revisions(
@@ -327,12 +368,50 @@ class SnowflakeService:
         revision_id: str,
         request: SnowflakeRecordDecisionRequest,
     ) -> SnowflakeRecordDecisionResponse:
+        revision = self.data_store.get_snowflake_record_revision(project_id, revision_id)
+        if revision is None:
+            raise LookupError("Snowflake record revision not found.")
+        if request.decision == "accepted":
+            validation = validate_snowflake_record_payload(
+                revision.step_number, revision.payload
+            )
+            if validation.status == "failed":
+                raise SnowflakeRecordValidationError(
+                    "Snowflake record revision has blocking validation findings.",
+                    validation,
+                )
+            self._validate_contextual_record_acceptance(project_id, revision)
         return self.data_store.decide_snowflake_record_revision(
             project_id,
             revision_id,
             decision=request.decision,
             expected_revision_id=request.expected_revision_id,
             review_reason=request.review_reason,
+        )
+
+    def _validate_contextual_record_acceptance(
+        self,
+        project_id: str,
+        candidate: SnowflakeRecordRevision,
+    ) -> None:
+        """Validate references and set-level invariants before changing a record head."""
+        if candidate.step_number != 8:
+            return
+        accepted = self.data_store.list_accepted_snowflake_records(project_id, 8)
+        record_set = [
+            record for record in accepted if record.record_id != candidate.record_id
+        ]
+        record_set.append(candidate)
+        report = validate_scene_record_set_context(
+            record_set,
+            self.data_store.list_canon_entities(project_id),
+            self.data_store.list_story_threads(project_id),
+        )
+        if report.status != "failed":
+            return
+        raise SnowflakeRecordValidationError(
+            "Snowflake record revision has blocking contextual findings.",
+            report,
         )
 
     def manuscript_progress(self, project_id: str) -> SnowflakeManuscriptProgress:
@@ -390,6 +469,28 @@ class SnowflakeService:
         step = self.get_step(request.step_number)
         if step.virtual:
             raise ValueError("Snowflake step 10 is a virtual Manuscript milestone.")
+        if request.step_number in {6, 7, 8, 9}:
+            target_records = self.data_store.get_snowflake_records(
+                request.project_id, request.step_number, request.target_record_ids
+            )
+            if len(target_records) != len(request.target_record_ids):
+                raise ValueError(
+                    "One or more target Snowflake records have no accepted revision."
+                )
+            record_request = request.model_copy(
+                update={
+                    "target_records": [
+                        {
+                            "record_id": record.record_id,
+                            "revision_id": record.id,
+                            "position": record.position,
+                            "payload": record.payload,
+                        }
+                        for record in target_records
+                    ]
+                }
+            )
+            return self._generate_record_revisions(record_request, workflow), None
         generated = workflow.run_snowflake_generation(request)
         spec = get_step_spec(request.step_number)
         if generated.step_number != request.step_number or generated.artifact != spec.artifact_type:
@@ -410,6 +511,9 @@ class SnowflakeService:
         validation = validate_snowflake_payload(
             request.step_number, generated.content, structured_payload
         )
+        validation = merge_validation_reports(
+            request.step_number, validation, generated.validation_report
+        )
         return generated.model_copy(
             update={"revision": revision, "validation_report": validation}
         ), None
@@ -421,7 +525,7 @@ class SnowflakeService:
         workflow: WritingWorkflow,
     ) -> SnowflakeGenerationResponse:
         target_records: list[dict[str, Any]] = []
-        if request.target_record_ids and request.step_number >= 6:
+        if request.target_record_ids and request.step_number in {6, 7, 8, 9}:
             records = self.data_store.get_snowflake_records(
                 project_id, request.step_number, request.target_record_ids
             )
@@ -435,7 +539,9 @@ class SnowflakeService:
                 for record in records
             ]
             if len(target_records) != len(request.target_record_ids):
-                raise ValueError("One or more target Snowflake records were not found.")
+                raise ValueError(
+                    "One or more target Snowflake records have no accepted revision."
+                )
         generation_request = SnowflakeGenerationRequest(
             project_id=project_id,
             step_number=request.step_number,
@@ -446,43 +552,66 @@ class SnowflakeService:
             generation_mode=request.generation_mode,
             previous_artifacts_context_chars=request.previous_artifacts_context_chars,
         )
-        if not target_records:
+        if request.step_number not in {6, 7, 8, 9}:
             return self.generate(generation_request, workflow)[0]
 
-        generated = workflow.run_snowflake_generation(generation_request)
+        return self._generate_record_revisions(generation_request, workflow)
+
+    def _generate_record_revisions(
+        self,
+        request: SnowflakeGenerationRequest,
+        workflow: WritingWorkflow,
+    ) -> SnowflakeGenerationResponse:
+        """Generate Step 6-9 record proposals without creating a blob revision."""
+        generated = workflow.run_snowflake_generation(request)
         spec = get_step_spec(request.step_number)
         if generated.step_number != request.step_number or generated.artifact != spec.artifact_type:
             raise ValueError("Provider returned a Snowflake artifact for the wrong step or type.")
+        expected_ids = request.target_record_ids if request.target_record_ids else None
         generated_records, validation = validate_snowflake_record_generation(
             request.step_number,
             generated.content,
-            request.target_record_ids,
+            expected_ids,
         )
         if validation.status == "failed":
             raise SnowflakeRecordValidationError(
-                "Provider returned invalid targeted Snowflake records.",
+                "Provider returned invalid Snowflake records.",
                 validation,
             )
-        current_by_id = {record["record_id"]: record for record in target_records}
-        current_revisions_by_id = {record.record_id: record for record in records}
-        generated_by_id = {record.record_id: record for record in generated_records}
-        creates = [
-            SnowflakeRecordRevisionCreate(
-                step_number=request.step_number,
-                record_id=record_id,
-                position=current_by_id[record_id]["position"],
-                payload=generated_by_id[record_id].payload,
-                base_revision_id=(
-                    current_by_id[record_id]["revision_id"]
-                    if current_revisions_by_id[record_id].status == "accepted"
-                    else current_revisions_by_id[record_id].base_revision_id
-                ),
-                source="ai",
+        validation = merge_validation_reports(
+            request.step_number, validation, generated.validation_report
+        )
+
+        accepted_records = self.data_store.get_snowflake_records(
+            request.project_id,
+            request.step_number,
+            [record.record_id for record in generated_records],
+        )
+        accepted_by_id = {record.record_id: record for record in accepted_records}
+        target_positions = {
+            record["record_id"]: int(record["position"])
+            for record in request.target_records
+        }
+        creates = []
+        for index, record in enumerate(generated_records, start=1):
+            accepted = accepted_by_id.get(record.record_id)
+            raw_sequence = record.payload.get("sequence")
+            inferred_position = raw_sequence if isinstance(raw_sequence, int) else index
+            creates.append(
+                SnowflakeRecordRevisionCreate(
+                    step_number=request.step_number,
+                    record_id=record.record_id,
+                    position=target_positions.get(
+                        record.record_id,
+                        accepted.position if accepted else inferred_position,
+                    ),
+                    payload=record.payload,
+                    base_revision_id=accepted.id if accepted else "",
+                    source="ai",
+                )
             )
-            for record_id in request.target_record_ids
-        ]
         record_revisions = self.data_store.create_snowflake_record_revisions(
-            project_id,
+            request.project_id,
             creates,
             status="pending_review",
         )

@@ -176,6 +176,57 @@ class SnowflakeRecordRepository:
         by_id = {row["record_id"]: record_revision_from_row(row) for row in rows}
         return [by_id[record_id] for record_id in record_ids if record_id in by_id]
 
+    def list_accepted(
+        self, project_id: str, step_number: int
+    ) -> list[SnowflakeRecordRevision]:
+        rows = self.connection.execute(
+            """
+            SELECT r.*
+            FROM snowflake_record_heads h
+            JOIN snowflake_record_revisions r ON r.id = h.accepted_revision_id
+            WHERE h.project_id = ? AND h.step_number = ?
+              AND h.accepted_revision_id <> ''
+            ORDER BY r.position, r.record_id
+            """,
+            (project_id, step_number),
+        ).fetchall()
+        return [record_revision_from_row(row) for row in rows]
+
+    def get_accepted_by_record_ids(
+        self,
+        project_id: str,
+        step_number: int,
+        record_ids: list[str],
+    ) -> list[SnowflakeRecordRevision]:
+        if not record_ids:
+            return []
+        placeholders = ", ".join("?" for _ in record_ids)
+        rows = self.connection.execute(
+            f"""
+            SELECT r.*
+            FROM snowflake_record_heads h
+            JOIN snowflake_record_revisions r ON r.id = h.accepted_revision_id
+            WHERE h.project_id = ? AND h.step_number = ?
+              AND h.accepted_revision_id <> ''
+              AND h.record_id IN ({placeholders})
+            """,
+            (project_id, step_number, *record_ids),
+        ).fetchall()
+        by_id = {row["record_id"]: record_revision_from_row(row) for row in rows}
+        return [by_id[record_id] for record_id in record_ids if record_id in by_id]
+
+    def pending_counts(self, project_id: str) -> dict[int, int]:
+        rows = self.connection.execute(
+            """
+            SELECT step_number, COUNT(*) AS total
+            FROM snowflake_record_revisions
+            WHERE project_id = ? AND status IN ('draft', 'pending_review')
+            GROUP BY step_number
+            """,
+            (project_id,),
+        ).fetchall()
+        return {int(row["step_number"]): int(row["total"]) for row in rows}
+
     def list_history(
         self,
         project_id: str,

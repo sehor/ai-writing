@@ -1,15 +1,23 @@
 # Snowflake Method 业务闭环改进执行计划
 
-- 状态：Implemented；兼容接口的物理删除待人工确认
+- 状态：Completed；Step 6–9 record 权威闭环已完成，兼容接口的物理删除待人工确认
 - 编写日期：2026-09-03
 - 设计审查基线：`967bb82`
 - 实施提交：`7d601b6`、`af47f26`、`c4aa732`
-- 验证基线：后端 263 项测试、前端 31 项 Node 测试和 27 项 Vitest 测试通过；Python compileall、ESLint、前端 build 通过
-- 文档关系：本计划是 `docs/ai-writing-improvement-plan.md` 的 Snowflake 专项补充，不替代已有的全局改进路线图
+- 验证基线：后端 269 项测试、前端 32 项 Node 测试和 28 项 Vitest 测试通过；独立 SQLite 业务 smoke、Python compileall、Ruff、前端 build 通过
+- 文档关系：本计划是归档路线图 `docs/older/ai-writing-improvement-plan.md` 的 Snowflake 专项补充；当前审计整改路线见 `docs/ai-writing-remediation-plan.md`
 
 ## 0. 实施状态
 
-P0–P5 与 SF-601/SF-602 已完成。SF-603 已完成运行时兼容收口：旧接口标记弃用，`snowflake_artifacts` 只作为 accepted projection 更新，Step 10 旧正文保留为 `legacy_draft`，`open_threads` 不再作为生成依据，未执行的检查不再伪装成 reviewer 成功。
+P0–P5 与 SF-601/SF-602 已完成。2026-09-03 的闭环复核进一步完成 SF-302、SF-303、SF-304、SF-403 和 SF-601 的权威路径收口：
+
+- Step 6–9 生成只产生 `SnowflakeRecordRevision`；Artifact blob 不能成为 accepted head，`snowflake_artifacts` 及其 `source=derived` revision 只保留 accepted record set 的确定性投影。
+- 定向生成、上游上下文和 Step 7/8 compiler 只读取 accepted record heads；较新的 draft、pending 或 rejected revision 不会进入 AI 上下文或编译输入。
+- Step 7 Canon compiler 直接读取 accepted Character/World Bible records，并且只有显式 `confirmed_facts` 能跨越 Canon 边界。
+- Step 8 record 在 Accept 前同时执行字段契约、信息/人物状态 delta、序号唯一性、Required Canon ID 和 StoryThread 引用检查；compiler 使用同一 accepted records。
+- Snowflake consistency reviewer 合并 schema 与 accepted Canon 矛盾检查结果，finding 带可核对 evidence，不再被 service 二次校验覆盖。
+
+SF-603 已完成运行时兼容收口：旧接口标记弃用，`snowflake_artifacts` 只作为 accepted projection 更新，Step 10 旧正文保留为 `legacy_draft`，`open_threads` 不再作为生成依据，未执行的检查不再伪装成 reviewer 成功。独立业务验收可执行 `cd backend; rtk uv run python -m scripts.verify_snowflake_record_loop`，该脚本直接查询临时 SQLite head/projection 并注入未接受的污染数据，不以单元测试结果代替业务验证。
 
 以下项目有意保留，不能视为未完成缺陷：
 
@@ -879,7 +887,9 @@ rtk pnpm build
 - [x] UI 不再把存在记录简单等同于 Saved/Approved。
 - [x] Step 2、3、4、7、8 拥有明确且可验证的结构化契约。
 - [x] Step 9 可以显式跳过。
-- [x] 第 6–9 步支持记录式分页和局部生成。
+- [x] 第 6–9 步以 accepted record heads 为唯一权威源，支持记录式分页、全量 record proposal 和局部生成；Artifact 仅为 `derived` 投影。
+- [x] 上游上下文按指令、显式引用和选中 record 对 accepted upstream records 排序，并排除 pending/rejected revisions。
+- [x] Step 7/8 compiler 直接消费 accepted records，不读取 accepted Markdown blob。
 - [x] Scene Contract 的关键字段缺失会阻止接受。
 - [x] Step 8 可以创建可审核的 StoryThread/Event proposal。
 - [x] Manuscript 生成能读取已接受的 StoryThread 和线程事件。

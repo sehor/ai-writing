@@ -14,6 +14,7 @@ from app.agents.writing_workflow import (
     WorkflowNotConfiguredError,
     WorkflowProviderError,
     WritingWorkflowState,
+    select_relevant_upstream_records,
 )
 from app.data import WritingDataStore
 from app.llm_wiki.interfaces import LlmWiki
@@ -23,6 +24,7 @@ from app.models import (
     SnowflakeArtifact,
     SnowflakeGenerationRequest,
     SnowflakeGenerationResponse,
+    SnowflakeRecordRevision,
     SnowflakeStep,
 )
 from app.text_utils import truncate as truncate_context
@@ -220,11 +222,8 @@ def build_stable_context_prefix(state: WritingWorkflowState) -> str:
         f"Artifact: {step_artifact}",
         f"Purpose: {step_description}",
         "",
-        "## Previous Snowflake Artifacts",
-        format_previous_artifacts(
-            state.previous_artifacts,
-            state.request.previous_artifacts_context_chars,
-        ),
+        "## Previous Accepted Snowflake Context",
+        format_previous_context(state),
         "",
         "## Canon Constraints",
         format_canon_entities(state.canon_entities),
@@ -257,7 +256,7 @@ def build_generation_instruction(state: WritingWorkflowState) -> str:
         "- If information is missing, mark it as `TBD` instead of inventing confirmed facts.",
         "- Keep the result ready for human review and manual save approval.",
     ]
-    if state.request.target_records:
+    if state.request.step_number in {6, 7, 8, 9}:
         import json
 
         if state.request.step_number == 7:
@@ -269,19 +268,32 @@ def build_generation_instruction(state: WritingWorkflowState) -> str:
             record_contract = RECORD_CONTRACTS.get(state.request.step_number)
             record_schemas = [record_contract.model_json_schema()] if record_contract else []
 
+        if state.request.target_records:
+            output_rules.extend(
+                [
+                    "- Revise only these selected accepted records; preserve their record_id values:",
+                    json.dumps(state.request.target_records, ensure_ascii=False),
+                    "- Return every selected record exactly once and no unselected records.",
+                ]
+            )
+        else:
+            output_rules.extend(
+                [
+                    "- Generate a new pageable record set for this step.",
+                    "- Give every record a stable, descriptive, unique record_id.",
+                    "- Do not return a monolithic Markdown artifact.",
+                ]
+            )
         output_rules.extend(
             [
-                "- Revise only these selected records; preserve their record_id values:",
-                json.dumps(state.request.target_records, ensure_ascii=False),
                 "- Return one JSON object only (no Markdown fence) in this exact envelope:",
-                '{"records":[{"record_id":"selected-id","payload":{}}]}',
-                "- Return every selected record exactly once and no unselected records.",
+                '{"records":[{"record_id":"stable-id","payload":{}}]}',
                 "- Each payload must validate against one of these record schemas:",
                 json.dumps(record_schemas, ensure_ascii=False),
             ]
         )
     contract = STEP_CONTRACTS.get(state.request.step_number)
-    if state.request.target_records:
+    if state.request.step_number in {6, 7, 8, 9}:
         pass
     elif contract is not None:
         import json
@@ -328,6 +340,43 @@ def format_previous_artifacts(
             key=lambda item: item.step_number,
             reverse=True,
         )
+    )
+    return truncate_context(context, max_chars)
+
+
+def format_previous_context(state: WritingWorkflowState) -> str:
+    """Budget relevant accepted records before legacy early-step artifacts."""
+    max_chars = state.request.previous_artifacts_context_chars
+    records = select_relevant_upstream_records(state)
+    if not records:
+        return format_previous_artifacts(state.previous_artifacts, max_chars)
+    record_budget = max(1000, int(max_chars * 0.7))
+    record_context = format_previous_records(records, record_budget)
+    artifact_budget = max(0, max_chars - len(record_context) - 2)
+    artifact_context = (
+        format_previous_artifacts(state.previous_artifacts, artifact_budget)
+        if artifact_budget >= 100
+        else ""
+    )
+    return "\n\n".join(part for part in (record_context, artifact_context) if part)
+
+
+def format_previous_records(
+    records: list[SnowflakeRecordRevision],
+    max_chars: int,
+) -> str:
+    if not records:
+        return "No accepted upstream records."
+    import json
+
+    context = "\n\n".join(
+        "\n".join(
+            [
+                f"### Step {record.step_number} record: {record.record_id}",
+                json.dumps(record.payload, ensure_ascii=False, sort_keys=True),
+            ]
+        )
+        for record in records
     )
     return truncate_context(context, max_chars)
 

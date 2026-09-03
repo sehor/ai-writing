@@ -542,7 +542,7 @@ P10 后重新核对成功标准 3 和 7，确认 local / provider Manuscript 已
 
 2026-08-30 已完成 P0–P11 与上述七条成功标准的最终代码、contract test、模拟故障与浏览器流程审计，详见：
 
-- `docs/narrative-graph-clp-final-audit.md`
+- `docs/older/narrative-graph-clp-final-audit.md`
 
 审计结论：
 

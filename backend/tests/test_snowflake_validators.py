@@ -1,6 +1,9 @@
 import unittest
 
-from app.snowflake.validators import validate_snowflake_payload
+from app.snowflake.validators import (
+    validate_snowflake_payload,
+    validate_snowflake_record_payload,
+)
 
 
 VALID = {
@@ -52,13 +55,23 @@ VALID = {
 
 
 class SnowflakeValidatorTests(unittest.TestCase):
-    def test_steps_one_through_six_accept_valid_structured_contracts(self) -> None:
+    def test_steps_one_through_five_accept_valid_artifact_contracts(self) -> None:
         for step, payload in VALID.items():
+            if step == 6:
+                continue
             with self.subTest(step=step):
                 report = validate_snowflake_payload(step, "projection", payload)
                 self.assertEqual(report.status, "passed", report)
 
-    def test_steps_one_through_six_reject_missing_required_structure(self) -> None:
+    def test_step_six_blob_is_rejected_but_its_record_contract_passes(self) -> None:
+        blob_report = validate_snowflake_payload(6, "projection", VALID[6])
+        self.assertEqual(blob_report.status, "failed")
+        self.assertEqual(blob_report.findings[0].code, "record_authority_required")
+
+        record_report = validate_snowflake_record_payload(6, VALID[6]["blocks"][0])
+        self.assertEqual(record_report.status, "passed", record_report)
+
+    def test_all_steps_reject_missing_required_structure(self) -> None:
         for step in VALID:
             with self.subTest(step=step):
                 report = validate_snowflake_payload(step, "{}\ninvalid", {})

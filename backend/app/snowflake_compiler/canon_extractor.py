@@ -22,11 +22,18 @@ exists; partially valid blocks produce warnings and are skipped.
 """
 
 from dataclasses import dataclass, field
+import json
 import re
 
 from pydantic import ValidationError
 
-from app.models import CanonEntity, CanonEntityCreate, WritebackProposalCreate
+from app.models import (
+    CanonEntity,
+    CanonEntityCreate,
+    SnowflakeRecordRevision,
+    WritebackProposalCreate,
+)
+from app.snowflake.contracts import CharacterBibleRecord, WorldBibleRecord
 from app.snowflake_compiler.errors import ArtifactNotParseableError
 from app.text_utils import truncate as truncate_text
 
@@ -187,6 +194,83 @@ def extract_canon_proposals(
             continue
         proposals.append(update)
 
+    return CanonExtraction(proposals=proposals, warnings=warnings)
+
+
+def extract_canon_record_proposals(
+    records: list[SnowflakeRecordRevision],
+    existing_entities: list[CanonEntity],
+    *,
+    source_ref: str,
+) -> CanonExtraction:
+    """Compile accepted Character Bible records into Canon proposals.
+
+    Profile fields remain in the Step 7 record. Only facts explicitly placed
+    in ``confirmed_facts`` cross the Canon boundary.
+    """
+    if not records:
+        raise ArtifactNotParseableError(
+            "No accepted Step 7 Character Bible records are available to compile."
+        )
+    warnings: list[str] = []
+    proposals: list[WritebackProposalCreate] = []
+    seen_keys: set[tuple[str, str]] = set()
+    by_name: dict[str, list[CanonEntity]] = {}
+    for entity in existing_entities:
+        by_name.setdefault(entity.name.strip().lower(), []).append(entity)
+
+    type_map = {
+        "character": "character",
+        "world": "rule",
+        "location": "location",
+        "item": "item",
+        "faction": "faction",
+    }
+    for record in records:
+        contract = (
+            CharacterBibleRecord
+            if record.payload.get("record_type") == "character"
+            else WorldBibleRecord
+        )
+        validated = contract.model_validate(record.payload)
+        facts = [fact.strip() for fact in validated.confirmed_facts if fact.strip()]
+        if not facts:
+            warnings.append(
+                f"Skipped '{validated.name}': accepted record has no explicit confirmed_facts."
+            )
+            continue
+        entity_type = type_map[validated.record_type]
+        key = (entity_type, validated.name.strip().lower())
+        if key in seen_keys:
+            warnings.append(
+                f"Skipped duplicate accepted record '{validated.name}' ({entity_type})."
+            )
+            continue
+        seen_keys.add(key)
+        create = CanonEntityCreate(
+            entity_type=entity_type,  # type: ignore[arg-type]
+            name=validated.name,
+            summary=truncate_text(facts[0], FIELD_LIMITS["summary"]),
+            constraints=truncate_text("\n".join(facts), FIELD_LIMITS["constraints"]),
+        )
+        excerpt = truncate_text(
+            json.dumps(record.payload, ensure_ascii=False, sort_keys=True), 1200
+        )
+        matches = by_name.get(validated.name.strip().lower(), [])
+        target = next(
+            (entity for entity in matches if entity.entity_type == entity_type),
+            matches[0] if matches else None,
+        )
+        if target is None:
+            proposals.append(_build_create_proposal(create, source_ref, excerpt))
+            continue
+        update = _build_update_proposal(create, target, source_ref, excerpt)
+        if update is None:
+            warnings.append(
+                f"'{target.name}' already matches the accepted record facts; no update needed."
+            )
+            continue
+        proposals.append(update)
     return CanonExtraction(proposals=proposals, warnings=warnings)
 
 

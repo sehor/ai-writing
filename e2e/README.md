@@ -1,6 +1,6 @@
 # e2e — P1-08 真实后端浏览器测试
 
-Real-browser E2E suite from `docs/ai-writing-improvement-plan.md`, section 九 / P1-08:
+Real-browser E2E suite from the archived `docs/older/ai-writing-improvement-plan.md`, section 九 / P1-08:
 a **real FastAPI backend** over a **temp SQLite data root**, a **real Vite dev server**,
 **Playwright Chromium**, and the **local deterministic provider** (no API keys, no
 DEEPSEEK_* env needed). Nothing is route-mocked — every `/api` call the page makes

@@ -1,5 +1,5 @@
 // Shared harness for the P1-08 real-backend browser tests
-// (docs/ai-writing-improvement-plan.md, section 九 / P1-08).
+// (docs/older/ai-writing-improvement-plan.md, section 九 / P1-08).
 //
 // Every helper here drives REAL infrastructure only:
 //   - a real FastAPI backend (backend/.venv uvicorn) bound to a TEMP SQLite data root,

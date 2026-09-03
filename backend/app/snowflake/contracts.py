@@ -103,6 +103,13 @@ class WorldBibleRecord(ContractModel):
     confirmed_facts: list[str] = Field(default_factory=list, max_length=200)
 
 
+class StoryThreadActionRecord(ContractModel):
+    action: Literal[
+        "plant", "reinforce", "misdirect", "escalate", "partial_payoff", "payoff"
+    ]
+    thread_title: str = Field(min_length=1, max_length=160)
+
+
 class SceneListRecord(ContractModel):
     title: str = Field(min_length=1, max_length=160)
     pov: str = Field(min_length=1, max_length=120)
@@ -114,7 +121,9 @@ class SceneListRecord(ContractModel):
     forbidden_facts: list[str] = Field(default_factory=list, max_length=200)
     information_delta: str = Field(min_length=1, max_length=4000)
     character_state_delta: str = Field(min_length=1, max_length=4000)
-    story_thread_actions: list[dict] = Field(default_factory=list, max_length=100)
+    story_thread_actions: list[StoryThreadActionRecord] = Field(
+        default_factory=list, max_length=100
+    )
 
 
 class SceneExpansionRecord(ContractModel):
@@ -139,3 +148,6 @@ RECORD_CONTRACTS = {
     8: SceneListRecord,
     9: SceneExpansionRecord,
 }
+
+
+RECORD_STEP_NUMBERS = frozenset({6, 7, 8, 9})

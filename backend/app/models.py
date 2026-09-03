@@ -65,7 +65,7 @@ StoryThreadStatus = Literal["planned", "planted", "developing", "dormant", "paid
 StoryThreadAction = Literal[
     "plant", "reinforce", "misdirect", "escalate", "partial_payoff", "payoff"
 ]
-SnowflakeRevisionSource = Literal["human", "ai", "legacy", "import", "restore"]
+SnowflakeRevisionSource = Literal["human", "ai", "legacy", "import", "restore", "derived"]
 SnowflakeRevisionStatus = Literal[
     "draft", "pending_review", "accepted", "rejected", "superseded", "legacy_draft"
 ]
@@ -280,7 +280,7 @@ class SnowflakeGenerationCreate(BaseModel):
     instruction: str = Field(min_length=1, max_length=4000)
     base_revision_id: str = Field(default="", max_length=160)
     target_record_ids: list[str] = Field(default_factory=list, max_length=200)
-    generation_mode: Literal["replace", "continue", "selection"] = "replace"
+    generation_mode: Literal["replace", "record_set", "continue", "selection"] = "replace"
     previous_artifacts_context_chars: int = Field(default=64000, ge=1000, le=400000)
 
     @field_validator("instruction")
@@ -303,6 +303,8 @@ class SnowflakeGenerationCreate(BaseModel):
             and not self.target_record_ids
         ):
             raise ValueError("This generation mode requires at least one target record ID.")
+        if self.step_number not in {6, 7, 8, 9} and self.generation_mode == "record_set":
+            raise ValueError("Record-set generation is available only for Snowflake steps 6–9.")
         return self
 
 
@@ -313,7 +315,7 @@ class SnowflakeGenerationRequest(BaseModel):
     base_revision_id: str = Field(default="", max_length=160)
     target_record_ids: list[str] = Field(default_factory=list, max_length=200)
     target_records: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
-    generation_mode: Literal["replace", "continue", "selection"] = "replace"
+    generation_mode: Literal["replace", "record_set", "continue", "selection"] = "replace"
     previous_artifacts_context_chars: int = Field(default=64000, ge=1000, le=400000)
 
     @field_validator("project_id", "user_input")
@@ -336,6 +338,8 @@ class SnowflakeGenerationRequest(BaseModel):
             and not self.target_record_ids
         ):
             raise ValueError("This generation mode requires at least one target record ID.")
+        if self.step_number not in {6, 7, 8, 9} and self.generation_mode == "record_set":
+            raise ValueError("Record-set generation is available only for Snowflake steps 6–9.")
         return self
 
 

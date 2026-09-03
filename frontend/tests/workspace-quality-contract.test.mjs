@@ -67,3 +67,11 @@ test('Snowflake generation exposes and sends a bounded upstream context budget',
     /contextChars < 1000 \|\| contextChars > 400000/,
   )
 })
+
+test('Steps 6-9 expose records as the only editable and compilable authority', () => {
+  assert.match(snowflakeWorkspace, /<option value="record_set">Generate record drafts<\/option>/)
+  assert.doesNotMatch(snowflakeWorkspace, /Replace \/ full step/)
+  assert.match(snowflakeWorkspace, /v-if="!isRecordStep"[\s\S]*v-model="artifactDraft"/)
+  assert.match(snowflakeWorkspace, /SnowflakeRevisionHistory v-if="!activeStep\?\.virtual && !isRecordStep"/)
+  assert.match(snowflakeStore, /snowflake\/records\/\$\{step\}\/\$\{action\}/)
+})

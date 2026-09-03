@@ -13,7 +13,7 @@ from app.models import (
     MemoryRecordCreate,
     ProjectCreate,
     SceneContractCreate,
-    SnowflakeArtifactRevisionCreate,
+    SnowflakeRecordRevisionCreate,
 )
 from app.exports.wiki import build_wiki_export
 
@@ -29,18 +29,31 @@ class WikiExportTests(unittest.TestCase):
                     premise="A cartographer maps a city that edits memory.",
                 )
             )
-            revision = store.create_snowflake_revision(
+            revision = store.create_snowflake_record_revision(
                 project.id,
-                SnowflakeArtifactRevisionCreate(
+                SnowflakeRecordRevisionCreate(
                     step_number=8,
-                    content="Scene list for the city archive.",
+                    record_id="scene-city-archive",
+                    payload={
+                        "title": "City Archive",
+                        "pov": "Mira",
+                        "goal": "Enter the city archive.",
+                        "conflict": "The archive is sealed.",
+                        "turning_point": "Mira discovers the map lock.",
+                        "outcome": "Scene list for the city archive.",
+                        "required_canon_ids": [],
+                        "forbidden_facts": [],
+                        "information_delta": "The archive uses map locks.",
+                        "character_state_delta": "Mira trusts her craft again.",
+                        "story_thread_actions": [],
+                    },
                 ),
             )
-            store.decide_snowflake_revision(
-                project_id=project.id,
-                revision_id=revision.id,
+            store.decide_snowflake_record_revision(
+                project.id,
+                revision.id,
                 decision="accepted",
-                expected_head_revision_id="",
+                expected_revision_id="",
             )
             canon = store.create_canon_entity(
                 project.id,

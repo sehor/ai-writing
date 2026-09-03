@@ -158,6 +158,16 @@ class WritingDataStore(Protocol):
     ) -> list[SnowflakeRecordRevision]:
         pass
 
+    def list_accepted_snowflake_records(
+        self, project_id: str, step_number: int
+    ) -> list[SnowflakeRecordRevision]:
+        pass
+
+    def get_snowflake_record_revision(
+        self, project_id: str, revision_id: str
+    ) -> SnowflakeRecordRevision | None:
+        pass
+
     def create_snowflake_record_revision(
         self,
         project_id: str,

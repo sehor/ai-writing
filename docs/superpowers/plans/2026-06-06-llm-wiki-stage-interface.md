@@ -156,7 +156,7 @@ Run both new unittest modules and expect all tests to pass.
 
 **Files:**
 - Modify: `README.md`
-- Modify: `docs/development-plan.md`
+- Modify: `docs/older/development-plan.md`
 - Modify: existing tests only where old LLM Wiki snapshot behavior is intentionally superseded
 
 - [x] **Step 1: Document the corrected ownership boundary**

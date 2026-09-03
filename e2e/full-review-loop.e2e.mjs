@@ -1,7 +1,7 @@
 // P1-08 full review-loop E2E: real FastAPI backend (temp SQLite data root),
 // real Vite dev server, real Playwright Chromium, local deterministic provider.
 //
-// Encodes the happy path from docs/ai-writing-improvement-plan.md section 九:
+// Encodes the happy path from docs/older/ai-writing-improvement-plan.md section 九:
 //   create project -> save Step 7 -> extract Canon proposals -> accept Canon ->
 //   create Chapter + Scene contract -> create manuscript proposal -> accept it
 //   -> automatic post-acceptance analyses succeed -> accept a Canon write-back

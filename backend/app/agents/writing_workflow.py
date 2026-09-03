@@ -11,6 +11,7 @@ from app.models import (
     SnowflakeArtifact,
     SnowflakeGenerationRequest,
     SnowflakeGenerationResponse,
+    SnowflakeRecordRevision,
     SnowflakeStep,
     SnowflakeValidationReport,
     WorkflowAgentTrace,
@@ -18,6 +19,7 @@ from app.models import (
 from app.text_utils import truncate as summarize
 from app.snowflake.validators import (
     validate_snowflake_payload,
+    validate_snowflake_canon_consistency,
     validate_snowflake_record_generation,
 )
 
@@ -40,6 +42,7 @@ class WritingWorkflowState:
     project: ProjectSummary | None = None
     step: SnowflakeStep | None = None
     previous_artifacts: list[SnowflakeArtifact] = field(default_factory=list)
+    previous_records: dict[int, list[SnowflakeRecordRevision]] = field(default_factory=dict)
     canon_entities: list[CanonEntity] = field(default_factory=list)
     memory_records: list[MemoryRecord] = field(default_factory=list)
     llm_wiki_context: WikiContextResult | None = None
@@ -143,7 +146,17 @@ class ProjectContextLoader:
             artifact
             for artifact in self.data_store.list_snowflake_artifacts(state.request.project_id)
             if artifact.step_number < state.request.step_number
+            and artifact.step_number not in {6, 7, 8, 9}
         ]
+        state.previous_records = {
+            step_number: records
+            for step_number in range(6, min(state.request.step_number, 10))
+            if (
+                records := self.data_store.list_accepted_snowflake_records(
+                    state.request.project_id, step_number
+                )
+            )
+        }
         state.artifact = state.step.artifact if state.step else ""
         state.record(self.stage, self.name, "loaded")
         return state
@@ -158,7 +171,11 @@ class CanonConstraintChecker:
 
     def run(self, state: WritingWorkflowState) -> WritingWorkflowState:
         state.canon_entities = self.data_store.list_canon_entities(state.request.project_id)
-        state.record(self.stage, self.name, f"loaded {len(state.canon_entities)} entities")
+        state.record(
+            self.stage,
+            self.name,
+            f"loaded {len(state.canon_entities)} entities for generation and review",
+        )
         return state
 
 
@@ -222,21 +239,37 @@ class LocalConsistencyReviewer:
     stage = "post_generation"
 
     def run(self, state: WritingWorkflowState) -> WritingWorkflowState:
-        if state.request.target_records:
+        if state.request.step_number in {6, 7, 8, 9}:
             _records, report = validate_snowflake_record_generation(
                 state.request.step_number,
                 state.content,
-                state.request.target_record_ids,
+                state.request.target_record_ids or None,
             )
         else:
             report = validate_snowflake_payload(state.request.step_number, state.content)
-        state.validation_report = report
+        canon_report = validate_snowflake_canon_consistency(
+            state.request.step_number,
+            state.content,
+            state.canon_entities,
+        )
+        findings = [*report.findings, *canon_report.findings]
+        if report.status == "failed":
+            status = "failed"
+        elif findings:
+            status = "warnings"
+        else:
+            status = "passed"
+        state.validation_report = SnowflakeValidationReport(
+            step_number=state.request.step_number,
+            status=status,
+            findings=findings,
+        )
         state.record(
             self.stage,
             self.name,
-            report.status,
-            finding_count=len(report.findings),
-            details="Snowflake structured-output validation executed.",
+            status,
+            finding_count=len(findings),
+            details="Snowflake contract and accepted-Canon consistency checks executed.",
         )
         return state
 
@@ -301,6 +334,17 @@ def build_local_draft(state: WritingWorkflowState) -> str:
             ensure_ascii=False,
             indent=2,
         )
+    if state.request.step_number in {6, 7, 8, 9}:
+        record_id, payload = draft_record_for_step(
+            state.request.step_number,
+            state.project.premise if state.project else "",
+            state.request.user_input,
+        )
+        return json.dumps(
+            {"records": [{"record_id": record_id, "payload": payload}]},
+            ensure_ascii=False,
+            indent=2,
+        )
     project_title = state.project.title if state.project else state.request.project_id
     premise = state.project.premise if state.project else ""
     step_title = state.step.title if state.step else f"Step {state.request.step_number}"
@@ -309,6 +353,18 @@ def build_local_draft(state: WritingWorkflowState) -> str:
         f"- Step {item.step_number} `{item.artifact}`: {summarize(item.content)}"
         for item in state.previous_artifacts[-3:]
     )
+    relevant_records = select_relevant_upstream_records(state)
+    if relevant_records:
+        previous_context = "\n".join(
+            [
+                previous_context,
+                *(
+                    f"- Step {record.step_number} record `{record.record_id}`: "
+                    f"{summarize(json.dumps(record.payload, ensure_ascii=False), 1200)}"
+                    for record in relevant_records[:12]
+                ),
+            ]
+        ).strip()
     canon_context = "\n".join(
         f"- {item.entity_type}: {item.name} | {summarize(item.constraints or item.current_state or item.summary)}"
         for item in state.canon_entities[:8]
@@ -447,6 +503,95 @@ def draft_for_step(step_number: int, premise: str, user_input: str) -> str:
         "Use this as a structured development draft. Expand it into the requested "
         f"Snowflake artifact while preserving the project premise: {single_line(source)}"
     )
+
+
+def draft_record_for_step(
+    step_number: int, premise: str, user_input: str
+) -> tuple[str, dict]:
+    source = single_line(user_input or premise)
+    if step_number == 6:
+        return "act-1-sequence-1", {
+            "record_id": "act-1-sequence-1",
+            "act": "Act I",
+            "section": "Opening",
+            "sequence": 1,
+            "synopsis": source,
+            "step4_paragraph_refs": ["setup"],
+            "character_refs": ["protagonist"],
+        }
+    if step_number == 7:
+        return "character-protagonist", {
+            "record_type": "character",
+            "name": "Protagonist",
+            "role": "protagonist",
+            "one_sentence_summary": source,
+            "motivation": "Define the internal motivation.",
+            "goal": "Define the external goal.",
+            "conflict": "Define the central opposition.",
+            "epiphany": "Define the final realization.",
+            "viewpoint_summary": source,
+            "confirmed_facts": [],
+        }
+    if step_number == 8:
+        return "scene-1", {
+            "title": "Opening",
+            "pov": "Protagonist",
+            "goal": source,
+            "conflict": "Define the immediate opposition.",
+            "turning_point": "Define the irreversible change.",
+            "outcome": "Define the decisive result.",
+            "required_canon_ids": [],
+            "forbidden_facts": [],
+            "information_delta": "State what the reader and POV character learn.",
+            "character_state_delta": "State how the POV character changes.",
+            "story_thread_actions": [],
+        }
+    return "scene-1-expansion", {
+        "scene_id": "scene-1",
+        "beats": [source],
+        "emotional_change": "Define the scene's emotional transition.",
+        "chapter_plan": "Place the scene in the appropriate chapter after review.",
+    }
+
+
+def _search_tokens(value: str) -> set[str]:
+    normalized = "".join(character.lower() if character.isalnum() else " " for character in value)
+    return {token for token in normalized.split() if len(token) >= 3}
+
+
+def _scalar_references(value) -> set[str]:
+    if isinstance(value, dict):
+        return {item for child in value.values() for item in _scalar_references(child)}
+    if isinstance(value, list):
+        return {item for child in value for item in _scalar_references(child)}
+    return {str(value).strip().lower()} if value not in {None, ""} else set()
+
+
+def select_relevant_upstream_records(
+    state: WritingWorkflowState,
+) -> list[SnowflakeRecordRevision]:
+    """Rank accepted upstream records against the instruction and selected records."""
+    query_source = "\n".join(
+        [
+            state.request.user_input,
+            json.dumps(state.request.target_records, ensure_ascii=False),
+        ]
+    )
+    query_tokens = _search_tokens(query_source)
+    explicit_refs = _scalar_references(state.request.target_records)
+    ranked: list[tuple[int, int, int, str, SnowflakeRecordRevision]] = []
+    for step_number, records in state.previous_records.items():
+        for record in records:
+            searchable = f"{record.record_id} {json.dumps(record.payload, ensure_ascii=False)}"
+            overlap = len(query_tokens & _search_tokens(searchable))
+            explicit = 1 if record.record_id.lower() in explicit_refs else 0
+            ranked.append(
+                (explicit, overlap, step_number, record.record_id, record)
+            )
+    ranked.sort(
+        key=lambda item: (-item[0], -item[1], -item[2], item[3])
+    )
+    return [item[-1] for item in ranked]
 
 
 def single_line(value: str) -> str:

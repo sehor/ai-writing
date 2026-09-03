@@ -122,6 +122,9 @@ const compilerStep = computed(() => {
   if (number === 8) return 'scene' as const
   return null
 })
+const isRecordStep = computed(
+  () => activeStepNumber.value >= 6 && activeStepNumber.value <= 9
+)
 const legacyStep10Revision = computed(() =>
   revisions.value.find((revision) => revision.status === 'legacy_draft')
 )
@@ -329,7 +332,7 @@ function openManuscript() {
       >
         <div class="panel-header">
           <div>
-            <p class="eyebrow">Active Artifact</p>
+            <p class="eyebrow">{{ isRecordStep ? 'Authoritative records' : 'Active Artifact' }}</p>
             <h3 id="artifact-editor-title">
               Step {{ activeStep?.number ?? 1 }}: {{ activeStep?.title ?? 'Snowflake Step' }}
             </h3>
@@ -338,11 +341,33 @@ function openManuscript() {
         </div>
 
         <textarea
+          v-if="!isRecordStep"
           v-model="artifactDraft"
           rows="12"
           :disabled="!activeProject"
           :placeholder="`Write the ${activeStep?.artifact ?? 'artifact'} for the active project.`"
         />
+
+        <details
+          v-if="
+            isRecordStep &&
+            activeStepState?.accepted_revision &&
+            activeStepState.accepted_revision.source !== 'derived'
+          "
+          class="legacy-manuscript"
+        >
+          <summary>Preserved legacy Artifact — reference only</summary>
+          <p>
+            This historical blob is not an authoritative Step {{ activeStepNumber }} head.
+            Convert the useful material into records below and accept those records before compiling.
+          </p>
+          <textarea
+            :value="activeStepState.accepted_revision.content"
+            rows="8"
+            readonly
+            aria-label="Preserved legacy Snowflake Artifact"
+          />
+        </details>
 
         <div class="generation-controls">
           <label class="generation-instruction">
@@ -352,12 +377,16 @@ function openManuscript() {
               rows="3"
               maxlength="4000"
               :disabled="!activeProject"
-              placeholder="Describe what to generate or revise. The current artifact is kept separate."
+              :placeholder="
+                isRecordStep
+                  ? 'Describe which record proposals to generate or revise.'
+                  : 'Describe what to generate or revise. The current artifact is kept separate.'
+              "
             />
           </label>
 
           <label class="context-budget">
-            <span>Upstream artifact context budget</span>
+            <span>Upstream context budget</span>
             <input
               v-model.number="previousArtifactsContextChars"
               type="number"
@@ -369,28 +398,33 @@ function openManuscript() {
               aria-describedby="snowflake-context-budget-help"
             />
             <small id="snowflake-context-budget-help">
-              Characters shared by all earlier steps. Most recent steps are kept first.
+              Relevant accepted upstream records are ranked first; early-step artifacts use the remaining budget.
             </small>
           </label>
 
           <label class="generation-mode">
             <span>Generation mode</span>
             <select v-model="generationMode" :disabled="!activeProject">
-              <option value="replace">Replace / full step</option>
-              <option value="selection">Revise selected records</option>
-              <option value="continue">Continue selected records</option>
+              <template v-if="isRecordStep">
+                <option value="record_set">Generate record drafts</option>
+                <option value="selection">Revise selected accepted records</option>
+                <option value="continue">Continue selected accepted records</option>
+              </template>
+              <option v-else value="replace">Generate artifact revision</option>
             </select>
-            <small v-if="activeStepNumber >= 6 && activeStepNumber <= 9">
-              Select records below. Targeted results become pending record revisions, not an approved artifact.
+            <small v-if="isRecordStep">
+              New and targeted results always become pending record revisions. Blob Artifact revisions are not created.
             </small>
           </label>
         </div>
 
         <div class="form-actions artifact-actions">
           <p v-if="artifactError" class="error">{{ artifactError }}</p>
-          <p v-else class="save-state">{{ artifactStateLabel }}</p>
+          <p v-else class="save-state">
+            {{ isRecordStep ? 'Accept record revisions below to update the derived step projection.' : artifactStateLabel }}
+          </p>
           <p
-            v-if="activeRevision && ['draft', 'pending_review'].includes(activeRevision.status) && acceptanceImpact.length"
+            v-if="!isRecordStep && activeRevision && ['draft', 'pending_review'].includes(activeRevision.status) && acceptanceImpact.length"
             class="save-state"
           >
             Accepting this revision will mark downstream steps {{ acceptanceImpact.join(', ') }} for review.
@@ -402,9 +436,10 @@ function openManuscript() {
               :disabled="isGeneratingArtifact || !activeProject"
               @click="generateArtifact"
             >
-              {{ isGeneratingArtifact ? 'Generating...' : 'Generate Proposal' }}
+              {{ isGeneratingArtifact ? 'Generating...' : isRecordStep ? 'Generate record proposals' : 'Generate Proposal' }}
             </button>
             <button
+              v-if="!isRecordStep"
               class="primary"
               type="button"
               :disabled="isSavingArtifact || !hasUnsavedArtifactChanges"
@@ -413,7 +448,7 @@ function openManuscript() {
               {{ isSavingArtifact ? 'Saving...' : 'Save Draft Revision' }}
             </button>
             <button
-              v-if="activeRevision && ['draft', 'pending_review'].includes(activeRevision.status)"
+              v-if="!isRecordStep && activeRevision && ['draft', 'pending_review'].includes(activeRevision.status)"
               class="primary"
               type="button"
               :disabled="isSavingArtifact || hasUnsavedArtifactChanges"
@@ -422,7 +457,7 @@ function openManuscript() {
               Accept revision
             </button>
             <button
-              v-if="activeRevision && ['draft', 'pending_review'].includes(activeRevision.status)"
+              v-if="!isRecordStep && activeRevision && ['draft', 'pending_review'].includes(activeRevision.status)"
               class="secondary"
               type="button"
               :disabled="isSavingArtifact"
@@ -451,7 +486,7 @@ function openManuscript() {
         </ol>
       </section>
 
-      <SnowflakeRevisionHistory v-if="!activeStep?.virtual" :key="activeStepNumber" />
+      <SnowflakeRevisionHistory v-if="!activeStep?.virtual && !isRecordStep" :key="activeStepNumber" />
       <SnowflakeRecords
         v-if="activeStepNumber >= 6 && activeStepNumber <= 9"
         :key="`records-${activeStepNumber}`"
@@ -484,8 +519,8 @@ function openManuscript() {
         <p class="compile-hint">
           {{
             compilerStep === 'canon'
-              ? 'Parses the saved character bible into Canon create / update proposals. Nothing is written to Canon until you accept each proposal.'
-              : 'Parses the saved scene list into structured Scene Contract proposals with parse warnings. Accept a batch to create the contracts in one transaction.'
+              ? 'Compiles accepted Character Bible records into Canon create / update proposals. Draft and rejected records are ignored; nothing is written to Canon until you accept each proposal.'
+              : 'Compiles accepted Scene List records into structured Scene Contract proposals. Draft and rejected records are ignored; blocking contract findings stop compilation.'
           }}
         </p>
 
@@ -521,7 +556,7 @@ function openManuscript() {
             Review and accept them under Manuscript &gt; Write-backs.
           </p>
           <p v-else class="save-state">
-            No new Canon proposals from this artifact (existing records may already match).
+            No new Canon proposals from the accepted records (Canon may already match).
           </p>
           <ul v-if="canonExtractionReport.warnings.length" class="warning-list">
             <li v-for="(warning, index) in canonExtractionReport.warnings" :key="index">
@@ -634,7 +669,7 @@ function openManuscript() {
           v-else-if="compilerStep === 'scene'"
           class="save-state"
         >
-          No scene proposals yet. Save the Step 8 artifact, then parse it.
+          No scene proposals yet. Accept Step 8 records, then compile them.
         </p>
       </section>
       </template>

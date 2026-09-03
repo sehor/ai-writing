@@ -6,7 +6,7 @@
 >
 > 审计基线：`8571dc9 refactor: seal provider manuscript snapshot boundary`
 >
-> 审计范围：`docs/narrative-graph-clp-integration-plan.md` 的 P0–P11 与第 12 节七条成功标准。
+> 审计范围：`docs/older/narrative-graph-clp-integration-plan.md` 的 P0–P11 与第 12 节七条成功标准。
 
 ## 1. 最终结论
 

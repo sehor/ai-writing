@@ -10,6 +10,7 @@ Functions here never commit; the transaction boundary belongs to
 SqliteUnitOfWork.
 """
 
+import json
 import sqlite3
 
 from app.data.helpers import make_record_id, utc_now
@@ -32,6 +33,18 @@ from app.data.repositories.scene_proposals import (
 )
 from app.data.repositories.scenes import SceneRepository
 from app.data.repositories.snowflake import SnowflakeRepository
+from app.data.repositories.snowflake_records import SnowflakeRecordRepository
+from app.outbox.handlers import (
+    manuscript_revision_analysis_payload,
+    manuscript_revision_index_payload,
+    snowflake_index_payload,
+)
+from app.review.writeback_apply import (
+    WritebackTargetMissingError,
+    WritebackVersionConflictError,
+    apply_canon_update,
+    validate_update_proposal,
+)
 from app.models import (
     CanonEntityCreate,
     ManuscriptProposalAcceptance,
@@ -46,12 +59,18 @@ from app.models import (
     SnowflakeArtifact,
     SnowflakeArtifactHead,
     SnowflakeArtifactRevision,
+    SnowflakeArtifactRevisionCreate,
+    SnowflakeRecordDecisionResponse,
     StoryThreadCreate,
     StoryThreadEventCreate,
     WritebackProposal,
 )
 from app.snowflake.dependencies import downstream_steps
-from app.snowflake.validators import validate_snowflake_payload
+from app.snowflake.validators import (
+    validate_scene_record_set_context,
+    validate_snowflake_payload,
+    validate_snowflake_record_payload,
+)
 
 
 class SnowflakeRevisionNotFoundError(LookupError):
@@ -70,17 +89,6 @@ class SnowflakeRevisionValidationError(ValueError):
     def __init__(self, report):
         self.report = report
         super().__init__("Snowflake revision has blocking validation findings.")
-from app.outbox.handlers import (
-    manuscript_revision_analysis_payload,
-    manuscript_revision_index_payload,
-    snowflake_index_payload,
-)
-from app.review.writeback_apply import (
-    WritebackTargetMissingError,
-    WritebackVersionConflictError,
-    apply_canon_update,
-    validate_update_proposal,
-)
 
 
 def decide_snowflake_revision(
@@ -161,6 +169,121 @@ def decide_snowflake_revision(
         idempotency_key=f"llm_wiki_ingest:snowflake_revision:{accepted.id}",
     )
     return accepted, accepted_head, affected, job_id
+
+
+def decide_snowflake_record_revision(
+    connection: sqlite3.Connection,
+    *,
+    project_id: str,
+    revision_id: str,
+    decision: str,
+    expected_revision_id: str,
+    review_reason: str = "",
+) -> SnowflakeRecordDecisionResponse:
+    """Review one record and rebuild the derived accepted Artifact projection.
+
+    Record heads are the source of truth for steps 6-9. The artifact revision
+    created here is a deterministic snapshot for legacy readers, step progress,
+    staleness propagation, and indexing only.
+    """
+    records = SnowflakeRecordRepository(connection)
+    candidate = records.get_revision(project_id, revision_id)
+    if candidate is None:
+        raise LookupError("Snowflake record revision not found.")
+    if decision == "accepted":
+        validation = validate_snowflake_record_payload(
+            candidate.step_number, candidate.payload
+        )
+        if validation.status == "failed":
+            raise SnowflakeRevisionValidationError(validation)
+        if candidate.step_number == 8:
+            accepted = [
+                record
+                for record in records.list_accepted(project_id, 8)
+                if record.record_id != candidate.record_id
+            ]
+            accepted.append(candidate)
+            contextual = validate_scene_record_set_context(
+                accepted,
+                CanonRepository(connection).list(project_id),
+                NarrativeRepository(connection).list_threads(project_id),
+            )
+            if contextual.status == "failed":
+                raise SnowflakeRevisionValidationError(contextual)
+
+    revision, record_head = records.decide(
+        project_id,
+        revision_id,
+        decision=decision,
+        expected_revision_id=expected_revision_id,
+        review_reason=review_reason,
+    )
+    if decision != "accepted":
+        return SnowflakeRecordDecisionResponse(revision=revision, head=record_head)
+
+    accepted_records = records.list_accepted(project_id, revision.step_number)
+    for accepted_record in accepted_records:
+        validation = validate_snowflake_record_payload(
+            accepted_record.step_number, accepted_record.payload
+        )
+        if validation.status == "failed":
+            raise SnowflakeRevisionValidationError(validation)
+
+    snapshot = {
+        "records": [
+            {
+                "record_id": record.record_id,
+                "revision_id": record.id,
+                "position": record.position,
+                "payload": record.payload,
+            }
+            for record in accepted_records
+        ]
+    }
+    content = json.dumps(snapshot, ensure_ascii=False, indent=2)
+    snowflake = SnowflakeRepository(connection)
+    projection = snowflake.create_revision(
+        project_id,
+        SnowflakeArtifactRevisionCreate(
+            step_number=revision.step_number,
+            content=content,
+            structured_payload=snapshot,
+            source="derived",
+        ),
+        status="draft",
+        source="derived",
+    )
+    projection = snowflake.set_revision_status(
+        project_id,
+        projection.id,
+        "accepted",
+        review_reason=f"Derived from accepted record revision {revision.id}.",
+    )
+    snowflake.accept_revision(projection)
+    accepted_projection = SnowflakeArtifact(
+        project_id=project_id,
+        step_number=projection.step_number,
+        artifact=projection.artifact_type,
+        content=projection.content,
+    )
+    snowflake.update_accepted_projection(accepted_projection)
+    ProjectRepository(connection).advance_current_step(project_id, projection.step_number)
+    affected = downstream_steps(projection.step_number)
+    snowflake.mark_stale(
+        project_id,
+        affected,
+        reason=f"Step {projection.step_number} accepted record set changed.",
+        trigger_revision_id=revision.id,
+    )
+    OutboxRepository(connection).insert(
+        project_id=project_id,
+        job_type="llm_wiki_ingest",
+        aggregate_type="snowflake_record_snapshot",
+        aggregate_id=projection.id,
+        payload=snowflake_index_payload(accepted_projection),
+        idempotency_key=f"llm_wiki_ingest:snowflake_record_snapshot:{projection.id}",
+    )
+    return SnowflakeRecordDecisionResponse(revision=revision, head=record_head)
 
 
 def enqueue_manuscript_revision_index_job(

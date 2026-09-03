@@ -45,7 +45,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
   const activeRevisionId = ref('')
   const artifactDraft = ref('')
   const generationInstruction = ref('')
-  const generationMode = ref<'replace' | 'continue' | 'selection'>('replace')
+  const generationMode = ref<'replace' | 'record_set' | 'continue' | 'selection'>('replace')
   const previousArtifactsContextChars = ref(64000)
   const manuscriptProgress = ref<SnowflakeManuscriptProgress | null>(null)
   const records = ref<SnowflakeRecordRevision[]>([])
@@ -175,11 +175,13 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
       records.value = []
       selectedRecordIds.value = []
       recordSelectionStep = 0
+      generationMode.value = 'replace'
       return
     }
     if (recordSelectionStep !== stepNumber) {
       selectedRecordIds.value = []
       recordSelectionStep = stepNumber
+      generationMode.value = 'record_set'
     }
     const response = await fetchApi(
       `/projects/${projectId}/snowflake/steps/${stepNumber}/records?page=${page}&page_size=50`
@@ -193,6 +195,8 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
   }
 
   function toggleRecordSelection(recordId: string) {
+    const record = records.value.find((item) => item.record_id === recordId)
+    if (!record || (record.status !== 'accepted' && !record.base_revision_id)) return
     selectedRecordIds.value = selectedRecordIds.value.includes(recordId)
       ? selectedRecordIds.value.filter((id) => id !== recordId)
       : [...selectedRecordIds.value, recordId]
@@ -235,6 +239,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     )
     if (!response.ok) throw new Error((await readErrorDetail(response)).message || 'Could not review record revision')
     await loadRecords(revision.step_number, recordPage.value)
+    await loadStepStates(projectId)
   }
 
   async function importLegacyDraftSelection(
@@ -341,7 +346,10 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     const instruction = generationInstruction.value.trim() || ws().activeProject?.premise.trim()
     const contextChars = Number(previousArtifactsContextChars.value)
     const isRecordStep = ws().activeStepNumber >= 6 && ws().activeStepNumber <= 9
-    const targetRecordIds = isRecordStep ? selectedRecordIds.value : []
+    const targetRecordIds =
+      isRecordStep && ['selection', 'continue'].includes(generationMode.value)
+        ? selectedRecordIds.value
+        : []
 
     if (!projectId || !ws().activeStep || !instruction) {
       artifactError.value = 'Create or select a project first.'
@@ -351,7 +359,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
       artifactError.value = 'Context budget must be an integer from 1,000 to 400,000 characters.'
       return
     }
-    if (isRecordStep && generationMode.value !== 'replace' && targetRecordIds.length === 0) {
+    if (isRecordStep && ['selection', 'continue'].includes(generationMode.value) && targetRecordIds.length === 0) {
       artifactError.value = 'Select at least one structured record for this generation mode.'
       return
     }
@@ -395,6 +403,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
         workflowTrace.value = generated.workflow_trace
         artifactStatus.value = `${generated.record_revisions.length} AI record proposal(s) generated — review each pending revision below.`
         await loadRecords(generated.step_number, recordPage.value)
+        await loadStepStates(projectId)
         return
       }
       if (!generated.revision) throw new Error('Generation did not return a review revision')
@@ -541,7 +550,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     try {
       const action = step === 7 ? 'compile-canon-proposals' : 'parse-scene-proposals'
       const response = await fetchApi(
-        `/projects/${projectId}/snowflake/artifacts/${step}/${action}`,
+        `/projects/${projectId}/snowflake/records/${step}/${action}`,
         { method: 'POST' }
       )
       if (!response.ok) {

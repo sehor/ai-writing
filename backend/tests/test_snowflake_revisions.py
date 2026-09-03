@@ -4,16 +4,22 @@ import unittest
 
 from app.data import SQLiteWritingDataStore
 from app.data.flows import SnowflakeHeadConflictError
+from app.agents.writing_workflow import ProjectContextLoader, WritingWorkflowState
 from app.llm_wiki.local_backend import LocalFileLlmWiki
 from app.llm_wiki.stage_protocol import get_stage_policy
 from app.models import (
     ProjectCreate,
     SnowflakeArtifactRevisionCreate,
     SnowflakeGenerationCreate,
+    SnowflakeGenerationRequest,
     SnowflakeGenerationResponse,
     SnowflakeRecordRevisionCreate,
 )
-from app.services.snowflake_service import SnowflakeRecordValidationError, SnowflakeService
+from app.services.snowflake_service import (
+    SNOWFLAKE_STEPS,
+    SnowflakeRecordValidationError,
+    SnowflakeService,
+)
 from app.snowflake.dependencies import downstream_steps
 from app.snowflake.step_spec import SNOWFLAKE_STEP_SPECS, validate_step_graph
 
@@ -249,8 +255,9 @@ class SnowflakeRevisionStoreTests(unittest.TestCase):
                 "character_refs": ["protagonist"],
             }
 
+        accepted_target = None
         for index in range(1, 102):
-            self.store.create_snowflake_record_revision(
+            revision = self.store.create_snowflake_record_revision(
                 self.project.id,
                 SnowflakeRecordRevisionCreate(
                     step_number=6,
@@ -259,6 +266,15 @@ class SnowflakeRevisionStoreTests(unittest.TestCase):
                     payload=payload(index),
                 ),
             )
+            if index == 101:
+                accepted_target = self.store.decide_snowflake_record_revision(
+                    self.project.id,
+                    revision.id,
+                    decision="accepted",
+                    expected_revision_id="",
+                ).revision
+
+        self.assertIsNotNone(accepted_target)
 
         class CapturingWorkflow:
             request = None
@@ -295,6 +311,7 @@ class SnowflakeRevisionStoreTests(unittest.TestCase):
         )
 
         self.assertEqual(workflow.request.target_records[0]["record_id"], "block-101")
+        self.assertEqual(workflow.request.target_records[0]["revision_id"], accepted_target.id)
         self.assertIsNone(generated.revision)
         self.assertEqual(len(generated.record_revisions), 1)
         self.assertEqual(generated.record_revisions[0].record_id, "block-101")
@@ -326,6 +343,96 @@ class SnowflakeRevisionStoreTests(unittest.TestCase):
         )
         self.assertEqual(total, 2)
         self.assertEqual(history[0].id, generated.record_revisions[0].id)
+
+    def test_context_loader_uses_accepted_record_head_not_newer_pending_revision(self) -> None:
+        accepted_payload = {
+            "record_id": "block-authority",
+            "act": "Act I",
+            "section": "Opening",
+            "sequence": 1,
+            "synopsis": "Accepted upstream truth.",
+            "step4_paragraph_refs": ["setup"],
+            "character_refs": ["protagonist"],
+        }
+        first = self.store.create_snowflake_record_revision(
+            self.project.id,
+            SnowflakeRecordRevisionCreate(
+                step_number=6,
+                record_id="block-authority",
+                payload=accepted_payload,
+            ),
+        )
+        accepted = self.store.decide_snowflake_record_revision(
+            self.project.id,
+            first.id,
+            decision="accepted",
+            expected_revision_id="",
+        ).revision
+        pending_payload = dict(accepted_payload)
+        pending_payload["synopsis"] = "UNACCEPTED upstream poison."
+        self.store.create_snowflake_record_revision(
+            self.project.id,
+            SnowflakeRecordRevisionCreate(
+                step_number=6,
+                record_id="block-authority",
+                payload=pending_payload,
+                base_revision_id=accepted.id,
+                source="ai",
+            ),
+        )
+
+        state = ProjectContextLoader(self.store, SNOWFLAKE_STEPS).run(
+            WritingWorkflowState(
+                request=SnowflakeGenerationRequest(
+                    project_id=self.project.id,
+                    step_number=7,
+                    user_input="Develop the accepted opening.",
+                    generation_mode="record_set",
+                )
+            )
+        )
+        self.assertNotIn(6, {artifact.step_number for artifact in state.previous_artifacts})
+        self.assertEqual(state.previous_records[6][0].id, accepted.id)
+        self.assertEqual(
+            state.previous_records[6][0].payload["synopsis"],
+            "Accepted upstream truth.",
+        )
+
+    def test_legacy_record_step_blob_is_visible_but_not_reported_as_approved(self) -> None:
+        legacy = self.store.create_snowflake_revision(
+            self.project.id,
+            SnowflakeArtifactRevisionCreate(
+                step_number=8,
+                content="Preserved legacy scene list.",
+                source="legacy",
+            ),
+        )
+        with self.store.connect() as connection:
+            connection.execute(
+                "UPDATE snowflake_artifact_revisions SET status='accepted' WHERE id=?",
+                (legacy.id,),
+            )
+            connection.execute(
+                """
+                INSERT INTO snowflake_artifact_heads (
+                    project_id, step_number, accepted_revision_id, state
+                ) VALUES (?, 8, ?, 'approved')
+                ON CONFLICT(project_id, step_number) DO UPDATE SET
+                    accepted_revision_id=excluded.accepted_revision_id,
+                    state='approved'
+                """,
+                (self.project.id, legacy.id),
+            )
+
+        service = SnowflakeService(
+            self.store,
+            LocalFileLlmWiki(Path(self.temp.name) / "wiki"),
+        )
+        step = service.list_step_states(self.project.id)[7]
+
+        self.assertEqual(step.state, "stale")
+        self.assertEqual(step.accepted_revision.id, legacy.id)
+        self.assertIn("requires accepted structured records", step.stale_reason)
 
 
 class SnowflakeLegacyMigrationTests(unittest.TestCase):

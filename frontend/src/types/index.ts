@@ -33,7 +33,7 @@ export type SnowflakeArtifactRevision = {
   step_number: number
   artifact_type: string
   revision_no: number
-  source: 'human' | 'ai' | 'legacy' | 'import' | 'restore'
+  source: 'human' | 'ai' | 'legacy' | 'import' | 'restore' | 'derived'
   status: SnowflakeRevisionStatus
   content: string
   structured_payload: Record<string, unknown>
@@ -70,7 +70,7 @@ export type SnowflakeRecordRevision = {
   record_id: string
   position: number
   revision_no: number
-  source: 'human' | 'ai' | 'legacy' | 'import' | 'restore'
+  source: 'human' | 'ai' | 'legacy' | 'import' | 'restore' | 'derived'
   status: SnowflakeRevisionStatus
   payload: Record<string, unknown>
   base_revision_id: string

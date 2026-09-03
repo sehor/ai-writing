@@ -1,7 +1,6 @@
 """Structured Snowflake compiler (P1-05).
 
-Turns saved Snowflake artifacts into reviewable proposals instead of
-leaving them as opaque text boxes:
+Turns accepted Snowflake record heads into reviewable proposals:
 
 - Step 7 (canon_entities): canon_extractor produces Canon
   create / update write-back proposals for the existing review flow.
@@ -9,14 +8,17 @@ leaving them as opaque text boxes:
   Scene Contract proposals for batch review.
 
 Design constraints from the improvement plan: parse failures never
-touch the database, the raw artifact stays authoritative, every
-proposal carries its source text and parse warnings, and re-parsing
+touch the database, accepted records stay authoritative, every proposal
+carries its structured source and validation findings, and recompiling
 unchanged input is idempotent.
 """
 
-from app.snowflake_compiler.canon_extractor import extract_canon_proposals
+from app.snowflake_compiler.canon_extractor import (
+    extract_canon_proposals,
+    extract_canon_record_proposals,
+)
 from app.snowflake_compiler.errors import ArtifactNotParseableError
-from app.snowflake_compiler.scene_parser import parse_scene_artifact
+from app.snowflake_compiler.scene_parser import parse_scene_artifact, parse_scene_records
 
 CANON_EXTRACT_STEP = 7
 SCENE_PARSE_STEP = 8
@@ -26,5 +28,7 @@ __all__ = [
     "ArtifactNotParseableError",
     "SCENE_PARSE_STEP",
     "extract_canon_proposals",
+    "extract_canon_record_proposals",
     "parse_scene_artifact",
+    "parse_scene_records",
 ]

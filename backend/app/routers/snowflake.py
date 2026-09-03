@@ -327,7 +327,13 @@ def create_snowflake_record_revision(
     try:
         return service.create_record_revision(project_id, create)
     except SnowflakeRecordValidationError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": str(exc),
+                "validation_report": exc.report.model_dump() if exc.report else None,
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
 
@@ -342,14 +348,30 @@ def decide_snowflake_record_revision(
     request: SnowflakeRecordDecisionRequest,
     data_store: WritingDataStore = Depends(get_data_store),
     service: SnowflakeService = Depends(get_snowflake_service),
+    dispatcher: OutboxDispatcher = Depends(get_outbox_dispatcher),
 ) -> SnowflakeRecordDecisionResponse:
     require_project(project_id, data_store)
     try:
-        return service.decide_record_revision(project_id, revision_id, request)
+        result = service.decide_record_revision(project_id, revision_id, request)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except SnowflakeRecordValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": str(exc),
+                "validation_report": exc.report.model_dump() if exc.report else None,
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    if request.decision == "accepted":
+        wake_outbox_best_effort(
+            dispatcher,
+            operation="snowflake_record_revision_accept",
+            project_id=project_id,
+        )
+    return result
 
 
 @router.get(
@@ -492,7 +514,7 @@ def get_snowflake_compile_service(
     return SnowflakeCompileService(data_store)
 
 
-def unprocessable_artifact(exc: ValueError) -> HTTPException:
+def unprocessable_compiler_input(exc: ValueError) -> HTTPException:
     return HTTPException(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         detail=str(exc),
@@ -500,31 +522,37 @@ def unprocessable_artifact(exc: ValueError) -> HTTPException:
 
 
 @router.post(
-    ("/projects/{project_id}/snowflake/artifacts/{step_number}/compile-canon-proposals"),
+    ("/projects/{project_id}/snowflake/records/{step_number}/compile-canon-proposals"),
     response_model=CanonExtractionReport,
     status_code=status.HTTP_201_CREATED,
 )
-def compile_canon_proposals_from_artifact(
+@router.post(
+    ("/projects/{project_id}/snowflake/artifacts/{step_number}/compile-canon-proposals"),
+    response_model=CanonExtractionReport,
+    status_code=status.HTTP_201_CREATED,
+    deprecated=True,
+)
+def compile_canon_proposals_from_records(
     project_id: str,
     step_number: int,
     force: bool = False,
     data_store: WritingDataStore = Depends(get_data_store),
     service: SnowflakeCompileService = Depends(get_snowflake_compile_service),
 ) -> CanonExtractionReport:
-    """Step 7 artifact -> Canon create / update write-back proposals."""
+    """Step 7 accepted records -> Canon create / update write-back proposals."""
     require_project(project_id, data_store)
     if step_number != CANON_EXTRACT_STEP:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
-                "Canon extraction compiles Snowflake step 7 artifacts; "
+                "Canon extraction compiles Snowflake step 7 accepted records; "
                 f"step {step_number} is not compilable into Canon proposals."
             ),
         )
     try:
         return service.extract_canon_proposals(project_id, step_number, force=force)
     except ArtifactNotParseableError as exc:
-        raise unprocessable_artifact(exc) from exc
+        raise unprocessable_compiler_input(exc) from exc
     except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -533,31 +561,37 @@ def compile_canon_proposals_from_artifact(
 
 
 @router.post(
-    ("/projects/{project_id}/snowflake/artifacts/{step_number}/parse-scene-proposals"),
+    ("/projects/{project_id}/snowflake/records/{step_number}/parse-scene-proposals"),
     response_model=SceneParseReport,
     status_code=status.HTTP_201_CREATED,
 )
-def parse_scene_proposals_from_artifact(
+@router.post(
+    ("/projects/{project_id}/snowflake/artifacts/{step_number}/parse-scene-proposals"),
+    response_model=SceneParseReport,
+    status_code=status.HTTP_201_CREATED,
+    deprecated=True,
+)
+def parse_scene_proposals_from_records(
     project_id: str,
     step_number: int,
     force: bool = False,
     data_store: WritingDataStore = Depends(get_data_store),
     service: SnowflakeCompileService = Depends(get_snowflake_compile_service),
 ) -> SceneParseReport:
-    """Step 8 artifact -> structured Scene Contract proposals."""
+    """Step 8 accepted records -> structured Scene Contract proposals."""
     require_project(project_id, data_store)
     if step_number != SCENE_PARSE_STEP:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
             detail=(
-                "Scene parsing compiles Snowflake step 8 artifacts; "
+                "Scene parsing compiles Snowflake step 8 accepted records; "
                 f"step {step_number} is not compilable into scene proposals."
             ),
         )
     try:
         return service.parse_scene_proposals(project_id, step_number, force=force)
     except ArtifactNotParseableError as exc:
-        raise unprocessable_artifact(exc) from exc
+        raise unprocessable_compiler_input(exc) from exc
     except LookupError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -637,7 +671,7 @@ def accept_scene_proposals(
             detail=str(exc),
         ) from exc
     except (SceneChapterMissingError, SceneProposalQualityError) as exc:
-        raise unprocessable_artifact(exc) from exc
+        raise unprocessable_compiler_input(exc) from exc
     except (SceneProposalReviewedError, SceneSequenceConflictError) as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,

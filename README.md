@@ -253,6 +253,6 @@ node wiki-failure.e2e.mjs       # wiki ingest failure + UI retry recovery
 Interrupted backup imports are reconciled on startup before requests or background jobs run.
 Do not delete `.restore-*` directories while recovery is pending; damaged or legacy journals
 stop startup to preserve the original files. Recovery rules, verification and operating limits
-are recorded in [docs/remediation-progress.md](docs/remediation-progress.md).
+are recorded in the archived [remediation progress report](docs/older/remediation-progress.md).
 
-See [AGENTS.md](AGENTS.md) for Codex development rules, [docs/development-plan.md](docs/development-plan.md) for the active implementation plan, and [docs/ai-writing-remediation-plan.md](docs/ai-writing-remediation-plan.md) for the audit remediation roadmap.
+See [AGENTS.md](AGENTS.md) for Codex development rules, the [Snowflake business-loop plan](docs/snowflake-business-loop-improvement-plan.md) for the completed structured-record rollout, and [docs/ai-writing-remediation-plan.md](docs/ai-writing-remediation-plan.md) for the active audit remediation roadmap. Superseded plans and audit reports live under [`docs/older`](docs/older/).

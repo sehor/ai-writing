@@ -22,6 +22,7 @@ from app.data.flows import (
     accept_manuscript_proposal,
     accept_scene_proposals,
     accept_writeback_proposal,
+    decide_snowflake_record_revision,
     decide_snowflake_revision,
     enqueue_manuscript_revision_analysis_jobs,
     enqueue_manuscript_revision_index_job,
@@ -76,7 +77,6 @@ from app.models import (
     SnowflakeArtifactRevision,
     SnowflakeArtifactRevisionCreate,
     SnowflakeRecordDecisionResponse,
-    SnowflakeRecordHead,
     SnowflakeRecordRevision,
     SnowflakeRecordRevisionCreate,
     NarrativeRelation,
@@ -220,7 +220,11 @@ class SQLiteWritingDataStore:
 
     def snowflake_pending_counts(self, project_id: str) -> dict[int, int]:
         with SqliteUnitOfWork(self.database_path) as uow:
-            return uow.snowflake.pending_counts(project_id)
+            counts = uow.snowflake.pending_counts(project_id)
+            record_counts = SnowflakeRecordRepository(uow.connection).pending_counts(project_id)
+            for step_number in (6, 7, 8, 9):
+                counts[step_number] = record_counts.get(step_number, 0)
+            return counts
 
     def decide_snowflake_revision(
         self,
@@ -261,8 +265,24 @@ class SQLiteWritingDataStore:
         self, project_id: str, step_number: int, record_ids: list[str]
     ) -> list[SnowflakeRecordRevision]:
         with SqliteUnitOfWork(self.database_path) as uow:
-            return SnowflakeRecordRepository(uow.connection).get_current_by_record_ids(
+            return SnowflakeRecordRepository(uow.connection).get_accepted_by_record_ids(
                 project_id, step_number, record_ids
+            )
+
+    def list_accepted_snowflake_records(
+        self, project_id: str, step_number: int
+    ) -> list[SnowflakeRecordRevision]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return SnowflakeRecordRepository(uow.connection).list_accepted(
+                project_id, step_number
+            )
+
+    def get_snowflake_record_revision(
+        self, project_id: str, revision_id: str
+    ) -> SnowflakeRecordRevision | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return SnowflakeRecordRepository(uow.connection).get_revision(
+                project_id, revision_id
             )
 
     def create_snowflake_record_revision(
@@ -313,14 +333,14 @@ class SQLiteWritingDataStore:
         review_reason: str = "",
     ) -> SnowflakeRecordDecisionResponse:
         with SqliteUnitOfWork(self.database_path) as uow:
-            revision, head = SnowflakeRecordRepository(uow.connection).decide(
-                project_id,
-                revision_id,
+            return decide_snowflake_record_revision(
+                uow.connection,
+                project_id=project_id,
+                revision_id=revision_id,
                 decision=decision,
                 expected_revision_id=expected_revision_id,
                 review_reason=review_reason,
             )
-            return SnowflakeRecordDecisionResponse(revision=revision, head=head)
 
     # ------------------------------------------------------------------
     # Canon entities

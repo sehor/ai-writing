@@ -1,8 +1,8 @@
-"""Deterministic Scene Contract parser for Snowflake Step 8 artifacts.
+"""Deterministic Scene Contract compilers for Snowflake Step 8.
 
-Turns a saved scene list into structured scene proposals plus
-structural-validation warnings. Pure domain logic: no HTTP, no database,
-no provider calls.
+Accepted records are the authoritative production input. The Markdown parser remains
+a compatibility helper and enforces the same required scene fields as the records.
+Pure domain logic: no HTTP, no database, no provider calls.
 
 Recognized block shape (the local deterministic draft and the DeepSeek
 output contract both produce this):
@@ -25,8 +25,11 @@ completely unparseable artifact.
 """
 
 from dataclasses import dataclass, field
+import json
 import re
 
+from app.models import SnowflakeRecordRevision
+from app.snowflake.contracts import SceneListRecord
 from app.snowflake_compiler.errors import ArtifactNotParseableError
 from app.text_utils import truncate as truncate_text
 
@@ -159,6 +162,70 @@ def parse_scene_artifact(
                 scene.resolved_chapter_id = getattr(chapter, "id", "")
 
     return SceneParseOutcome(scenes=scenes, warnings=global_warnings)
+
+
+def parse_scene_records(
+    records: list[SnowflakeRecordRevision],
+    *,
+    canon_entities: list = (),
+) -> SceneParseOutcome:
+    """Compile accepted Step 8 record heads without consulting a blob Artifact."""
+    if not records:
+        raise ArtifactNotParseableError(
+            "No accepted Step 8 Scene List records are available to compile."
+        )
+    canon_by_id = {entity.id: entity for entity in canon_entities}
+    scenes: list[ParsedScene] = []
+    seen_sequences: set[int] = set()
+    for record in records:
+        payload = SceneListRecord.model_validate(record.payload)
+        actions = "\n".join(
+            f"{action.action}: {action.thread_title}"
+            for action in payload.story_thread_actions
+        )
+        scene = ParsedScene(
+            sequence=record.position,
+            title=payload.title,
+            pov=payload.pov,
+            goal=payload.goal,
+            conflict=payload.conflict,
+            turning_point=payload.turning_point,
+            outcome=payload.outcome,
+            required_canon_names=list(payload.required_canon_ids),
+            forbidden_fact_refs="\n".join(payload.forbidden_facts),
+            information_delta=payload.information_delta,
+            character_state_delta=payload.character_state_delta,
+            story_thread_actions=actions,
+            source_excerpt=truncate_text(
+                json.dumps(record.payload, ensure_ascii=False, sort_keys=True), 1200
+            ),
+        )
+        missing_canon_ids = [
+            canon_id
+            for canon_id in payload.required_canon_ids
+            if canon_id not in canon_by_id
+        ]
+        if missing_canon_ids:
+            scene.blocking_errors.append(
+                f"Scene record '{record.record_id}' references missing Canon IDs: "
+                + ", ".join(missing_canon_ids)
+                + "."
+            )
+        scene.resolved_canon_ids = [
+            canon_id for canon_id in payload.required_canon_ids if canon_id in canon_by_id
+        ]
+        if record.position in seen_sequences:
+            scene.blocking_errors.append(
+                f"Scene record '{record.record_id}' duplicates sequence {record.position}."
+            )
+        if record.position > 999:
+            scene.blocking_errors.append(
+                f"Scene record '{record.record_id}' exceeds the maximum sequence of 999."
+            )
+        seen_sequences.add(record.position)
+        scenes.append(scene)
+    warnings = _validate_structure(scenes)
+    return SceneParseOutcome(scenes=scenes, warnings=warnings)
 
 
 def _split_scene_blocks(content: str) -> tuple[list[tuple[int, str, list[str]]], list[str]]:
@@ -313,7 +380,15 @@ def _validate_structure(scenes: list[ParsedScene]) -> list[str]:
     for scene in scenes:
         missing = [
             name
-            for name in ("pov", "goal", "conflict", "turning_point", "outcome")
+            for name in (
+                "pov",
+                "goal",
+                "conflict",
+                "turning_point",
+                "outcome",
+                "information_delta",
+                "character_state_delta",
+            )
             if not getattr(scene, name).strip()
         ]
         if missing:

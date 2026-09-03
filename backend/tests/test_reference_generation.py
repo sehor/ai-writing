@@ -16,7 +16,7 @@ from app.models import (
     ProjectCreate,
     ReferenceGenerationRequest,
     SceneContractCreate,
-    SnowflakeArtifactRevisionCreate,
+    SnowflakeRecordRevisionCreate,
     StoryThreadCreate,
 )
 
@@ -32,18 +32,31 @@ class ReferenceGenerationTests(unittest.TestCase):
                     premise="A cartographer must map a city that erases memory.",
                 )
             )
-            revision = store.create_snowflake_revision(
+            revision = store.create_snowflake_record_revision(
                 project.id,
-                SnowflakeArtifactRevisionCreate(
+                SnowflakeRecordRevisionCreate(
                     step_number=8,
-                    content="Scene 1 asks Mira to enter the archive.",
+                    record_id="scene-1",
+                    payload={
+                        "title": "Archive Entry",
+                        "pov": "Mira",
+                        "goal": "Scene 1 asks Mira to enter the archive.",
+                        "conflict": "The archive is locked.",
+                        "turning_point": "Mira finds a hidden key.",
+                        "outcome": "Mira enters the archive.",
+                        "required_canon_ids": [],
+                        "forbidden_facts": [],
+                        "information_delta": "The key opens the archive.",
+                        "character_state_delta": "Mira becomes determined.",
+                        "story_thread_actions": [],
+                    },
                 ),
             )
-            store.decide_snowflake_revision(
-                project_id=project.id,
-                revision_id=revision.id,
+            store.decide_snowflake_record_revision(
+                project.id,
+                revision.id,
                 decision="accepted",
-                expected_head_revision_id="",
+                expected_revision_id="",
             )
             store.create_canon_entity(
                 project.id,

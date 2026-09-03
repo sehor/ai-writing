@@ -96,7 +96,8 @@ watch(
       </div>
     </div>
     <p class="compile-hint">
-      Long-form planning is stored as pageable records. Each save creates a draft revision; Accept is the only commit point.
+      These pageable records are the authoritative plan. Each save creates a draft revision;
+      only accepted record heads feed later steps and compilers.
     </p>
     <p class="save-state">
       {{ selectedRecordIds.length }} record(s) selected for AI generation. Selection is preserved across pages in this step.
@@ -108,7 +109,9 @@ watch(
             <input
               type="checkbox"
               :checked="selectedRecordIds.includes(record.record_id)"
+              :disabled="record.status !== 'accepted' && !record.base_revision_id"
               :aria-label="`Select ${record.record_id} for AI generation`"
+              :title="record.status === 'accepted' || record.base_revision_id ? 'Select the accepted head; any newer draft or rejected revision is ignored' : 'Accept a revision before using this record as AI context'"
               @change="snowflake.toggleRecordSelection(record.record_id)"
             />
           </label>

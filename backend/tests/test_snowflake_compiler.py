@@ -29,6 +29,8 @@ SCENE_ARTIFACT = """# Scene List
 - Conflict: The archivist refuses entry.
 - Turning point: Mira burns her map to prove intent.
 - Outcome: Mira enters, but the burned map strands her inside.
+- Information Delta: Mira learns the archive admits a sacrifice.
+- Character State Delta: Mira loses her only trusted route.
 - Required Canon: Mira Vale; Glass City
 - Forbidden facts: The city rewrites its maps at night
 - Open threads: Who guards the lower vault?
@@ -40,6 +42,8 @@ SCENE_ARTIFACT = """# Scene List
 - Conflict: Juno is recognized.
 - Turning point: The guard demands a name.
 - Outcome: Juno gives Mira's name and creates a new enemy.
+- Information Delta: The guard connects Juno to Mira.
+- Character State Delta: Juno commits to the deception.
 """
 
 CANON_ARTIFACT = """# Character Bible
@@ -58,6 +62,75 @@ CANON_ARTIFACT = """# Character Bible
 - Confirmed: yes
 - Summary: A city that rewrites itself nightly.
 """
+
+CANON_RECORDS = [
+    {
+        "record_id": "character-mira-vale",
+        "position": 1,
+        "payload": {
+            "record_type": "character",
+            "name": "Mira Vale",
+            "role": "protagonist",
+            "one_sentence_summary": "A disgraced cartographer.",
+            "motivation": "Restore her place in the city.",
+            "goal": "Reach the archive.",
+            "conflict": "She cannot read rewritten maps.",
+            "epiphany": "A changing map can still be home.",
+            "viewpoint_summary": "Mira distrusts every route after exile.",
+            "confirmed_facts": [
+                "A disgraced cartographer.",
+                "Cannot read rewritten maps.",
+            ],
+        },
+    },
+    {
+        "record_id": "location-glass-city",
+        "position": 2,
+        "payload": {
+            "record_type": "location",
+            "name": "Glass City",
+            "summary": "A city that rewrites itself nightly.",
+            "confirmed_facts": ["The city rewrites itself nightly."],
+        },
+    },
+]
+
+SCENE_RECORDS = [
+    {
+        "record_id": "scene-opening",
+        "position": 1,
+        "payload": {
+            "title": "Opening",
+            "pov": "Mira Vale",
+            "goal": "Reach the archive before dusk.",
+            "conflict": "The archivist refuses entry.",
+            "turning_point": "Mira burns her map to prove intent.",
+            "outcome": "Mira enters, but the burned map strands her inside.",
+            "required_canon_ids": [],
+            "forbidden_facts": ["The city rewrites its maps at night"],
+            "information_delta": "Mira learns the archive admits a sacrifice.",
+            "character_state_delta": "Mira loses her only trusted route.",
+            "story_thread_actions": [],
+        },
+    },
+    {
+        "record_id": "scene-bargain",
+        "position": 2,
+        "payload": {
+            "title": "The Bargain",
+            "pov": "Juno Ash",
+            "goal": "Trade a forged seal for passage.",
+            "conflict": "Juno is recognized.",
+            "turning_point": "The guard demands a name.",
+            "outcome": "Juno gives Mira's name and creates a new enemy.",
+            "required_canon_ids": [],
+            "forbidden_facts": [],
+            "information_delta": "The guard connects Juno to Mira.",
+            "character_state_delta": "Juno commits to the deception.",
+            "story_thread_actions": [],
+        },
+    },
+]
 
 
 def make_canon_entity(entity_id: str, name: str, entity_type: str = "character") -> CanonEntity:
@@ -106,7 +179,14 @@ class SceneParserUnitTests(unittest.TestCase):
         scene = outcome.scenes[0]
         joined = "\n".join(scene.blocking_errors)
         self.assertIn("missing", joined)
-        for field in ("pov", "conflict", "turning_point"):
+        for field in (
+            "pov",
+            "conflict",
+            "turning_point",
+            "outcome",
+            "information_delta",
+            "character_state_delta",
+        ):
             self.assertIn(field, joined)
         self.assertEqual(scene.title, "Scene 3")
         self.assertTrue(any("no title" in warning for warning in scene.warnings))
@@ -278,30 +358,46 @@ class CompilerRouteTests(unittest.TestCase):
         self.assertEqual(created.status_code, 201, created.text)
         return created.json()["id"]
 
-    def _save_artifact(self, client: TestClient, project_id: str, step: int, content: str) -> None:
-        if step == 8:
-            content = content.replace("Mira Vale; Glass City", "")
-        step_state = client.get(f"/api/projects/{project_id}/snowflake/steps").json()[step - 1]
-        expected_head = (
-            step_state["accepted_revision"]["id"] if step_state["accepted_revision"] else ""
-        )
-        response = client.post(
-            f"/api/projects/{project_id}/snowflake/artifact-revisions",
-            json={"step_number": step, "content": content},
-        )
-        self.assertEqual(response.status_code, 201, response.text)
-        revision_id = response.json()["id"]
-        accepted = client.post(
-            f"/api/projects/{project_id}/snowflake/artifact-revisions/{revision_id}/decisions",
-            json={"decision": "accepted", "expected_head_revision_id": expected_head},
-        )
-        self.assertEqual(accepted.status_code, 200, accepted.text)
+    def _save_records(
+        self,
+        client: TestClient,
+        project_id: str,
+        step: int,
+        records: list[dict],
+    ) -> None:
+        current = client.get(
+            f"/api/projects/{project_id}/snowflake/steps/{step}/records?page_size=100"
+        ).json()["data"]
+        accepted_by_id = {
+            item["record_id"]: item["id"]
+            for item in current
+            if item["status"] == "accepted"
+        }
+        for record in records:
+            expected = accepted_by_id.get(record["record_id"], "")
+            response = client.post(
+                f"/api/projects/{project_id}/snowflake/record-revisions",
+                json={
+                    "step_number": step,
+                    "record_id": record["record_id"],
+                    "position": record["position"],
+                    "payload": record["payload"],
+                    "base_revision_id": expected,
+                },
+            )
+            self.assertEqual(response.status_code, 201, response.text)
+            accepted = client.post(
+                f"/api/projects/{project_id}/snowflake/record-revisions/"
+                f"{response.json()['id']}/decisions",
+                json={"decision": "accepted", "expected_revision_id": expected},
+            )
+            self.assertEqual(accepted.status_code, 200, accepted.text)
 
     def test_step7_extraction_is_idempotent_and_reviewable(self) -> None:
         try:
             client, _store = self._client()
             project_id = self._create_project(client)
-            self._save_artifact(client, project_id, 7, CANON_ARTIFACT)
+            self._save_records(client, project_id, 7, CANON_RECORDS)
 
             first = client.post(
                 f"/api/projects/{project_id}/snowflake/artifacts/7/compile-canon-proposals"
@@ -343,16 +439,22 @@ class CompilerRouteTests(unittest.TestCase):
         try:
             client, _store = self._client()
             project_id = self._create_project(client)
-            self._save_artifact(client, project_id, 7, CANON_ARTIFACT)
+            self._save_records(client, project_id, 7, CANON_RECORDS)
             initial = client.post(
                 f"/api/projects/{project_id}/snowflake/artifacts/7/compile-canon-proposals"
             ).json()
 
-            edited = (
-                CANON_ARTIFACT
-                + "\n## Item: Forged Seal\n- Type: item\n- Confirmed: yes\n- Summary: A forged archive seal."
-            )
-            self._save_artifact(client, project_id, 7, edited)
+            edited = CANON_RECORDS + [{
+                "record_id": "item-forged-seal",
+                "position": 3,
+                "payload": {
+                    "record_type": "item",
+                    "name": "Forged Seal",
+                    "summary": "A forged archive seal.",
+                    "confirmed_facts": ["The seal is a forged archive credential."],
+                },
+            }]
+            self._save_records(client, project_id, 7, edited)
             rerun = client.post(
                 f"/api/projects/{project_id}/snowflake/artifacts/7/compile-canon-proposals?force=true"
             )
@@ -377,7 +479,7 @@ class CompilerRouteTests(unittest.TestCase):
         try:
             client, _store = self._client()
             project_id = self._create_project(client)
-            self._save_artifact(client, project_id, 7, CANON_ARTIFACT)
+            self._save_records(client, project_id, 7, CANON_RECORDS)
             first = client.post(
                 f"/api/projects/{project_id}/snowflake/artifacts/7/compile-canon-proposals"
             ).json()
@@ -430,15 +532,24 @@ class CompilerRouteTests(unittest.TestCase):
         finally:
             self._cleanup(client)
 
-    def test_unparseable_step8_artifact_pollutes_nothing(self) -> None:
+    def test_invalid_step8_record_is_rejected_before_it_can_pollute_compiler_state(self) -> None:
         try:
             client, store = self._client()
             project_id = self._create_project(client)
-            self._save_artifact(client, project_id, 8, "Loose prose, no scenes anywhere.")
+            invalid = client.post(
+                f"/api/projects/{project_id}/snowflake/record-revisions",
+                json={
+                    "step_number": 8,
+                    "record_id": "invalid-scene",
+                    "position": 1,
+                    "payload": {"title": "Loose prose, no scene contract."},
+                },
+            )
+            self.assertEqual(invalid.status_code, 422, invalid.text)
             failed = client.post(
                 f"/api/projects/{project_id}/snowflake/artifacts/8/parse-scene-proposals"
             )
-            self.assertEqual(failed.status_code, 422)
+            self.assertEqual(failed.status_code, 404)
             self.assertEqual(
                 client.get(f"/api/projects/{project_id}/snowflake/scene-proposals").json(), []
             )
@@ -446,7 +557,75 @@ class CompilerRouteTests(unittest.TestCase):
                 rows = connection.execute(
                     "SELECT status FROM analysis_runs WHERE processor='local_scene_parser'"
                 ).fetchall()
-            self.assertTrue(all(row["status"] == "failed" for row in rows))
+            self.assertEqual(rows, [])
+        finally:
+            self._cleanup(client)
+
+    def test_step8_accept_blocks_unknown_canon_before_head_changes(self) -> None:
+        try:
+            client, _store = self._client()
+            project_id = self._create_project(client)
+            payload = dict(SCENE_RECORDS[0]["payload"])
+            payload["required_canon_ids"] = ["canon-does-not-exist"]
+            created = client.post(
+                f"/api/projects/{project_id}/snowflake/record-revisions",
+                json={
+                    "step_number": 8,
+                    "record_id": "scene-invalid-canon",
+                    "position": 1,
+                    "payload": payload,
+                },
+            )
+            self.assertEqual(created.status_code, 201, created.text)
+            decision = client.post(
+                f"/api/projects/{project_id}/snowflake/record-revisions/"
+                f"{created.json()['id']}/decisions",
+                json={"decision": "accepted", "expected_revision_id": ""},
+            )
+            self.assertEqual(decision.status_code, 422, decision.text)
+            codes = {
+                finding["code"]
+                for finding in decision.json()["detail"]["validation_report"]["findings"]
+            }
+            self.assertIn("unknown_required_canon", codes)
+            current = client.get(
+                f"/api/projects/{project_id}/snowflake/steps/8/records"
+            ).json()["data"]
+            self.assertEqual(current[0]["status"], "draft")
+            artifact = client.get(f"/api/projects/{project_id}/snowflake/artifacts/8")
+            self.assertEqual(artifact.status_code, 404)
+        finally:
+            self._cleanup(client)
+
+    def test_scene_compiler_ignores_newer_unaccepted_record_revision(self) -> None:
+        try:
+            client, _store = self._client()
+            project_id = self._create_project(client)
+            self._save_records(client, project_id, 8, [SCENE_RECORDS[0]])
+            accepted = client.get(
+                f"/api/projects/{project_id}/snowflake/steps/8/records"
+            ).json()["data"][0]
+            poisoned = dict(SCENE_RECORDS[0]["payload"])
+            poisoned["title"] = "UNACCEPTED TITLE MUST NOT COMPILE"
+            pending = client.post(
+                f"/api/projects/{project_id}/snowflake/record-revisions",
+                json={
+                    "step_number": 8,
+                    "record_id": accepted["record_id"],
+                    "position": accepted["position"],
+                    "payload": poisoned,
+                    "base_revision_id": accepted["id"],
+                    "source": "ai",
+                },
+            )
+            self.assertEqual(pending.status_code, 201, pending.text)
+
+            report = client.post(
+                f"/api/projects/{project_id}/snowflake/records/8/parse-scene-proposals"
+            )
+            self.assertEqual(report.status_code, 201, report.text)
+            self.assertEqual(report.json()["proposals"][0]["title"], "Opening")
+            self.assertNotIn("UNACCEPTED", report.text)
         finally:
             self._cleanup(client)
 
@@ -460,8 +639,7 @@ class CompilerRouteTests(unittest.TestCase):
             )
             chapters = client.get(f"/api/projects/{project_id}/manuscript/chapters").json()
             self.assertEqual(len(chapters), 1)
-            chapter_id = chapters[0]["id"]
-            self._save_artifact(client, project_id, 8, SCENE_ARTIFACT)
+            self._save_records(client, project_id, 8, SCENE_RECORDS)
 
             parsed = client.post(
                 f"/api/projects/{project_id}/snowflake/artifacts/8/parse-scene-proposals"
@@ -471,9 +649,10 @@ class CompilerRouteTests(unittest.TestCase):
             self.assertFalse(report["cached"])
             self.assertEqual(len(report["proposals"]), 2)
             first_sequence = report["proposals"][0]
-            self.assertEqual(first_sequence["chapter_hint"], "Chapter 1")
-            # The hint resolves to the saved chapter at parse time.
-            self.assertEqual(first_sequence["chapter_id"], chapter_id)
+            self.assertEqual(first_sequence["chapter_hint"], "")
+            self.assertEqual(first_sequence["chapter_id"], "")
+            self.assertEqual(first_sequence["information_delta"], SCENE_RECORDS[0]["payload"]["information_delta"])
+            self.assertEqual(first_sequence["character_state_delta"], SCENE_RECORDS[0]["payload"]["character_state_delta"])
 
             replay = client.post(
                 f"/api/projects/{project_id}/snowflake/artifacts/8/parse-scene-proposals"
@@ -525,7 +704,7 @@ class CompilerRouteTests(unittest.TestCase):
                 json={"sequence": 1, "title": "Already here"},
             )
             self.assertEqual(pre_existing.status_code, 201)
-            self._save_artifact(client, project_id, 8, SCENE_ARTIFACT)
+            self._save_records(client, project_id, 8, SCENE_RECORDS)
             client.post(f"/api/projects/{project_id}/snowflake/artifacts/8/parse-scene-proposals")
 
             conflict = client.post(
@@ -542,20 +721,29 @@ class CompilerRouteTests(unittest.TestCase):
             self._cleanup(client)
 
     def test_step8_creates_reviewable_story_thread_and_event_proposals(self) -> None:
-        content = """### Scene 1: The Signal
-- POV: Mira
-- Goal: Reach the tower.
-- Conflict: The stairs collapse.
-- Turning point: A coded light answers her.
-- Outcome: Mira is trapped above the city.
-- Information Delta: The watcher knows her route.
-- Character State Delta: Mira stops trusting the map.
-- StoryThread Actions: plant: The coded watcher
-"""
+        records = [{
+            "record_id": "scene-signal",
+            "position": 1,
+            "payload": {
+                "title": "The Signal",
+                "pov": "Mira",
+                "goal": "Reach the tower.",
+                "conflict": "The stairs collapse.",
+                "turning_point": "A coded light answers her.",
+                "outcome": "Mira is trapped above the city.",
+                "required_canon_ids": [],
+                "forbidden_facts": [],
+                "information_delta": "The watcher knows her route.",
+                "character_state_delta": "Mira stops trusting the map.",
+                "story_thread_actions": [
+                    {"action": "plant", "thread_title": "The coded watcher"}
+                ],
+            },
+        }]
         try:
             client, _store = self._client()
             project_id = self._create_project(client)
-            self._save_artifact(client, project_id, 8, content)
+            self._save_records(client, project_id, 8, records)
             report = client.post(
                 f"/api/projects/{project_id}/snowflake/artifacts/8/parse-scene-proposals"
             ).json()
@@ -598,7 +786,7 @@ class CompilerRouteTests(unittest.TestCase):
         try:
             client, _store = self._client()
             project_id = self._create_project(client)
-            self._save_artifact(client, project_id, 8, SCENE_ARTIFACT)
+            self._save_records(client, project_id, 8, SCENE_RECORDS)
             report = client.post(
                 f"/api/projects/{project_id}/snowflake/artifacts/8/parse-scene-proposals"
             ).json()
@@ -627,7 +815,7 @@ class CompilerRouteTests(unittest.TestCase):
         try:
             client, _store = self._client()
             project_id = self._create_project(client)
-            self._save_artifact(client, project_id, 8, SCENE_ARTIFACT)
+            self._save_records(client, project_id, 8, SCENE_RECORDS)
             report = client.post(
                 f"/api/projects/{project_id}/snowflake/artifacts/8/parse-scene-proposals"
             ).json()

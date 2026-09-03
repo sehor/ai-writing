@@ -86,6 +86,15 @@ test('targeted generation sends record IDs and loads pending record revisions fo
   expect(store.artifactStatus).toContain('pending revision')
 })
 
+test('a newer pending revision still selects the accepted head by record ID', () => {
+  const store = useSnowflakeStore()
+  store.records = [pendingRecord]
+
+  store.toggleRecordSelection('block-101')
+
+  expect(store.selectedRecordIds).toEqual(['block-101'])
+})
+
 test('legacy selection is imported as a pending manuscript proposal', async () => {
   const proposal = {
     id: 'legacy-proposal',
