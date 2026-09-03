@@ -1,0 +1,11 @@
+# Generated Graphify output and prior query memory are not source corpus.
+graphify-out/
+graphify-out/**
+graphify-out/memory/
+graphify-out/memory/**
+
+# Superseded plans/audits are retained for history, not current architecture.
+docs/older/
+
+# Product/domain research is not an implementation or architecture source.
+research-temp/
