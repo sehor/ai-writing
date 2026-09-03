@@ -12,12 +12,13 @@ output contract both produce this):
     - Goal: ...
     - Conflict: ...
     - Turning point: ...
+    - Outcome: ...
     - Required Canon: Mira Vale; Glass City
     - Forbidden facts: ...
     - Open threads: ...
     - Chapter hint: Chapter 2
 
-Structural validation reports missing pov/goal/conflict/turning_point,
+Structural validation blocks missing pov/goal/conflict/turning_point/outcome,
 duplicate or out-of-range sequences, unresolved canon references and
 unresolved chapter hints as warnings; nothing here raises except a
 completely unparseable artifact.
@@ -36,8 +37,9 @@ SCENE_HEADER_RE = re.compile(
     re.IGNORECASE,
 )
 SCENE_FIELD_RE = re.compile(
-    r"^\s*[-*•]?\s*(?:\*\*)?(?P<label>pov|goal|conflict|turning point|"
+    r"^\s*[-*•]?\s*(?:\*\*)?(?P<label>pov|goal|conflict|turning point|outcome|disaster|"
     r"required canon|required|forbidden facts?|forbidden fact refs|"
+    r"information delta|character state delta|(?:story\s*)?thread actions?|"
     r"open threads?|chapter(?:\s+hint)?|title)\s*(?:\*\*)?\s*[::]\s*(?P<value>.*)$",
     re.IGNORECASE,
 )
@@ -50,6 +52,7 @@ FIELD_LIMITS = {
     "goal": 1000,
     "conflict": 1000,
     "turning_point": 1000,
+    "outcome": 1000,
 }
 
 LIST_SPLIT_RE = re.compile(r"[;;、]|\n")
@@ -65,12 +68,17 @@ class ParsedScene:
     goal: str = ""
     conflict: str = ""
     turning_point: str = ""
+    outcome: str = ""
     required_canon_names: list[str] = field(default_factory=list)
     forbidden_fact_refs: str = ""
+    information_delta: str = ""
+    character_state_delta: str = ""
+    story_thread_actions: str = ""
     open_threads: str = ""
     chapter_hint: str = ""
     source_excerpt: str = ""
     warnings: list[str] = field(default_factory=list)
+    blocking_errors: list[str] = field(default_factory=list)
     resolved_canon_ids: list[str] = field(default_factory=list)
     resolved_chapter_id: str = ""
 
@@ -133,7 +141,7 @@ def parse_scene_artifact(
             else:
                 resolved_ids.append(entity.id)
         if unresolved:
-            scene.warnings.append(
+            scene.blocking_errors.append(
                 f"Scene {scene.sequence}: required Canon references not present "
                 f"in the Canon DB: {', '.join(unresolved)}."
             )
@@ -225,9 +233,17 @@ def _build_scene(number: int, header_rest: str, lines: list[str]) -> ParsedScene
     scene.turning_point = truncate_text(
         fields.get("turning_point", "").strip(), FIELD_LIMITS["turning_point"]
     )
+    scene.outcome = truncate_text(fields.get("outcome", "").strip(), FIELD_LIMITS["outcome"])
     scene.required_canon_names = _split_list(fields.get("required_canon", ""))
     scene.forbidden_fact_refs = truncate_text(
         "\n".join(_split_list(fields.get("forbidden_facts", ""))), 4000
+    )
+    scene.information_delta = truncate_text(fields.get("information_delta", "").strip(), 4000)
+    scene.character_state_delta = truncate_text(
+        fields.get("character_state_delta", "").strip(), 4000
+    )
+    scene.story_thread_actions = truncate_text(
+        "\n".join(_split_list(fields.get("story_thread_actions", ""))), 4000
     )
     scene.open_threads = truncate_text("\n".join(_split_list(fields.get("open_threads", ""))), 4000)
     scene.chapter_hint = truncate_text(fields.get("chapter_hint", "").strip(), 160)
@@ -244,10 +260,18 @@ def _field_key(label: str) -> str | None:
         return "conflict"
     if label == "turning point":
         return "turning_point"
+    if label in {"outcome", "disaster"}:
+        return "outcome"
     if label in {"required canon", "required"}:
         return "required_canon"
     if label in {"forbidden facts", "forbidden fact", "forbidden fact refs"}:
         return "forbidden_facts"
+    if label == "information delta":
+        return "information_delta"
+    if label == "character state delta":
+        return "character_state_delta"
+    if label in {"thread action", "thread actions", "storythread action", "storythread actions", "story thread action", "story thread actions"}:
+        return "story_thread_actions"
     if label in {"open threads", "open thread"}:
         return "open_threads"
     if label in {"chapter", "chapter hint"}:
@@ -289,13 +313,27 @@ def _validate_structure(scenes: list[ParsedScene]) -> list[str]:
     for scene in scenes:
         missing = [
             name
-            for name in ("pov", "goal", "conflict", "turning_point")
+            for name in ("pov", "goal", "conflict", "turning_point", "outcome")
             if not getattr(scene, name).strip()
         ]
         if missing:
-            scene.warnings.append(
+            scene.blocking_errors.append(
                 f"Scene {scene.sequence} ({scene.title}) is missing: {', '.join(missing)}."
             )
+        valid_thread_actions = {
+            "plant", "reinforce", "misdirect", "escalate", "partial_payoff", "payoff"
+        }
+        for raw_action in scene.story_thread_actions.splitlines():
+            action, separator, title = raw_action.partition(":")
+            if not separator:
+                action, separator, title = raw_action.partition("|")
+            if not separator:
+                action, separator, title = raw_action.partition("-")
+            if action.strip().lower() not in valid_thread_actions or not title.strip():
+                scene.blocking_errors.append(
+                    f"Scene {scene.sequence} has invalid StoryThread action '{raw_action}'; "
+                    "use action: thread title."
+                )
     over_limit = [scene.sequence for scene in scenes if scene.sequence > 999]
     if over_limit:
         warnings.append(

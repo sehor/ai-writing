@@ -28,6 +28,7 @@ SCENE_ARTIFACT = """# Scene List
 - Goal: Reach the archive before dusk.
 - Conflict: The archivist refuses entry.
 - Turning point: Mira burns her map to prove intent.
+- Outcome: Mira enters, but the burned map strands her inside.
 - Required Canon: Mira Vale; Glass City
 - Forbidden facts: The city rewrites its maps at night
 - Open threads: Who guards the lower vault?
@@ -38,12 +39,14 @@ SCENE_ARTIFACT = """# Scene List
 - Goal: Trade a forged seal for passage.
 - Conflict: Juno is recognized.
 - Turning point: The guard demands a name.
+- Outcome: Juno gives Mira's name and creates a new enemy.
 """
 
 CANON_ARTIFACT = """# Character Bible
 
 ## Character: Mira Vale
 - Type: character
+- Confirmed: yes
 - Summary: A disgraced cartographer.
 - Current state: Hiding in the glass district.
 - Constraints: Cannot read rewritten maps.
@@ -52,6 +55,7 @@ CANON_ARTIFACT = """# Character Bible
 
 ## Location: Glass City
 - Type: location
+- Confirmed: yes
 - Summary: A city that rewrites itself nightly.
 """
 
@@ -100,7 +104,7 @@ class SceneParserUnitTests(unittest.TestCase):
     def test_missing_core_fields_produce_warnings(self) -> None:
         outcome = parse_scene_artifact("Scene 3\n- Goal: Survive the night.")
         scene = outcome.scenes[0]
-        joined = "\n".join(scene.warnings)
+        joined = "\n".join(scene.blocking_errors)
         self.assertIn("missing", joined)
         for field in ("pov", "conflict", "turning_point"):
             self.assertIn(field, joined)
@@ -126,7 +130,9 @@ class SceneParserUnitTests(unittest.TestCase):
             canon_entities=[make_canon_entity("c1", "Mira Vale")],
         )
         self.assertEqual(outcome.scenes[0].resolved_canon_ids, [])
-        self.assertTrue(any("Ghost Harbour" in warning for warning in outcome.scenes[0].warnings))
+        self.assertTrue(
+            any("Ghost Harbour" in finding for finding in outcome.scenes[0].blocking_errors)
+        )
 
     def test_chapter_hint_resolves_by_number_and_title(self) -> None:
         chapters = [make_chapter("ch-9", 9, "The Long Fall")]
@@ -143,6 +149,20 @@ class SceneParserUnitTests(unittest.TestCase):
 
 
 class CanonExtractorUnitTests(unittest.TestCase):
+    def test_character_profile_is_not_canon_without_explicit_confirmation(self) -> None:
+        extraction = extract_canon_proposals(
+            """## Character: Mira Vale
+- Type: character
+- Motivation: Find a home.
+- Summary: A displaced cartographer.
+""",
+            [],
+            source_ref="snowflake_artifact:p1:7",
+        )
+        self.assertEqual(extraction.proposals, [])
+        self.assertTrue(any("Confirmed: yes" in warning for warning in extraction.warnings))
+        self.assertTrue(any("Motivation" in warning for warning in extraction.warnings))
+
     def test_creates_proposals_for_new_entities(self) -> None:
         extraction = extract_canon_proposals(
             CANON_ARTIFACT, [], source_ref="snowflake_artifact:p1:7"
@@ -238,11 +258,14 @@ class CompilerRouteTests(unittest.TestCase):
         store = SQLiteWritingDataStore(Path(temp_dir.name) / "app.db")
         store.init()
         app.dependency_overrides[get_data_store] = lambda: store
-        client = TestClient(app)
+        client_context = TestClient(app)
+        client = client_context.__enter__()
+        client._dsh_client_context = client_context
         client._dsh_temp_dir = temp_dir  # keep alive until cleanup
         return client, store
 
     def _cleanup(self, client) -> None:
+        client._dsh_client_context.__exit__(None, None, None)
         app.dependency_overrides.clear()
         client._dsh_temp_dir.cleanup()
 
@@ -256,11 +279,23 @@ class CompilerRouteTests(unittest.TestCase):
         return created.json()["id"]
 
     def _save_artifact(self, client: TestClient, project_id: str, step: int, content: str) -> None:
-        response = client.put(
-            f"/api/projects/{project_id}/snowflake/artifacts/{step}",
-            json={"content": content},
+        if step == 8:
+            content = content.replace("Mira Vale; Glass City", "")
+        step_state = client.get(f"/api/projects/{project_id}/snowflake/steps").json()[step - 1]
+        expected_head = (
+            step_state["accepted_revision"]["id"] if step_state["accepted_revision"] else ""
         )
-        self.assertEqual(response.status_code, 200, response.text)
+        response = client.post(
+            f"/api/projects/{project_id}/snowflake/artifact-revisions",
+            json={"step_number": step, "content": content},
+        )
+        self.assertEqual(response.status_code, 201, response.text)
+        revision_id = response.json()["id"]
+        accepted = client.post(
+            f"/api/projects/{project_id}/snowflake/artifact-revisions/{revision_id}/decisions",
+            json={"decision": "accepted", "expected_head_revision_id": expected_head},
+        )
+        self.assertEqual(accepted.status_code, 200, accepted.text)
 
     def test_step7_extraction_is_idempotent_and_reviewable(self) -> None:
         try:
@@ -315,7 +350,7 @@ class CompilerRouteTests(unittest.TestCase):
 
             edited = (
                 CANON_ARTIFACT
-                + "\n## Item: Forged Seal\n- Type: item\n- Summary: A forged archive seal."
+                + "\n## Item: Forged Seal\n- Type: item\n- Confirmed: yes\n- Summary: A forged archive seal."
             )
             self._save_artifact(client, project_id, 7, edited)
             rerun = client.post(
@@ -503,6 +538,59 @@ class CompilerRouteTests(unittest.TestCase):
             self.assertEqual(len(contracts), 1)  # nothing partial was committed
             proposals = client.get(f"/api/projects/{project_id}/snowflake/scene-proposals").json()
             self.assertTrue(all(item["status"] == "pending_review" for item in proposals))
+        finally:
+            self._cleanup(client)
+
+    def test_step8_creates_reviewable_story_thread_and_event_proposals(self) -> None:
+        content = """### Scene 1: The Signal
+- POV: Mira
+- Goal: Reach the tower.
+- Conflict: The stairs collapse.
+- Turning point: A coded light answers her.
+- Outcome: Mira is trapped above the city.
+- Information Delta: The watcher knows her route.
+- Character State Delta: Mira stops trusting the map.
+- StoryThread Actions: plant: The coded watcher
+"""
+        try:
+            client, _store = self._client()
+            project_id = self._create_project(client)
+            self._save_artifact(client, project_id, 8, content)
+            report = client.post(
+                f"/api/projects/{project_id}/snowflake/artifacts/8/parse-scene-proposals"
+            ).json()
+            self.assertEqual(
+                [item["target"] for item in report["thread_proposals"]],
+                ["story_thread", "story_thread_event"],
+            )
+
+            create_thread, create_event = report["thread_proposals"]
+            accepted_thread = client.put(
+                f"/api/projects/{project_id}/writeback/proposals/{create_thread['id']}/status",
+                json={"status": "accepted"},
+            )
+            self.assertEqual(accepted_thread.status_code, 200, accepted_thread.text)
+            premature_event = client.put(
+                f"/api/projects/{project_id}/writeback/proposals/{create_event['id']}/status",
+                json={"status": "accepted"},
+            )
+            self.assertEqual(premature_event.status_code, 409, premature_event.text)
+            client.post(
+                f"/api/projects/{project_id}/snowflake/scene-proposals/accept",
+                json={"proposal_ids": []},
+            )
+            accepted_event = client.put(
+                f"/api/projects/{project_id}/writeback/proposals/{create_event['id']}/status",
+                json={"status": "accepted"},
+            )
+            self.assertEqual(accepted_event.status_code, 200, accepted_event.text)
+            threads = client.get(f"/api/projects/{project_id}/story-threads").json()
+            self.assertEqual(len(threads), 1)
+            events = client.get(
+                f"/api/projects/{project_id}/story-threads/{threads[0]['id']}/events"
+            ).json()
+            self.assertEqual(events[0]["action"], "plant")
+            self.assertTrue(events[0]["scene_id"])
         finally:
             self._cleanup(client)
 

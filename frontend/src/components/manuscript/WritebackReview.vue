@@ -263,6 +263,17 @@ function formatJson(value: Record<string, unknown> | undefined) {
           <p>{{ activeWritebackProposal.payload.source }} → {{ activeWritebackProposal.payload.relation }} → {{ activeWritebackProposal.payload.target }}</p>
           <p>场景区间 {{ activeWritebackProposal.payload.valid_from }}–{{ activeWritebackProposal.payload.valid_to ?? '持续' }} · 置信度 {{ activeWritebackProposal.payload.confidence }}</p>
         </section>
+        <section
+          v-if="['story_thread', 'story_thread_event'].includes(activeWritebackProposal.target)"
+          class="thread-status-proposal"
+        >
+          <p class="eyebrow">Narrative thread proposal</p>
+          <p>
+            {{ activeWritebackProposal.target === 'story_thread'
+              ? 'Creates a StoryThread only after acceptance.'
+              : 'Adds a scene-linked StoryThread event only after both the scene and thread exist.' }}
+          </p>
+        </section>
         <section v-if="clpEvidence.length" class="clp-evidence">
           <p class="eyebrow">CLP Evidence</p>
           <blockquote v-for="(item, index) in clpEvidence" :key="index">{{ item.excerpt }} <small>{{ item.source_ref }}</small></blockquote>

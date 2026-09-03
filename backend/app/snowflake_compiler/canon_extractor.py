@@ -41,6 +41,7 @@ FIELD_LIMITS: dict[str, int] = {
     "constraints": 4000,
     "last_seen": 120,
     "timeline_notes": 8000,
+    "confirmed": 20,
 }
 
 TYPE_ALIASES: dict[str, str] = {
@@ -75,6 +76,8 @@ FIELD_LABELS: dict[str, str] = {
     "last_seen": "last_seen",
     "timeline notes": "timeline_notes",
     "timeline": "timeline_notes",
+    "confirmed": "confirmed",
+    "canon confirmed": "confirmed",
 }
 
 HEADING_RE = re.compile(r"^\s*#{1,6}\s+(?P<header>.*?)\s*$")
@@ -142,6 +145,12 @@ def extract_canon_proposals(
         if entity_type not in TYPE_ALIASES.values():
             warnings.append(f"Skipped '{name}': unknown entity type '{entity_type}'.")
             continue
+        if payload_fields.get("confirmed", "").strip().lower() not in {"yes", "true", "confirmed"}:
+            warnings.append(
+                f"Skipped '{name}': Character Bible records become Canon proposals only when "
+                "'- Confirmed: yes' is explicit."
+            )
+            continue
 
         key = (entity_type, name.strip().lower())
         if key in seen_keys:
@@ -157,7 +166,7 @@ def extract_canon_proposals(
                 **{
                     field_name: payload_fields.get(field_name, "")
                     for field_name in FIELD_LIMITS
-                    if field_name != "entity_type"
+                    if field_name not in {"entity_type", "confirmed"}
                 },
             )
         except ValidationError as exc:
@@ -276,6 +285,10 @@ def _apply_field(draft: CanonEntityDraft, label: str, value: str) -> str | None:
     normalized = label.strip().lower()
     field_name = FIELD_LABELS.get(normalized)
     if field_name is None:
+        draft.warnings.append(
+            f"Unknown field '{label.strip()}' for "
+            f"'{draft.fields.get('name', draft.name)}' was preserved only in the Step 7 record."
+        )
         return None
     cleaned = value.strip()
     if TBD_RE.match(cleaned):

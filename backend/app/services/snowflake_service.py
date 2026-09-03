@@ -8,6 +8,7 @@ job of the app-owned outbox dispatcher, which routes wake after enqueuing.
 """
 
 from typing import Any
+from math import ceil
 
 from fastapi import Depends
 
@@ -25,76 +26,47 @@ from app.llm_wiki.dependencies import get_llm_wiki
 from app.llm_wiki.interfaces import LlmWiki, WikiSourceDocument
 from app.models import (
     SnowflakeArtifact,
+    SnowflakeArtifactHead,
+    SnowflakeArtifactRevision,
+    SnowflakeArtifactRevisionCreate,
+    SnowflakeArtifactRevisionPatch,
+    SnowflakeGenerationCreate,
     SnowflakeGenerationRequest,
     SnowflakeGenerationResponse,
+    SnowflakeManuscriptProgress,
+    SnowflakeRevisionDecisionRequest,
+    SnowflakeRevisionDecisionResponse,
+    SnowflakeRevisionPage,
+    SnowflakeRecordDecisionRequest,
+    SnowflakeRecordDecisionResponse,
+    SnowflakeRecordPage,
+    SnowflakeRecordRevision,
+    SnowflakeRecordRevisionCreate,
     SnowflakeStep,
+    SnowflakeStepState,
     WorkflowRuntimeStatus,
 )
 from app.outbox.handlers import snowflake_index_payload
 from app.agents.writing_workflow import WritingWorkflow
+from app.snowflake.step_spec import SNOWFLAKE_STEP_SPECS, get_step_spec
+from app.snowflake.contracts import CharacterBibleRecord, RECORD_CONTRACTS, WorldBibleRecord
+from pydantic import ValidationError
+from app.snowflake.validators import structured_payload_from_content, validate_snowflake_payload
 
 
 SNOWFLAKE_STEPS = [
     SnowflakeStep(
-        number=1,
-        title="One Sentence",
-        artifact="story_contract",
-        description="Distill the novel into a single sentence promise.",
-    ),
-    SnowflakeStep(
-        number=2,
-        title="One Paragraph",
-        artifact="plot_seed",
-        description="Expand the story promise into a compact beginning, middle, and end.",
-    ),
-    SnowflakeStep(
-        number=3,
-        title="Character Summary",
-        artifact="character_seeds",
-        description="Create initial goals, conflicts, secrets, and arcs for major characters.",
-    ),
-    SnowflakeStep(
-        number=4,
-        title="One Page Synopsis",
-        artifact="plot_synopsis",
-        description="Compile the story into a one-page plot outline.",
-    ),
-    SnowflakeStep(
-        number=5,
-        title="Character Viewpoints",
-        artifact="character_pov_lines",
-        description="Describe the story from each major character's perspective.",
-    ),
-    SnowflakeStep(
-        number=6,
-        title="Expanded Synopsis",
-        artifact="expanded_plot",
-        description="Expand the plot into a multi-page causal outline.",
-    ),
-    SnowflakeStep(
-        number=7,
-        title="Character Bible",
-        artifact="canon_entities",
-        description="Commit character, location, item, and faction facts into Canon.",
-    ),
-    SnowflakeStep(
-        number=8,
-        title="Scene List",
-        artifact="scene_contracts",
-        description="Compile the plot into scene contracts with goals, conflicts, turns, and constraints.",
-    ),
-    SnowflakeStep(
-        number=9,
-        title="Scene Expansion",
-        artifact="expanded_scenes",
-        description="Expand each scene contract into detailed beats and chapter plans.",
-    ),
-    SnowflakeStep(
-        number=10,
-        title="Draft Manuscript",
-        artifact="manuscript",
-        description="Draft prose from scene contracts, Canon constraints, memory, and style samples.",
-    ),
+        number=spec.number,
+        title=spec.title,
+        artifact=spec.artifact_type,
+        description=spec.description,
+        dependencies=list(spec.dependencies),
+        optional=spec.optional,
+        schema_version=spec.schema_version,
+        validator_name=spec.validator_name,
+        virtual=spec.virtual,
+    )
+    for spec in SNOWFLAKE_STEP_SPECS
 ]
 
 
@@ -103,6 +75,14 @@ class StepNotFoundError(LookupError):
 
 
 class ArtifactNotFoundError(LookupError):
+    pass
+
+
+class RevisionNotFoundError(LookupError):
+    pass
+
+
+class SnowflakeRecordValidationError(ValueError):
     pass
 
 
@@ -175,39 +155,296 @@ class SnowflakeService:
             raise ArtifactNotFoundError("Snowflake artifact not found.")
         return artifact
 
+    def list_step_states(self, project_id: str) -> list[SnowflakeStepState]:
+        heads = {head.step_number: head for head in self.data_store.list_snowflake_heads(project_id)}
+        pending = self.data_store.snowflake_pending_counts(project_id)
+        result: list[SnowflakeStepState] = []
+        for step in SNOWFLAKE_STEPS:
+            head = heads.get(step.number) or SnowflakeArtifactHead(
+                project_id=project_id, step_number=step.number
+            )
+            accepted = (
+                self.data_store.get_snowflake_revision(project_id, head.accepted_revision_id)
+                if head.accepted_revision_id
+                else None
+            )
+            result.append(
+                SnowflakeStepState(
+                    step=step,
+                    state=head.state,
+                    accepted_revision=accepted,
+                    pending_count=pending.get(step.number, 0),
+                    stale_reason=head.stale_reason,
+                    stale_trigger_revision_id=head.stale_trigger_revision_id,
+                )
+            )
+        return result
+
+    def list_revisions(
+        self, project_id: str, step_number: int, *, page: int, page_size: int
+    ) -> SnowflakeRevisionPage:
+        self.get_step(step_number)
+        revisions, total = self.data_store.list_snowflake_revisions(
+            project_id,
+            step_number,
+            limit=page_size,
+            offset=(page - 1) * page_size,
+        )
+        return SnowflakeRevisionPage(
+            data=revisions,
+            page=page,
+            page_size=page_size,
+            total_items=total,
+            total_pages=ceil(total / page_size) if total else 0,
+        )
+
+    def create_revision(
+        self, project_id: str, create: SnowflakeArtifactRevisionCreate
+    ) -> SnowflakeArtifactRevision:
+        spec = get_step_spec(create.step_number)
+        if spec.virtual:
+            raise ValueError("Snowflake step 10 is a virtual Manuscript milestone.")
+        if create.schema_version != spec.schema_version:
+            raise ValueError(
+                f"Step {create.step_number} requires schema version {spec.schema_version}."
+            )
+        normalized = create
+        if not create.structured_payload:
+            parsed = structured_payload_from_content(create.content)
+            if parsed:
+                normalized = create.model_copy(update={"structured_payload": parsed})
+        return self.data_store.create_snowflake_revision(project_id, normalized)
+
+    def patch_revision(
+        self,
+        project_id: str,
+        revision_id: str,
+        patch: SnowflakeArtifactRevisionPatch,
+    ) -> SnowflakeArtifactRevision:
+        revision = self.data_store.patch_snowflake_revision(
+            project_id,
+            revision_id,
+            content=patch.content,
+            structured_payload=patch.structured_payload,
+        )
+        if revision is None:
+            raise RevisionNotFoundError("Snowflake revision not found.")
+        return revision
+
+    def decide_revision(
+        self,
+        project_id: str,
+        revision_id: str,
+        request: SnowflakeRevisionDecisionRequest,
+    ) -> SnowflakeRevisionDecisionResponse:
+        revision, head, affected, job_id = self.data_store.decide_snowflake_revision(
+            project_id=project_id,
+            revision_id=revision_id,
+            decision=request.decision,
+            expected_head_revision_id=request.expected_head_revision_id,
+            review_reason=request.review_reason,
+        )
+        validation = validate_snowflake_payload(
+            revision.step_number, revision.content, revision.structured_payload
+        )
+        return SnowflakeRevisionDecisionResponse(
+            revision=revision,
+            head=head,
+            affected_steps=affected,
+            outbox_job_id=job_id,
+            validation_report=validation,
+        )
+
+    def skip_step(self, project_id: str, step_number: int) -> SnowflakeArtifactHead:
+        self.get_step(step_number)
+        return self.data_store.skip_snowflake_step(project_id, step_number)
+
+    def list_records(
+        self, project_id: str, step_number: int, *, page: int, page_size: int
+    ) -> SnowflakeRecordPage:
+        if step_number not in {6, 7, 8, 9}:
+            raise ValueError("Record storage is available only for Snowflake steps 6–9.")
+        records, total = self.data_store.list_snowflake_records(
+            project_id, step_number, limit=page_size, offset=(page - 1) * page_size
+        )
+        return SnowflakeRecordPage(
+            data=records,
+            page=page,
+            page_size=page_size,
+            total_items=total,
+            total_pages=ceil(total / page_size) if total else 0,
+        )
+
+    def create_record_revision(
+        self, project_id: str, create: SnowflakeRecordRevisionCreate
+    ) -> SnowflakeRecordRevision:
+        try:
+            if create.step_number == 7:
+                record_type = str(create.payload.get("record_type", ""))
+                contract = CharacterBibleRecord if record_type == "character" else WorldBibleRecord
+            else:
+                contract = RECORD_CONTRACTS[create.step_number]
+            contract.model_validate(create.payload)
+        except (ValidationError, KeyError) as exc:
+            raise SnowflakeRecordValidationError(
+                f"Step {create.step_number} record does not match its structured contract."
+            ) from exc
+        return self.data_store.create_snowflake_record_revision(project_id, create)
+
+    def list_record_revisions(
+        self,
+        project_id: str,
+        step_number: int,
+        record_id: str,
+        *,
+        page: int,
+        page_size: int,
+    ) -> SnowflakeRecordPage:
+        if step_number not in {6, 7, 8, 9}:
+            raise ValueError("Record storage is available only for Snowflake steps 6–9.")
+        revisions, total = self.data_store.list_snowflake_record_revisions(
+            project_id,
+            step_number,
+            record_id,
+            limit=page_size,
+            offset=(page - 1) * page_size,
+        )
+        return SnowflakeRecordPage(
+            data=revisions,
+            page=page,
+            page_size=page_size,
+            total_items=total,
+            total_pages=ceil(total / page_size) if total else 0,
+        )
+
+    def decide_record_revision(
+        self,
+        project_id: str,
+        revision_id: str,
+        request: SnowflakeRecordDecisionRequest,
+    ) -> SnowflakeRecordDecisionResponse:
+        return self.data_store.decide_snowflake_record_revision(
+            project_id,
+            revision_id,
+            decision=request.decision,
+            expected_revision_id=request.expected_revision_id,
+            review_reason=request.review_reason,
+        )
+
+    def manuscript_progress(self, project_id: str) -> SnowflakeManuscriptProgress:
+        scenes = self.data_store.list_scene_contracts(project_id)
+        proposals = self.data_store.list_manuscript_proposals(project_id)
+        revisions = self.data_store.list_manuscript_revisions(project_id)
+        accepted_scene_ids = {revision.scene_id for revision in revisions}
+        pending = sum(1 for proposal in proposals if proposal.status == "pending_review")
+        heads = {head.step_number: head for head in self.data_store.list_snowflake_heads(project_id)}
+        plan_stale = any(
+            heads.get(step) is not None and heads[step].state == "stale" for step in (8, 9)
+        )
+        stale_count = len(scenes) if plan_stale else 0
+        accepted_count = sum(1 for scene in scenes if scene.id in accepted_scene_ids)
+        total = len(scenes)
+        percent = round((accepted_count / total) * 100) if total else 0
+        return SnowflakeManuscriptProgress(
+            project_id=project_id,
+            total_scene_contracts=total,
+            pending_manuscript_proposals=pending,
+            accepted_latest_revisions=accepted_count,
+            stale_scene_count=stale_count,
+            completion_percent=percent,
+            complete=bool(total) and accepted_count == total and not plan_stale,
+        )
+
     def save_artifact(
         self, project_id: str, step_number: int, content: str
     ) -> tuple[SnowflakeArtifact, str | None]:
-        """Persist an artifact and enqueue its Wiki-index job (one transaction).
-
-        Returns the artifact plus the enqueued job id; executing the job is
-        the dispatcher's business (P1-03), not this request's.
-        """
+        """Compatibility save: append a human draft without committing a head."""
         step = self.get_step(step_number)
+        if step.virtual:
+            raise ValueError("Snowflake step 10 is a virtual Manuscript milestone.")
+        revision = self.create_revision(
+            project_id,
+            SnowflakeArtifactRevisionCreate(
+                step_number=step_number,
+                content=content,
+                source="human",
+                schema_version=step.schema_version,
+            ),
+        )
         artifact = SnowflakeArtifact(
-            project_id=project_id,
+            project_id=revision.project_id,
             step_number=step_number,
             artifact=step.artifact,
-            content=content,
+            content=revision.content,
         )
-        return self.data_store.enqueue_snowflake_index_job(artifact, advance_step_to=step_number)
+        return artifact, None
 
     def generate(
         self, request: SnowflakeGenerationRequest, workflow: WritingWorkflow
     ) -> tuple[SnowflakeGenerationResponse, str | None]:
-        """Run one generation workflow, then enqueue its indexing job."""
-        self.get_step(request.step_number)
+        """Compatibility generation: create a pending revision, never a committed head."""
+        step = self.get_step(request.step_number)
+        if step.virtual:
+            raise ValueError("Snowflake step 10 is a virtual Manuscript milestone.")
         generated = workflow.run_snowflake_generation(request)
-        _, job_id = self.data_store.enqueue_snowflake_index_job(
-            SnowflakeArtifact(
-                project_id=generated.project_id,
-                step_number=generated.step_number,
-                artifact=generated.artifact,
+        spec = get_step_spec(request.step_number)
+        if generated.step_number != request.step_number or generated.artifact != spec.artifact_type:
+            raise ValueError("Provider returned a Snowflake artifact for the wrong step or type.")
+        structured_payload = structured_payload_from_content(generated.content)
+        revision = self.data_store.create_snowflake_revision(
+            request.project_id,
+            SnowflakeArtifactRevisionCreate(
+                step_number=request.step_number,
                 content=generated.content,
+                structured_payload=structured_payload,
+                source="ai",
+                schema_version=spec.schema_version,
             ),
-            advance_step_to=request.step_number,
+            status="pending_review",
+            source="ai",
         )
-        return generated, job_id
+        validation = validate_snowflake_payload(
+            request.step_number, generated.content, structured_payload
+        )
+        return generated.model_copy(
+            update={"revision": revision, "validation_report": validation}
+        ), None
+
+    def generate_revision(
+        self,
+        project_id: str,
+        request: SnowflakeGenerationCreate,
+        workflow: WritingWorkflow,
+    ) -> SnowflakeGenerationResponse:
+        target_records: list[dict[str, Any]] = []
+        if request.target_record_ids and request.step_number >= 6:
+            records, _ = self.data_store.list_snowflake_records(
+                project_id, request.step_number, limit=100, offset=0
+            )
+            wanted = set(request.target_record_ids)
+            target_records = [
+                {
+                    "record_id": record.record_id,
+                    "revision_id": record.id,
+                    "payload": record.payload,
+                }
+                for record in records
+                if record.record_id in wanted
+            ]
+            if len(target_records) != len(wanted):
+                raise ValueError("One or more target Snowflake records were not found.")
+        return self.generate(
+            SnowflakeGenerationRequest(
+                project_id=project_id,
+                step_number=request.step_number,
+                user_input=request.instruction,
+                base_revision_id=request.base_revision_id,
+                target_record_ids=request.target_record_ids,
+                target_records=target_records,
+                generation_mode=request.generation_mode,
+            ),
+            workflow,
+        )[0]
 
 
 # ---------------------------------------------------------------------------

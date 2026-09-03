@@ -2,6 +2,7 @@ import type { CanonEntity, StoryThread, WritebackProposal, WritebackTarget } fro
 
 const targetLabels: Record<WritebackTarget, string> = {
   canon_entity: 'Canon', memory_record: 'Memory', narrative_relation: 'Narrative relation',
+  story_thread: 'StoryThread', story_thread_event: 'StoryThread event',
   story_thread_status: 'StoryThread status',
 }
 export function supportedWriteback(target: string): boolean {

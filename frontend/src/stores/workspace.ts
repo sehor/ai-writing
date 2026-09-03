@@ -175,6 +175,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     try {
       const [
         artifactResponse,
+        snowflakeStepStateResponse,
+        snowflakeRevisionResponse,
         canonResponse,
         chapterResponse,
         sceneResponse,
@@ -189,6 +191,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
             fetchApi(`/projects/${projectId}/snowflake/artifacts`, {
               signal: controller.signal,
             }),
+            fetchApi(`/projects/${projectId}/snowflake/steps`, {
+              signal: controller.signal,
+            }),
+            fetchApi(
+              `/projects/${projectId}/snowflake/artifacts/${activeStepNumber.value}/revisions?page=1&page_size=100`,
+              { signal: controller.signal }
+            ),
             fetchApi(`/projects/${projectId}/canon/entities`, {
               signal: controller.signal,
             }),
@@ -219,6 +228,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
           ])
       if (
         !artifactResponse.ok ||
+        !snowflakeStepStateResponse.ok ||
+        !snowflakeRevisionResponse.ok ||
         !canonResponse.ok ||
         !chapterResponse.ok ||
         !sceneResponse.ok ||
@@ -233,6 +244,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       }
       const [
         loadedArtifacts,
+        loadedSnowflakeStepStates,
+        loadedSnowflakeRevisionPage,
         loadedCanonEntities,
         loadedChapters,
         loadedSceneContracts,
@@ -244,6 +257,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         loadedReferences,
       ] = await Promise.all([
         artifactResponse.json(),
+        snowflakeStepStateResponse.json(),
+        snowflakeRevisionResponse.json(),
         canonResponse.json(),
         chapterResponse.json(),
         sceneResponse.json(),
@@ -258,6 +273,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         return
       }
       snowflake.artifacts = loadedArtifacts
+      snowflake.stepStates = loadedSnowflakeStepStates
+      snowflake.revisions = loadedSnowflakeRevisionPage.data
       canon.canonEntities = loadedCanonEntities
       manuscript.manuscriptChapters = loadedChapters
       manuscript.sceneContracts = loadedSceneContracts
@@ -273,7 +290,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       manuscript.syncRevisionCompareSelection()
       // Entry-time draft restore for the incoming project.
       const incomingArtifactScope = snowflake.artifactScopeKey(projectId, activeStepNumber.value)
-      const baselineContent = snowflake.savedActiveArtifact?.content ?? ''
+      const baselineContent = snowflake.activeStepState?.accepted_revision?.content ?? ''
       setBaseline(incomingArtifactScope, baselineContent)
       snowflake.artifactDraft = baselineContent
       const cachedArtifact = restoreCachedDraft<string>(incomingArtifactScope)
@@ -309,6 +326,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       })
       await Promise.all([
         graph.loadGraphAnalysis(projectId, controller.signal),
+        snowflake.loadManuscriptProgress(projectId),
         reviews.loadPostAcceptAnalysisJobs(projectId),
         useNarrativeStore().load(projectId),
       ])
@@ -340,7 +358,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     snowflake.artifactStatus = ''
     snowflake.workflowTrace = []
     const nextScope = snowflake.artifactScopeKey()
-    const baselineContent = snowflake.savedActiveArtifact?.content ?? ''
+    snowflake.revisions = []
+    snowflake.activeRevisionId = ''
+    void snowflake.loadRevisions(next).catch(() => {
+      snowflake.artifactError = 'Revision history could not be loaded.'
+    })
+    const baselineContent = snowflake.activeStepState?.accepted_revision?.content ?? ''
     setBaseline(nextScope, baselineContent)
     const cached = restoreCachedDraft<string>(nextScope)
     if (cached && typeof cached.value === 'string') {

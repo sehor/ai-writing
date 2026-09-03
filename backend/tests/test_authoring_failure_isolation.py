@@ -77,9 +77,17 @@ class AuthoringFailureIsolationTests(unittest.TestCase):
             app.dependency_overrides[get_outbox_dispatcher] = lambda: FailingWakeDispatcher()
             try:
                 with TestClient(app, raise_server_exceptions=False) as client:
-                    snowflake_save = client.put(
-                        f"/api/projects/{project.id}/snowflake/artifacts/1",
-                        json={"content": "A cartographer finds a door that redraws itself."},
+                    snowflake_draft = client.post(
+                        f"/api/projects/{project.id}/snowflake/artifact-revisions",
+                        json={
+                            "step_number": 1,
+                            "content": "A cartographer finds a door that redraws itself.",
+                        },
+                    )
+                    snowflake_save = client.post(
+                        f"/api/projects/{project.id}/snowflake/artifact-revisions/"
+                        f"{snowflake_draft.json()['id']}/decisions",
+                        json={"decision": "accepted", "expected_head_revision_id": ""},
                     )
                     accept = client.put(
                         f"/api/projects/{project.id}/manuscript/proposals/{proposal.id}/status",

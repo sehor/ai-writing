@@ -19,8 +19,12 @@ def scene_contract_from_row(row: sqlite3.Row) -> SceneContract:
         goal=row["goal"],
         conflict=row["conflict"],
         turning_point=row["turning_point"],
+        outcome=row["outcome"],
         required_canon=row["required_canon"],
         forbidden_facts=row["forbidden_facts"],
+        information_delta=row["information_delta"],
+        character_state_delta=row["character_state_delta"],
+        story_thread_actions=row["story_thread_actions"],
         open_threads=row["open_threads"],
         source_artifact_step=row["source_artifact_step"],
     )
@@ -28,7 +32,7 @@ def scene_contract_from_row(row: sqlite3.Row) -> SceneContract:
 
 def scene_contract_to_params(
     scene: SceneContract,
-) -> tuple[str, str, str, int, str, str, str, str, str, str, str, str, int]:
+) -> tuple:
     return (
         scene.id,
         scene.project_id,
@@ -39,8 +43,12 @@ def scene_contract_to_params(
         scene.goal,
         scene.conflict,
         scene.turning_point,
+        scene.outcome,
         scene.required_canon,
         scene.forbidden_facts,
+        scene.information_delta,
+        scene.character_state_delta,
+        scene.story_thread_actions,
         scene.open_threads,
         scene.source_artifact_step,
     )
@@ -56,7 +64,8 @@ class SceneRepository:
         rows = self.connection.execute(
             """
             SELECT id, project_id, chapter_id, sequence, title, pov, goal, conflict,
-                   turning_point, required_canon, forbidden_facts, open_threads,
+                   turning_point, outcome, required_canon, forbidden_facts,
+                   information_delta, character_state_delta, story_thread_actions, open_threads,
                    source_artifact_step
             FROM scene_contracts
             WHERE project_id = ?
@@ -70,7 +79,8 @@ class SceneRepository:
         row = self.connection.execute(
             """
             SELECT id, project_id, chapter_id, sequence, title, pov, goal, conflict,
-                   turning_point, required_canon, forbidden_facts, open_threads,
+                   turning_point, outcome, required_canon, forbidden_facts,
+                   information_delta, character_state_delta, story_thread_actions, open_threads,
                    source_artifact_step
             FROM scene_contracts
             WHERE project_id = ? AND id = ?
@@ -103,10 +113,11 @@ class SceneRepository:
             """
             INSERT INTO scene_contracts (
                 id, project_id, chapter_id, sequence, title, pov, goal, conflict,
-                turning_point, required_canon, forbidden_facts, open_threads,
+                turning_point, outcome, required_canon, forbidden_facts,
+                information_delta, character_state_delta, story_thread_actions, open_threads,
                 source_artifact_step
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             scene_contract_to_params(created),
         )
@@ -128,8 +139,12 @@ class SceneRepository:
                 goal = ?,
                 conflict = ?,
                 turning_point = ?,
+                outcome = ?,
                 required_canon = ?,
                 forbidden_facts = ?,
+                information_delta = ?,
+                character_state_delta = ?,
+                story_thread_actions = ?,
                 open_threads = ?,
                 source_artifact_step = ?
             WHERE project_id = ? AND id = ?
@@ -142,8 +157,12 @@ class SceneRepository:
                 updated.goal,
                 updated.conflict,
                 updated.turning_point,
+                updated.outcome,
                 updated.required_canon,
                 updated.forbidden_facts,
+                updated.information_delta,
+                updated.character_state_delta,
+                updated.story_thread_actions,
                 updated.open_threads,
                 updated.source_artifact_step,
                 project_id,

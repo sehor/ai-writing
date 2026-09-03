@@ -151,9 +151,14 @@ class OutboxAcceptanceTests(unittest.TestCase):
                         json={"title": "Snowflake Outbox", "premise": "Steps survive."},
                     ).json()["id"]
 
-                    saved = client.put(
-                        f"/api/projects/{project_id}/snowflake/artifacts/1",
-                        json={"content": "Mira must map the archive."},
+                    draft = client.post(
+                        f"/api/projects/{project_id}/snowflake/artifact-revisions",
+                        json={"step_number": 1, "content": "Mira must map the archive."},
+                    )
+                    saved = client.post(
+                        f"/api/projects/{project_id}/snowflake/artifact-revisions/"
+                        f"{draft.json()['id']}/decisions",
+                        json={"decision": "accepted", "expected_head_revision_id": ""},
                     )
 
                     self.assertEqual(saved.status_code, 200)
@@ -195,9 +200,17 @@ class OutboxAcceptanceTests(unittest.TestCase):
 
                     # A fresh save creates a NEW index job instead of being
                     # deduplicated away by the previous event's key.
-                    second = client.put(
-                        f"/api/projects/{project_id}/snowflake/artifacts/1",
-                        json={"content": "Revised sentence for step one."},
+                    second_draft = client.post(
+                        f"/api/projects/{project_id}/snowflake/artifact-revisions",
+                        json={"step_number": 1, "content": "Revised sentence for step one."},
+                    )
+                    second = client.post(
+                        f"/api/projects/{project_id}/snowflake/artifact-revisions/"
+                        f"{second_draft.json()['id']}/decisions",
+                        json={
+                            "decision": "accepted",
+                            "expected_head_revision_id": draft.json()["id"],
+                        },
                     )
                     self.assertEqual(second.status_code, 200)
                     pending_or_done = store.list_outbox_jobs(project_id)

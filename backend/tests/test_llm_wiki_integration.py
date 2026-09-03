@@ -106,9 +106,17 @@ class LlmWikiIntegrationTests(unittest.TestCase):
                     self.assertEqual(project_response.status_code, 201)
                     project_id = project_response.json()["id"]
 
-                    saved_response = client.put(
-                        f"/api/projects/{project_id}/snowflake/artifacts/1",
-                        json={"content": "Mira must map the archive before it erases her."},
+                    draft_response = client.post(
+                        f"/api/projects/{project_id}/snowflake/artifact-revisions",
+                        json={
+                            "step_number": 1,
+                            "content": "Mira must map the archive before it erases her.",
+                        },
+                    )
+                    saved_response = client.post(
+                        f"/api/projects/{project_id}/snowflake/artifact-revisions/"
+                        f"{draft_response.json()['id']}/decisions",
+                        json={"decision": "accepted", "expected_head_revision_id": ""},
                     )
                     self.assertEqual(saved_response.status_code, 200)
 
@@ -122,6 +130,13 @@ class LlmWikiIntegrationTests(unittest.TestCase):
                     )
                     self.assertEqual(generated_response.status_code, 200)
                     self.assertIn("LLM Wiki Context", generated_response.json()["content"])
+                    generated_revision = generated_response.json()["revision"]
+                    generated_accept = client.post(
+                        f"/api/projects/{project_id}/snowflake/artifact-revisions/"
+                        f"{generated_revision['id']}/decisions",
+                        json={"decision": "accepted", "expected_head_revision_id": ""},
+                    )
+                    self.assertEqual(generated_accept.status_code, 200, generated_accept.text)
 
                     scene_response = client.post(
                         f"/api/projects/{project_id}/scene-contracts",

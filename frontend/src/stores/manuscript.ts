@@ -27,6 +27,7 @@ import type {
   ManuscriptRevision,
   ManuscriptRevisionDiff,
   ManuscriptExport,
+  ConsistencyReport,
 } from '../types'
 import { useGraphStore } from './graph'
 import { useReviewsStore } from './reviews'
@@ -74,6 +75,8 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   const isCreatingProposal = ref(false)
   const isCreatingProviderProposal = ref(false)
   const isUpdatingProposal = ref(false)
+  const proposalConsistencyReport = ref<ConsistencyReport | null>(null)
+  const isCheckingProposalConsistency = ref(false)
 
   // ---- Accepted scenes / revisions / export / inline editing ----
   const manuscriptScenes = ref<ManuscriptScene[]>([])
@@ -163,8 +166,12 @@ export const useManuscriptStore = defineStore('manuscript', () => {
       goal: '',
       conflict: '',
       turning_point: '',
+      outcome: '',
       required_canon: '',
       forbidden_facts: '',
+      information_delta: '',
+      character_state_delta: '',
+      story_thread_actions: '',
       open_threads: '',
       source_artifact_step: 8,
     }
@@ -553,8 +560,12 @@ export const useManuscriptStore = defineStore('manuscript', () => {
         goal: sceneDraft.value.goal.trim(),
         conflict: sceneDraft.value.conflict.trim(),
         turning_point: sceneDraft.value.turning_point.trim(),
+        outcome: sceneDraft.value.outcome.trim(),
         required_canon: sceneDraft.value.required_canon.trim(),
         forbidden_facts: sceneDraft.value.forbidden_facts.trim(),
+        information_delta: sceneDraft.value.information_delta.trim(),
+        character_state_delta: sceneDraft.value.character_state_delta.trim(),
+        story_thread_actions: sceneDraft.value.story_thread_actions.trim(),
         open_threads: sceneDraft.value.open_threads.trim(),
       })
       const url = activeSceneId.value
@@ -797,11 +808,43 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     }
   }
 
+  async function checkProposalConsistency(proposalId: string) {
+    const projectId = ws().activeProject?.id
+    const draft = useProposalDraftStore()
+    if (!projectId || draft.proposalId !== proposalId || !draft.title.trim() || !draft.content.trim()) {
+      manuscriptError.value = '请先打开并填写待审核草稿。'
+      return
+    }
+    isCheckingProposalConsistency.value = true
+    manuscriptError.value = ''
+    try {
+      const response = await fetchApi(
+        `/projects/${projectId}/manuscript/proposals/${proposalId}/consistency`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(draft.snapshot()),
+        },
+      )
+      if (!response.ok) throw new Error((await readErrorDetail(response)).message || '一致性检查失败')
+      const report: ConsistencyReport = await response.json()
+      proposalConsistencyReport.value = report
+      manuscriptStatus.value = report.summary.critical_count
+        ? `发现 ${report.summary.critical_count} 个阻断问题。`
+        : '接受前一致性检查通过。'
+    } catch (error) {
+      manuscriptError.value = error instanceof Error ? error.message : '一致性检查失败。'
+    } finally {
+      isCheckingProposalConsistency.value = false
+    }
+  }
+
   // ---- Accepted scenes / revisions / export / inline editing ----
 
   async function loadRevisionDiff() {
     manuscriptError.value = ''
     manuscriptStatus.value = ''
+    proposalConsistencyReport.value = null
     revisionDiff.value = null
     const projectId = ws().activeProject?.id
 
@@ -1129,6 +1172,8 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     isCreatingProposal,
     isCreatingProviderProposal,
     isUpdatingProposal,
+    proposalConsistencyReport,
+    isCheckingProposalConsistency,
     manuscriptScenes,
     manuscriptRevisions,
     revisionDiff,
@@ -1180,6 +1225,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     chapterTitleForScene,
     createProposalFromScene,
     updateProposalStatus,
+    checkProposalConsistency,
     loadRevisionDiff,
     restoreRevision,
     exportManuscript,

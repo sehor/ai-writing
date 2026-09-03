@@ -194,6 +194,14 @@ const {
         />
       </label>
       <label>
+        <span>Outcome / Disaster</span>
+        <textarea
+          v-model="sceneDraft.outcome"
+          rows="3"
+          placeholder="What concrete result leaves the scene changed."
+        />
+      </label>
+      <label>
         <span>Required Canon</span>
         <textarea
           v-model="sceneDraft.required_canon"
@@ -207,6 +215,30 @@ const {
           v-model="sceneDraft.forbidden_facts"
           rows="4"
           placeholder="Facts this scene cannot reveal or contradict."
+        />
+      </label>
+      <label>
+        <span>Information Delta</span>
+        <textarea
+          v-model="sceneDraft.information_delta"
+          rows="3"
+          placeholder="What the reader or characters learn, lose, or misunderstand."
+        />
+      </label>
+      <label>
+        <span>Character State Delta</span>
+        <textarea
+          v-model="sceneDraft.character_state_delta"
+          rows="3"
+          placeholder="How goals, relationships, resources, or emotions change."
+        />
+      </label>
+      <label>
+        <span>StoryThread Actions</span>
+        <textarea
+          v-model="sceneDraft.story_thread_actions"
+          rows="3"
+          placeholder="Thread ID and action, one per line."
         />
       </label>
       <label>

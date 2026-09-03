@@ -1,4 +1,6 @@
-from typing import Literal
+from __future__ import annotations
+
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -27,6 +29,8 @@ WritebackTarget = Literal[
     "canon_entity",
     "memory_record",
     "narrative_relation",
+    "story_thread",
+    "story_thread_event",
     "story_thread_status",
 ]
 WritebackAction = Literal["create", "update"]
@@ -61,6 +65,15 @@ StoryThreadStatus = Literal["planned", "planted", "developing", "dormant", "paid
 StoryThreadAction = Literal[
     "plant", "reinforce", "misdirect", "escalate", "partial_payoff", "payoff"
 ]
+SnowflakeRevisionSource = Literal["human", "ai", "legacy", "import", "restore"]
+SnowflakeRevisionStatus = Literal[
+    "draft", "pending_review", "accepted", "rejected", "superseded", "legacy_draft"
+]
+SnowflakeHeadState = Literal["missing", "approved", "stale", "skipped"]
+SnowflakeRecordState = Literal["draft", "pending_review", "approved", "stale"]
+SnowflakeDecision = Literal["accepted", "rejected"]
+ValidationSeverity = Literal["warning", "critical"]
+ValidationStatus = Literal["passed", "warnings", "failed", "skipped"]
 
 
 class HealthResponse(BaseModel):
@@ -93,12 +106,199 @@ class SnowflakeStep(BaseModel):
     title: str
     artifact: str
     description: str
+    dependencies: list[int] = Field(default_factory=list)
+    optional: bool = False
+    schema_version: int = Field(default=1, ge=1)
+    validator_name: str = "markdown_projection"
+    virtual: bool = False
+
+
+class SnowflakeArtifactRevisionCreate(BaseModel):
+    step_number: int = Field(ge=1, le=10)
+    content: str = Field(min_length=1, max_length=200000)
+    structured_payload: dict[str, Any] = Field(default_factory=dict)
+    schema_version: int = Field(default=1, ge=1)
+    parent_revision_id: str = Field(default="", max_length=160)
+    base_head_revision_id: str = Field(default="", max_length=160)
+    source: SnowflakeRevisionSource = "human"
+
+    @field_validator("content")
+    @classmethod
+    def normalize_revision_content(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Value cannot be blank.")
+        return normalized
+
+
+class SnowflakeArtifactRevisionPatch(BaseModel):
+    content: str | None = Field(default=None, min_length=1, max_length=200000)
+    structured_payload: dict[str, Any] | None = None
+
+    @field_validator("content")
+    @classmethod
+    def normalize_optional_revision_content(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Value cannot be blank.")
+        return normalized
+
+
+class SnowflakeArtifactRevision(BaseModel):
+    id: str
+    project_id: str
+    step_number: int = Field(ge=1, le=10)
+    artifact_type: str
+    revision_no: int = Field(ge=1)
+    source: SnowflakeRevisionSource
+    status: SnowflakeRevisionStatus
+    content: str
+    structured_payload: dict[str, Any] = Field(default_factory=dict)
+    schema_version: int = Field(ge=1)
+    parent_revision_id: str = ""
+    base_head_revision_id: str = ""
+    upstream_snapshot: dict[str, str] = Field(default_factory=dict)
+    review_reason: str = ""
+    created_at: str
+    reviewed_at: str = ""
+
+
+class SnowflakeArtifactHead(BaseModel):
+    project_id: str
+    step_number: int = Field(ge=1, le=10)
+    accepted_revision_id: str = ""
+    state: SnowflakeHeadState = "missing"
+    stale_reason: str = ""
+    stale_trigger_revision_id: str = ""
+
+
+class SnowflakeStepState(BaseModel):
+    step: SnowflakeStep
+    state: SnowflakeHeadState = "missing"
+    accepted_revision: SnowflakeArtifactRevision | None = None
+    pending_count: int = Field(default=0, ge=0)
+    stale_reason: str = ""
+    stale_trigger_revision_id: str = ""
+
+
+class SnowflakeRevisionPage(BaseModel):
+    data: list[SnowflakeArtifactRevision] = Field(default_factory=list)
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1)
+    total_items: int = Field(ge=0)
+    total_pages: int = Field(ge=0)
+
+
+class SnowflakeRecordRevisionCreate(BaseModel):
+    step_number: int = Field(ge=6, le=9)
+    record_id: str = Field(min_length=1, max_length=160)
+    position: int = Field(default=1, ge=1, le=100000)
+    payload: dict[str, Any]
+    base_revision_id: str = Field(default="", max_length=160)
+    source: SnowflakeRevisionSource = "human"
+
+    @field_validator("record_id")
+    @classmethod
+    def normalize_record_id(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Value cannot be blank.")
+        return value
+
+
+class SnowflakeRecordRevision(BaseModel):
+    id: str
+    project_id: str
+    step_number: int = Field(ge=6, le=9)
+    record_id: str
+    position: int = Field(ge=1)
+    revision_no: int = Field(ge=1)
+    source: SnowflakeRevisionSource
+    status: SnowflakeRevisionStatus
+    payload: dict[str, Any]
+    base_revision_id: str = ""
+    review_reason: str = ""
+    created_at: str
+    reviewed_at: str = ""
+
+
+class SnowflakeRecordHead(BaseModel):
+    project_id: str
+    step_number: int = Field(ge=6, le=9)
+    record_id: str
+    accepted_revision_id: str = ""
+    state: SnowflakeRecordState = "draft"
+
+
+class SnowflakeRecordPage(BaseModel):
+    data: list[SnowflakeRecordRevision] = Field(default_factory=list)
+    page: int = Field(ge=1)
+    page_size: int = Field(ge=1)
+    total_items: int = Field(ge=0)
+    total_pages: int = Field(ge=0)
+
+
+class SnowflakeRecordDecisionRequest(BaseModel):
+    decision: SnowflakeDecision
+    expected_revision_id: str = Field(default="", max_length=160)
+    review_reason: str = Field(default="", max_length=2000)
+
+
+class SnowflakeRecordDecisionResponse(BaseModel):
+    revision: SnowflakeRecordRevision
+    head: SnowflakeRecordHead
+
+
+class SnowflakeRevisionDecisionRequest(BaseModel):
+    decision: SnowflakeDecision
+    expected_head_revision_id: str = Field(default="", max_length=160)
+    review_reason: str = Field(default="", max_length=2000)
+
+
+class SnowflakeRevisionDecisionResponse(BaseModel):
+    revision: SnowflakeArtifactRevision
+    head: SnowflakeArtifactHead
+    affected_steps: list[int] = Field(default_factory=list)
+    outbox_job_id: str = ""
+    validation_report: SnowflakeValidationReport | None = None
+
+
+class SnowflakeManuscriptProgress(BaseModel):
+    project_id: str
+    total_scene_contracts: int = Field(ge=0)
+    pending_manuscript_proposals: int = Field(ge=0)
+    accepted_latest_revisions: int = Field(ge=0)
+    stale_scene_count: int = Field(ge=0)
+    completion_percent: int = Field(ge=0, le=100)
+    complete: bool
+
+
+class SnowflakeGenerationCreate(BaseModel):
+    step_number: int = Field(ge=1, le=9)
+    instruction: str = Field(min_length=1, max_length=4000)
+    base_revision_id: str = Field(default="", max_length=160)
+    target_record_ids: list[str] = Field(default_factory=list, max_length=200)
+    generation_mode: Literal["replace", "continue", "selection"] = "replace"
+
+    @field_validator("instruction")
+    @classmethod
+    def normalize_instruction(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("Value cannot be blank.")
+        return normalized
 
 
 class SnowflakeGenerationRequest(BaseModel):
     project_id: str = Field(min_length=1, max_length=120)
     step_number: int = Field(ge=1, le=10)
     user_input: str = Field(min_length=1, max_length=4000)
+    base_revision_id: str = Field(default="", max_length=160)
+    target_record_ids: list[str] = Field(default_factory=list, max_length=200)
+    target_records: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
+    generation_mode: Literal["replace", "continue", "selection"] = "replace"
 
     @field_validator("project_id", "user_input")
     @classmethod
@@ -132,6 +332,22 @@ class WorkflowAgentTrace(BaseModel):
     stage: str
     agent_name: str
     status: str
+    finding_count: int = Field(default=0, ge=0)
+    details: str = ""
+
+
+class SnowflakeValidationFinding(BaseModel):
+    code: str
+    severity: ValidationSeverity
+    message: str
+    path: str = ""
+    evidence: str = ""
+
+
+class SnowflakeValidationReport(BaseModel):
+    step_number: int = Field(ge=1, le=10)
+    status: ValidationStatus
+    findings: list[SnowflakeValidationFinding] = Field(default_factory=list)
 
 
 class WorkflowRuntimeStatus(BaseModel):
@@ -149,6 +365,8 @@ class SnowflakeGenerationResponse(BaseModel):
     artifact: str
     content: str
     workflow_trace: list[WorkflowAgentTrace] = Field(default_factory=list)
+    revision: SnowflakeArtifactRevision | None = None
+    validation_report: SnowflakeValidationReport | None = None
 
 
 class CanonEntityCreate(BaseModel):
@@ -327,8 +545,12 @@ class SceneContractCreate(BaseModel):
     goal: str = Field(default="", max_length=1000)
     conflict: str = Field(default="", max_length=1000)
     turning_point: str = Field(default="", max_length=1000)
+    outcome: str = Field(default="", max_length=1000)
     required_canon: str = Field(default="", max_length=4000)
     forbidden_facts: str = Field(default="", max_length=4000)
+    information_delta: str = Field(default="", max_length=4000)
+    character_state_delta: str = Field(default="", max_length=4000)
+    story_thread_actions: str = Field(default="", max_length=4000)
     open_threads: str = Field(default="", max_length=4000)
     source_artifact_step: int = Field(default=8, ge=1, le=10)
 
@@ -339,8 +561,12 @@ class SceneContractCreate(BaseModel):
         "goal",
         "conflict",
         "turning_point",
+        "outcome",
         "required_canon",
         "forbidden_facts",
+        "information_delta",
+        "character_state_delta",
+        "story_thread_actions",
         "open_threads",
     )
     @classmethod
@@ -683,13 +909,18 @@ class SceneProposalCreate(BaseModel):
     goal: str = Field(default="", max_length=1000)
     conflict: str = Field(default="", max_length=1000)
     turning_point: str = Field(default="", max_length=1000)
+    outcome: str = Field(default="", max_length=1000)
     required_canon_ids: str = Field(default="", max_length=2000)
     required_canon_raw: str = Field(default="", max_length=4000)
     forbidden_fact_refs: str = Field(default="", max_length=4000)
+    information_delta: str = Field(default="", max_length=4000)
+    character_state_delta: str = Field(default="", max_length=4000)
+    story_thread_actions: str = Field(default="", max_length=4000)
     open_threads: str = Field(default="", max_length=4000)
     source_ref: str = Field(default="", max_length=160)
     source_excerpt: str = Field(default="", max_length=2000)
     warnings: list[str] = Field(default_factory=list)
+    blocking_errors: list[str] = Field(default_factory=list)
 
     @field_validator(
         "chapter_id",
@@ -699,9 +930,13 @@ class SceneProposalCreate(BaseModel):
         "goal",
         "conflict",
         "turning_point",
+        "outcome",
         "required_canon_ids",
         "required_canon_raw",
         "forbidden_fact_refs",
+        "information_delta",
+        "character_state_delta",
+        "story_thread_actions",
         "open_threads",
         "source_ref",
     )
@@ -759,6 +994,7 @@ class SceneParseReport(BaseModel):
     run_version: int
     warnings: list[str] = Field(default_factory=list)
     proposals: list[SceneProposal] = Field(default_factory=list)
+    thread_proposals: list[WritebackProposal] = Field(default_factory=list)
 
 
 class SceneProposalAcceptanceReport(BaseModel):

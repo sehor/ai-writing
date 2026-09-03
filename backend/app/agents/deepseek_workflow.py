@@ -26,6 +26,7 @@ from app.models import (
     SnowflakeStep,
 )
 from app.text_utils import truncate as truncate_context
+from app.snowflake.contracts import STEP_CONTRACTS
 
 
 DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
@@ -180,7 +181,7 @@ def build_deepseek_messages(state: WritingWorkflowState) -> list[dict[str, str]]
                 "Generate Snowflake Method artifacts for long-form fiction. "
                 "Respect Canon as confirmed facts. Treat Memory / Style as prose continuity guidance, "
                 "not as fact authority. Propose draft content only; the app and human author decide what is saved. "
-                "Return only the artifact content in Markdown."
+                "Return only the requested artifact content. Never wrap it in commentary."
             ),
         },
         {
@@ -238,17 +239,42 @@ def build_generation_instruction(state: WritingWorkflowState) -> str:
         "## Author Direction",
         state.request.user_input,
         "",
+        "## Generation Scope",
+        f"Mode: {state.request.generation_mode}",
+        f"Base revision: {state.request.base_revision_id or 'none'}",
+        "",
         "## Output Contract",
-        f"- Start with `# {step_title}`.",
         "- Use dense, author-facing planning prose, not chatty explanation.",
         "- Preserve every explicit Canon constraint from the stable context.",
         "- If information is missing, mark it as `TBD` instead of inventing confirmed facts.",
         "- Keep the result ready for human review and manual save approval.",
     ]
+    if state.request.target_records:
+        import json
+
+        output_rules.extend(
+            [
+                "- Revise only these selected records; preserve their record_id values:",
+                json.dumps(state.request.target_records, ensure_ascii=False),
+            ]
+        )
+    contract = STEP_CONTRACTS.get(state.request.step_number)
+    if contract is not None:
+        import json
+
+        output_rules.extend(
+            [
+                "- Return one JSON object only (no Markdown fence).",
+                "- The JSON must validate against this schema:",
+                json.dumps(contract.model_json_schema(), ensure_ascii=False),
+            ]
+        )
+    else:
+        output_rules.append(f"- Start with `# {step_title}`.")
     if state.request.step_number == 8:
         output_rules.extend(
             [
-                "- For each scene, include POV, goal, conflict, turning point, required Canon, forbidden facts, and open threads.",
+                "- For each scene, include POV, goal, conflict, turning point, outcome/disaster, required Canon, forbidden facts, information delta, character state delta, and StoryThread actions.",
             ]
         )
     if state.request.step_number == 10:

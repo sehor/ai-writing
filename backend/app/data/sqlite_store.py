@@ -22,6 +22,7 @@ from app.data.flows import (
     accept_manuscript_proposal,
     accept_scene_proposals,
     accept_writeback_proposal,
+    decide_snowflake_revision,
     enqueue_manuscript_revision_analysis_jobs,
     enqueue_manuscript_revision_index_job,
     enqueue_snowflake_index_job,
@@ -37,6 +38,7 @@ from app.data.repositories.review import ReviewRepository
 from app.data.repositories.scene_proposals import SceneProposalRepository
 from app.data.repositories.scenes import SceneRepository
 from app.data.repositories.snowflake import SnowflakeRepository
+from app.data.repositories.snowflake_records import SnowflakeRecordRepository
 from app.data.migrations import initialize_schema
 from app.data.unit_of_work import SqliteUnitOfWork, open_connection
 from app.models import (
@@ -72,6 +74,13 @@ from app.models import (
     SceneProposalCreate,
     SceneProposalStatus,
     SnowflakeArtifact,
+    SnowflakeArtifactHead,
+    SnowflakeArtifactRevision,
+    SnowflakeArtifactRevisionCreate,
+    SnowflakeRecordDecisionResponse,
+    SnowflakeRecordHead,
+    SnowflakeRecordRevision,
+    SnowflakeRecordRevisionCreate,
     NarrativeRelation,
     NarrativeRelationCreate,
     StoryFact,
@@ -176,6 +185,142 @@ class SQLiteWritingDataStore:
     ) -> tuple[SnowflakeArtifact, str]:
         with SqliteUnitOfWork(self.database_path) as uow:
             return enqueue_snowflake_index_job(uow.connection, artifact, advance_step_to)
+
+    def list_snowflake_revisions(
+        self,
+        project_id: str,
+        step_number: int,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[SnowflakeArtifactRevision], int]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.snowflake.list_revisions(
+                project_id, step_number, limit=limit, offset=offset
+            )
+
+    def get_snowflake_revision(
+        self, project_id: str, revision_id: str
+    ) -> SnowflakeArtifactRevision | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.snowflake.get_revision(project_id, revision_id)
+
+    def create_snowflake_revision(
+        self,
+        project_id: str,
+        create: SnowflakeArtifactRevisionCreate,
+        *,
+        status: str | None = None,
+        source: str | None = None,
+    ) -> SnowflakeArtifactRevision:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.snowflake.create_revision(
+                project_id, create, status=status, source=source
+            )
+
+    def patch_snowflake_revision(
+        self,
+        project_id: str,
+        revision_id: str,
+        *,
+        content: str | None,
+        structured_payload: dict | None,
+    ) -> SnowflakeArtifactRevision | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.snowflake.patch_revision(
+                project_id,
+                revision_id,
+                content=content,
+                structured_payload=structured_payload,
+            )
+
+    def list_snowflake_heads(self, project_id: str) -> list[SnowflakeArtifactHead]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.snowflake.list_heads(project_id)
+
+    def snowflake_pending_counts(self, project_id: str) -> dict[int, int]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.snowflake.pending_counts(project_id)
+
+    def decide_snowflake_revision(
+        self,
+        *,
+        project_id: str,
+        revision_id: str,
+        decision: str,
+        expected_head_revision_id: str,
+        review_reason: str = "",
+    ) -> tuple[SnowflakeArtifactRevision, SnowflakeArtifactHead, list[int], str]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return decide_snowflake_revision(
+                uow.connection,
+                project_id=project_id,
+                revision_id=revision_id,
+                decision=decision,
+                expected_head_revision_id=expected_head_revision_id,
+                review_reason=review_reason,
+            )
+
+    def skip_snowflake_step(
+        self, project_id: str, step_number: int
+    ) -> SnowflakeArtifactHead:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            head = uow.snowflake.skip_step(project_id, step_number)
+            uow.projects.advance_current_step(project_id, step_number)
+            return head
+
+    def list_snowflake_records(
+        self, project_id: str, step_number: int, *, limit: int = 50, offset: int = 0
+    ) -> tuple[list[SnowflakeRecordRevision], int]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return SnowflakeRecordRepository(uow.connection).list_current(
+                project_id, step_number, limit=limit, offset=offset
+            )
+
+    def create_snowflake_record_revision(
+        self,
+        project_id: str,
+        create: SnowflakeRecordRevisionCreate,
+        *,
+        status: str = "draft",
+    ) -> SnowflakeRecordRevision:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return SnowflakeRecordRepository(uow.connection).create(
+                project_id, create, status=status
+            )
+
+    def list_snowflake_record_revisions(
+        self,
+        project_id: str,
+        step_number: int,
+        record_id: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[SnowflakeRecordRevision], int]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return SnowflakeRecordRepository(uow.connection).list_history(
+                project_id, step_number, record_id, limit=limit, offset=offset
+            )
+
+    def decide_snowflake_record_revision(
+        self,
+        project_id: str,
+        revision_id: str,
+        *,
+        decision: str,
+        expected_revision_id: str,
+        review_reason: str = "",
+    ) -> SnowflakeRecordDecisionResponse:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            revision, head = SnowflakeRecordRepository(uow.connection).decide(
+                project_id,
+                revision_id,
+                decision=decision,
+                expected_revision_id=expected_revision_id,
+                review_reason=review_reason,
+            )
+            return SnowflakeRecordDecisionResponse(revision=revision, head=head)
 
     # ------------------------------------------------------------------
     # Canon entities

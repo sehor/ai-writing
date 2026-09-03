@@ -21,6 +21,7 @@ from app.models import (
     ManuscriptScene,
     ManuscriptSceneUpdate,
 )
+from app.analysis.models import ConsistencyReport
 from app.services.manuscript_service import ManuscriptService
 
 
@@ -261,6 +262,21 @@ def accept_edited_manuscript_proposal(
     proposal = service.update_proposal_status(project_id, proposal_id, "accepted", draft=draft)
     wake_outbox_best_effort(dispatcher, operation="accept_edited_draft", project_id=project_id)
     return proposal
+
+
+@router.post(
+    "/projects/{project_id}/manuscript/proposals/{proposal_id}/consistency",
+    response_model=ConsistencyReport,
+)
+def preview_manuscript_proposal_consistency(
+    project_id: str,
+    proposal_id: str,
+    draft: ManuscriptProposalAcceptance,
+    data_store: WritingDataStore = Depends(get_data_store),
+    service: ManuscriptService = Depends(),
+) -> ConsistencyReport:
+    require_project(project_id, data_store)
+    return service.preview_proposal_consistency(project_id, proposal_id, draft)
 
 
 @router.put(

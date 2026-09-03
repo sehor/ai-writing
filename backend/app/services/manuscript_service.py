@@ -2,6 +2,8 @@ from difflib import unified_diff
 from fastapi import Depends, HTTPException, status
 
 from app.agents.writing_workflow import WorkflowNotConfiguredError
+from app.analysis.consistency import CONSISTENCY_PROCESSOR, check_revision
+from app.analysis.models import ConsistencyReport, ConsistencyReportSummary
 from app.cognition.registry import CognitionRegistry, get_cognition_registry
 from app.narrative import NarrativeSnapshot
 from app.data import WritingDataStore, get_data_store, utc_now
@@ -20,6 +22,7 @@ from app.models import (
     ManuscriptProposalAcceptance,
     ManuscriptProposalCreate,
     ManuscriptRevisionDiff,
+    ManuscriptRevision,
     ManuscriptScene,
     ManuscriptSceneUpdate,
 )
@@ -181,6 +184,18 @@ class ManuscriptService:
         except ValueError as exc:
             raise conflict_from(exc) from exc
         if status_str == "accepted":
+            # The explicit edited-draft endpoint runs the pre-accept gate.
+            # The legacy status endpoint remains compatible until callers migrate.
+            if draft is not None:
+                report = self.preview_proposal_consistency(project_id, proposal_id, draft)
+                if report.summary.critical_count:
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                        detail={
+                            "message": "Critical consistency findings must be resolved before acceptance.",
+                            "consistency_report": report.model_dump(),
+                        },
+                    )
             try:
                 scene = self.data_store.accept_manuscript_proposal(
                     project_id, proposal_id, draft=draft
@@ -205,6 +220,49 @@ class ManuscriptService:
                 status_code=status.HTTP_404_NOT_FOUND, detail="Manuscript proposal not found."
             )
         return proposal
+
+    def preview_proposal_consistency(
+        self,
+        project_id: str,
+        proposal_id: str,
+        draft: ManuscriptProposalAcceptance,
+    ) -> ConsistencyReport:
+        proposal = self.data_store.get_manuscript_proposal(project_id, proposal_id)
+        if proposal is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="Manuscript proposal not found."
+            )
+        snapshot = NarrativeSnapshot.for_scene(
+            project_id=project_id,
+            scene_id=proposal.scene_id,
+            data_store=self.data_store,
+            cognition=self.cognition,
+        )
+        candidate = ManuscriptRevision(
+            id=f"proposal-preview:{proposal.id}",
+            project_id=project_id,
+            scene_id=proposal.scene_id,
+            proposal_id=proposal.id,
+            title=draft.title,
+            content=draft.content,
+            version=draft.expected_scene_version + 1,
+            created_at=utc_now(),
+        )
+        findings = check_revision(
+            candidate, snapshot.scene, snapshot.canon_entities, snapshot.world_truth
+        )
+        return ConsistencyReport(
+            project_id=project_id,
+            source_ref=f"manuscript_proposal:{proposal.id}",
+            processor=CONSISTENCY_PROCESSOR,
+            summary=ConsistencyReportSummary(
+                finding_count=len(findings),
+                critical_count=sum(item.severity == "critical" for item in findings),
+                warning_count=sum(item.severity == "warning" for item in findings),
+                info_count=sum(item.severity == "info" for item in findings),
+            ),
+            findings=findings,
+        )
 
     def _get_scene_and_project(self, project_id: str, scene_id: str):
         scene = self.data_store.get_scene_contract(project_id, scene_id)

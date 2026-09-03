@@ -15,11 +15,13 @@ column changes that previously ran unconditionally through ``ensure_column``.
 New schema changes append a new migration and must never edit old ones.
 """
 
+import json
 import sqlite3
 from collections.abc import Callable
 from dataclasses import dataclass
 
 from app.data.helpers import ensure_column, utc_now
+from app.snowflake.dependencies import upstream_snapshot
 
 SCHEMA_SQL = """
 CREATE TABLE IF NOT EXISTS projects (
@@ -429,6 +431,173 @@ def _add_backup_restore_commits(connection: sqlite3.Connection) -> None:
     )
 
 
+def _add_snowflake_revision_history(connection: sqlite3.Connection) -> None:
+    """Add append-only Snowflake revisions and losslessly backfill legacy rows."""
+    _run_script(
+        connection,
+        """
+        CREATE TABLE IF NOT EXISTS snowflake_artifact_revisions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            step_number INTEGER NOT NULL,
+            artifact_type TEXT NOT NULL,
+            revision_no INTEGER NOT NULL,
+            source TEXT NOT NULL,
+            status TEXT NOT NULL,
+            content TEXT NOT NULL,
+            structured_payload TEXT NOT NULL DEFAULT '{}',
+            schema_version INTEGER NOT NULL DEFAULT 1,
+            parent_revision_id TEXT NOT NULL DEFAULT '',
+            base_head_revision_id TEXT NOT NULL DEFAULT '',
+            upstream_snapshot TEXT NOT NULL DEFAULT '{}',
+            review_reason TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            reviewed_at TEXT NOT NULL DEFAULT '',
+            UNIQUE (project_id, step_number, revision_no),
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_snowflake_revisions_project_step
+            ON snowflake_artifact_revisions(project_id, step_number, revision_no DESC);
+        CREATE INDEX IF NOT EXISTS idx_snowflake_revisions_pending
+            ON snowflake_artifact_revisions(project_id, status, step_number);
+        CREATE TABLE IF NOT EXISTS snowflake_artifact_heads (
+            project_id TEXT NOT NULL,
+            step_number INTEGER NOT NULL,
+            accepted_revision_id TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'missing',
+            stale_reason TEXT NOT NULL DEFAULT '',
+            stale_trigger_revision_id TEXT NOT NULL DEFAULT '',
+            PRIMARY KEY (project_id, step_number),
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+        """,
+    )
+    backfill_legacy_snowflake_artifacts(connection)
+
+
+def backfill_legacy_snowflake_artifacts(
+    connection: sqlite3.Connection,
+    project_id: str | None = None,
+) -> None:
+    """Idempotently project legacy Snowflake rows into revision/head history."""
+    now = utc_now()
+    projects = (
+        [project_id]
+        if project_id is not None
+        else [row[0] for row in connection.execute("SELECT id FROM projects").fetchall()]
+    )
+    for project_id in projects:
+        for step_number in range(1, 11):
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO snowflake_artifact_heads (
+                    project_id, step_number, accepted_revision_id, state
+                ) VALUES (?, ?, '', 'missing')
+                """,
+                (project_id, step_number),
+            )
+
+        rows = connection.execute(
+            """
+            SELECT step_number, artifact, content
+            FROM snowflake_artifacts
+            WHERE project_id = ?
+            ORDER BY step_number
+            """,
+            (project_id,),
+        ).fetchall()
+        accepted_heads = {
+            int(row["step_number"]): f"snowflake:{project_id}:{row['step_number']}:r1"
+            for row in rows
+            if int(row["step_number"]) < 10
+        }
+        for row in rows:
+            step_number = int(row["step_number"])
+            revision_id = f"snowflake:{project_id}:{step_number}:r1"
+            status = "legacy_draft" if step_number == 10 else "accepted"
+            snapshot = upstream_snapshot(step_number, accepted_heads)
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO snowflake_artifact_revisions (
+                    id, project_id, step_number, artifact_type, revision_no,
+                    source, status, content, structured_payload, schema_version,
+                    upstream_snapshot, created_at, reviewed_at
+                ) VALUES (?, ?, ?, ?, 1, 'legacy', ?, ?, '{}', 1, ?, ?, ?)
+                """,
+                (
+                    revision_id,
+                    project_id,
+                    step_number,
+                    row["artifact"],
+                    status,
+                    row["content"],
+                    json.dumps(snapshot, ensure_ascii=False),
+                    now,
+                    now if status == "accepted" else "",
+                ),
+            )
+            if status == "accepted":
+                connection.execute(
+                    """
+                    UPDATE snowflake_artifact_heads
+                    SET accepted_revision_id = ?, state = 'approved'
+                    WHERE project_id = ? AND step_number = ?
+                    """,
+                    (revision_id, project_id, step_number),
+                )
+
+
+def _extend_scene_contracts_for_snowflake(connection: sqlite3.Connection) -> None:
+    for table in ("scene_contracts", "scene_proposals"):
+        ensure_column(connection, table, "outcome", "TEXT NOT NULL DEFAULT ''")
+        ensure_column(connection, table, "information_delta", "TEXT NOT NULL DEFAULT ''")
+        ensure_column(connection, table, "character_state_delta", "TEXT NOT NULL DEFAULT ''")
+        ensure_column(connection, table, "story_thread_actions", "TEXT NOT NULL DEFAULT ''")
+    ensure_column(
+        connection,
+        "scene_proposals",
+        "blocking_errors_json",
+        "TEXT NOT NULL DEFAULT '[]'",
+    )
+
+
+def _add_snowflake_record_revisions(connection: sqlite3.Connection) -> None:
+    """Add pageable, independently reviewable records for Snowflake steps 6–9."""
+    _run_script(
+        connection,
+        """
+        CREATE TABLE IF NOT EXISTS snowflake_record_revisions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            step_number INTEGER NOT NULL CHECK(step_number BETWEEN 6 AND 9),
+            record_id TEXT NOT NULL,
+            position INTEGER NOT NULL,
+            revision_no INTEGER NOT NULL,
+            source TEXT NOT NULL,
+            status TEXT NOT NULL,
+            payload_json TEXT NOT NULL,
+            base_revision_id TEXT NOT NULL DEFAULT '',
+            review_reason TEXT NOT NULL DEFAULT '',
+            created_at TEXT NOT NULL,
+            reviewed_at TEXT NOT NULL DEFAULT '',
+            UNIQUE(project_id, step_number, record_id, revision_no),
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_snowflake_record_revision_page
+            ON snowflake_record_revisions(project_id, step_number, position, record_id, revision_no DESC);
+        CREATE TABLE IF NOT EXISTS snowflake_record_heads (
+            project_id TEXT NOT NULL,
+            step_number INTEGER NOT NULL CHECK(step_number BETWEEN 6 AND 9),
+            record_id TEXT NOT NULL,
+            accepted_revision_id TEXT NOT NULL DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'draft',
+            PRIMARY KEY(project_id, step_number, record_id),
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+        """,
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(version=1, name="baseline_schema", apply=_apply_baseline_schema),
     Migration(version=2, name="scene_contracts_chapter_id", apply=_add_scene_contracts_chapter_id),
@@ -446,6 +615,21 @@ MIGRATIONS: list[Migration] = [
         apply=_add_narrative_domain_phase0_tables,
     ),
     Migration(version=8, name="backup_restore_commits", apply=_add_backup_restore_commits),
+    Migration(
+        version=9,
+        name="snowflake_revision_history",
+        apply=_add_snowflake_revision_history,
+    ),
+    Migration(
+        version=10,
+        name="snowflake_scene_contract_fields",
+        apply=_extend_scene_contracts_for_snowflake,
+    ),
+    Migration(
+        version=11,
+        name="snowflake_record_revisions",
+        apply=_add_snowflake_record_revisions,
+    ),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1].version

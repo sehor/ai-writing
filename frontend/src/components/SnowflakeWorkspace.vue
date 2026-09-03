@@ -3,6 +3,8 @@ import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useSnowflakeStore } from '../stores/snowflake'
+import SnowflakeRevisionHistory from './snowflake/SnowflakeRevisionHistory.vue'
+import SnowflakeRecords from './snowflake/SnowflakeRecords.vue'
 
 const workspace = useWorkspaceStore()
 const snowflake = useSnowflakeStore()
@@ -13,12 +15,17 @@ const {
 } = storeToRefs(workspace)
 const {
   steps,
-  artifacts,
+  stepStates,
   isSavingArtifact,
   isGeneratingArtifact,
   isCompilingArtifact,
   artifactError,
   artifactDraft,
+  generationInstruction,
+  activeRevision,
+  revisions,
+  activeStepState,
+  manuscriptProgress,
   workflowTrace,
   hasUnsavedArtifactChanges,
   artifactStateLabel,
@@ -32,6 +39,8 @@ const {
 const {
   saveArtifact,
   generateArtifact,
+  decideRevision,
+  skipActiveStep,
   compileStepArtifact,
   toggleSceneProposalSelection,
   acceptSceneProposalBatch,
@@ -59,6 +68,24 @@ const compilerStep = computed(() => {
   if (number === 8) return 'scene' as const
   return null
 })
+const legacyStep10Revision = computed(() =>
+  revisions.value.find((revision) => revision.status === 'legacy_draft')
+)
+const acceptanceImpact = computed(() => {
+  const affected = new Set<number>([activeStepNumber.value])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const step of steps.value) {
+      if (!affected.has(step.number) && step.dependencies.some((dependency) => affected.has(dependency))) {
+        affected.add(step.number)
+        changed = true
+      }
+    }
+  }
+  affected.delete(activeStepNumber.value)
+  return [...affected].sort((left, right) => left - right)
+})
 
 const canonCreateCount = computed(
   () => canonExtractionReport.value?.proposals.filter((proposal) => proposal.action === 'create').length ?? 0
@@ -73,6 +100,24 @@ function statusLabel(status: string): string {
   if (status === 'rejected') return 'Rejected'
   return 'Superseded'
 }
+
+function stateFor(stepNumber: number) {
+  return stepStates.value.find((item) => item.step.number === stepNumber)
+}
+
+function stepStateLabel(stepNumber: number): string {
+  const state = stateFor(stepNumber)
+  if (!state) return 'Missing'
+  if (state.pending_count > 0) return `${state.pending_count} pending`
+  if (state.state === 'approved') return 'Approved'
+  if (state.state === 'stale') return 'Needs review'
+  if (state.state === 'skipped') return 'Skipped'
+  return 'Missing'
+}
+
+function openManuscript() {
+  workspace.activeSection = 'manuscript'
+}
 </script>
 
 <template>
@@ -82,7 +127,9 @@ function statusLabel(status: string): string {
             <p class="eyebrow">Compiler Pipeline</p>
             <h3>Snowflake Method</h3>
           </div>
-          <span class="step-chip">{{ artifacts.length }} saved</span>
+          <span class="step-chip">
+            {{ stepStates.filter((item) => item.state === 'approved').length }} approved
+          </span>
         </div>
 
         <ol class="steps">
@@ -91,7 +138,9 @@ function statusLabel(status: string): string {
             :key="step.number"
             :class="{
               current: step.number === activeStepNumber,
-              saved: artifacts.some((artifact) => artifact.step_number === step.number),
+              saved: stateFor(step.number)?.state === 'approved',
+              stale: stateFor(step.number)?.state === 'stale',
+              pending: (stateFor(step.number)?.pending_count ?? 0) > 0,
             }"
           >
             <button
@@ -106,10 +155,8 @@ function statusLabel(status: string): string {
                 <span class="step-heading">
                   <strong>{{ step.title }}</strong>
                   <span
-                    v-if="artifacts.some((artifact) => artifact.step_number === step.number)"
-                    class="selected-step-label"
-                  >Saved</span>
-                  <span v-else class="open-step-label">Open</span>
+                    :class="stateFor(step.number)?.state === 'approved' ? 'selected-step-label' : 'open-step-label'"
+                  >{{ stepStateLabel(step.number) }}</span>
                 </span>
                 <span>{{ step.description }}</span>
                 <code>{{ step.artifact }}</code>
@@ -150,6 +197,35 @@ function statusLabel(status: string): string {
       </section>
 
       <section
+        v-if="activeStep?.virtual"
+        class="artifact-editor manuscript-milestone"
+        aria-labelledby="manuscript-milestone-title"
+      >
+        <div>
+          <p class="eyebrow">Virtual milestone</p>
+          <h3 id="manuscript-milestone-title">Draft through the Manuscript workflow</h3>
+          <p>
+            Step 10 no longer creates a second full-manuscript artifact. Draft each accepted
+            Scene Contract as a proposal, review it, and commit it as a Manuscript revision.
+          </p>
+          <dl v-if="manuscriptProgress" class="milestone-stats">
+            <div><dt>Scene Contracts</dt><dd>{{ manuscriptProgress.total_scene_contracts }}</dd></div>
+            <div><dt>Pending proposals</dt><dd>{{ manuscriptProgress.pending_manuscript_proposals }}</dd></div>
+            <div><dt>Accepted revisions</dt><dd>{{ manuscriptProgress.accepted_latest_revisions }}</dd></div>
+            <div><dt>Stale scenes</dt><dd>{{ manuscriptProgress.stale_scene_count }}</dd></div>
+            <div><dt>Completion</dt><dd>{{ manuscriptProgress.completion_percent }}%</dd></div>
+          </dl>
+          <details v-if="legacyStep10Revision" class="legacy-manuscript">
+            <summary>Legacy Step 10 draft · read-only</summary>
+            <p>This historical draft is preserved but is not an approved Manuscript revision.</p>
+            <pre>{{ legacyStep10Revision.content }}</pre>
+          </details>
+        </div>
+        <button class="primary" type="button" @click="openManuscript">Open Manuscript workspace</button>
+      </section>
+
+      <section
+        v-else
         class="artifact-editor"
         aria-labelledby="artifact-editor-title"
       >
@@ -170,9 +246,26 @@ function statusLabel(status: string): string {
           :placeholder="`Write the ${activeStep?.artifact ?? 'artifact'} for the active project.`"
         />
 
+        <label class="generation-instruction">
+          <span>AI instruction</span>
+          <textarea
+            v-model="generationInstruction"
+            rows="3"
+            maxlength="4000"
+            :disabled="!activeProject"
+            placeholder="Describe what to generate or revise. The current artifact is kept separate."
+          />
+        </label>
+
         <div class="form-actions artifact-actions">
           <p v-if="artifactError" class="error">{{ artifactError }}</p>
           <p v-else class="save-state">{{ artifactStateLabel }}</p>
+          <p
+            v-if="activeRevision && ['draft', 'pending_review'].includes(activeRevision.status) && acceptanceImpact.length"
+            class="save-state"
+          >
+            Accepting this revision will mark downstream steps {{ acceptanceImpact.join(', ') }} for review.
+          </p>
           <div class="button-row">
             <button
               class="secondary"
@@ -180,7 +273,7 @@ function statusLabel(status: string): string {
               :disabled="isGeneratingArtifact || !activeProject"
               @click="generateArtifact"
             >
-              {{ isGeneratingArtifact ? 'Generating...' : 'Generate Draft' }}
+              {{ isGeneratingArtifact ? 'Generating...' : 'Generate Proposal' }}
             </button>
             <button
               class="primary"
@@ -188,7 +281,34 @@ function statusLabel(status: string): string {
               :disabled="isSavingArtifact || !hasUnsavedArtifactChanges"
               @click="saveArtifact"
             >
-              {{ isSavingArtifact ? 'Saving...' : 'Save Artifact' }}
+              {{ isSavingArtifact ? 'Saving...' : 'Save Draft Revision' }}
+            </button>
+            <button
+              v-if="activeRevision && ['draft', 'pending_review'].includes(activeRevision.status)"
+              class="primary"
+              type="button"
+              :disabled="isSavingArtifact || hasUnsavedArtifactChanges"
+              @click="decideRevision(activeRevision.id, 'accepted')"
+            >
+              Accept revision
+            </button>
+            <button
+              v-if="activeRevision && ['draft', 'pending_review'].includes(activeRevision.status)"
+              class="secondary"
+              type="button"
+              :disabled="isSavingArtifact"
+              @click="decideRevision(activeRevision.id, 'rejected')"
+            >
+              Reject
+            </button>
+            <button
+              v-if="activeStep?.optional && activeStepState?.state !== 'skipped'"
+              class="secondary"
+              type="button"
+              :disabled="isSavingArtifact"
+              @click="skipActiveStep"
+            >
+              Skip optional step
             </button>
           </div>
         </div>
@@ -201,6 +321,12 @@ function statusLabel(status: string): string {
           </li>
         </ol>
       </section>
+
+      <SnowflakeRevisionHistory v-if="!activeStep?.virtual" :key="activeStepNumber" />
+      <SnowflakeRecords
+        v-if="activeStepNumber >= 6 && activeStepNumber <= 9"
+        :key="`records-${activeStepNumber}`"
+      />
 
       <section
         v-if="compilerStep"
@@ -241,7 +367,11 @@ function statusLabel(status: string): string {
             <button
               class="primary"
               type="button"
-              :disabled="isCompilingArtifact || !activeProject || !artifactDraft.trim()"
+              :disabled="
+                isCompilingArtifact ||
+                !activeProject ||
+                activeStepState?.state !== 'approved'
+              "
               @click="compileStepArtifact"
             >
               {{
@@ -295,7 +425,9 @@ function statusLabel(status: string): string {
                   <input
                     type="checkbox"
                     :checked="selectedSceneProposalIds.includes(proposal.id)"
-                    :disabled="proposal.status !== 'pending_review'"
+                    :disabled="
+                      proposal.status !== 'pending_review' || proposal.blocking_errors.length > 0
+                    "
                     :aria-label="`Select scene proposal ${proposal.sequence}`"
                     @change="toggleSceneProposalSelection(proposal.id)"
                   />
@@ -308,10 +440,17 @@ function statusLabel(status: string): string {
                 <td>{{ proposal.pov || '-' }}</td>
                 <td class="goal-cell">{{ proposal.goal || '-' }}</td>
                 <td>
+                  <span
+                    v-if="proposal.blocking_errors.length"
+                    class="blocking-count"
+                    :title="proposal.blocking_errors.join('\n')"
+                  >
+                    Blocked ({{ proposal.blocking_errors.length }})
+                  </span>
                   <span v-if="proposal.warnings.length" class="warning-count" :title="proposal.warnings.join('\n')">
                     {{ proposal.warnings.length }}
                   </span>
-                  <span v-else>-</span>
+                  <span v-else-if="!proposal.blocking_errors.length">-</span>
                 </td>
                 <td><span class="step-chip">{{ statusLabel(proposal.status) }}</span></td>
                 <td>
@@ -338,6 +477,7 @@ function statusLabel(status: string): string {
                 !sceneProposals.some(
                   (proposal) =>
                     proposal.status === 'pending_review' &&
+                    proposal.blocking_errors.length === 0 &&
                     selectedSceneProposalIds.includes(proposal.id)
                 )
               "
@@ -350,7 +490,10 @@ function statusLabel(status: string): string {
               type="button"
               :disabled="
                 isCompilingArtifact ||
-                !sceneProposals.some((proposal) => proposal.status === 'pending_review')
+                !sceneProposals.some(
+                  (proposal) =>
+                    proposal.status === 'pending_review' && proposal.blocking_errors.length === 0
+                )
               "
               @click="acceptSceneProposalBatch(true)"
             >
@@ -369,6 +512,53 @@ function statusLabel(status: string): string {
 </template>
 
 <style scoped>
+.steps li.stale {
+  border-color: #b45309;
+  box-shadow: inset 3px 0 0 #b45309;
+}
+
+.steps li.pending {
+  border-style: dashed;
+}
+
+.generation-instruction {
+  display: grid;
+  gap: 0.5rem;
+  font-weight: 600;
+}
+
+.generation-instruction textarea {
+  min-height: 5rem;
+  font-weight: 400;
+}
+
+.manuscript-milestone {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+}
+
+.milestone-stats {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem 1.5rem;
+  margin: 1rem 0 0;
+}
+
+.milestone-stats div {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.milestone-stats dt {
+  color: var(--text-muted, #6b7280);
+  font-size: 0.8rem;
+}
+
+.milestone-stats dd {
+  margin: 0;
+  font-weight: 700;
+}
+
 .compile-panel {
   display: flex;
   flex-direction: column;
@@ -431,7 +621,23 @@ function statusLabel(status: string): string {
   cursor: help;
 }
 
+.blocking-count {
+  display: inline-block;
+  margin-right: 0.25rem;
+  padding: 0.05rem 0.5rem;
+  border: 1px solid #b91c1c;
+  color: #991b1b;
+  font-weight: 700;
+}
+
 .batch-actions {
   justify-content: flex-start;
+}
+
+@media (max-width: 48rem) {
+  .manuscript-milestone {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
 }
 </style>

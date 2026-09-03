@@ -33,6 +33,12 @@ from app.models import (
     SceneProposalCreate,
     SceneProposalStatus,
     SnowflakeArtifact,
+    SnowflakeArtifactHead,
+    SnowflakeArtifactRevision,
+    SnowflakeArtifactRevisionCreate,
+    SnowflakeRecordDecisionResponse,
+    SnowflakeRecordRevision,
+    SnowflakeRecordRevisionCreate,
     NarrativeRelation,
     NarrativeRelationCreate,
     StoryFact,
@@ -86,6 +92,99 @@ class WritingDataStore(Protocol):
         pass
 
     def save_snowflake_artifact(self, artifact: SnowflakeArtifact) -> SnowflakeArtifact:
+        pass
+
+    def list_snowflake_revisions(
+        self,
+        project_id: str,
+        step_number: int,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> tuple[list[SnowflakeArtifactRevision], int]:
+        pass
+
+    def get_snowflake_revision(
+        self, project_id: str, revision_id: str
+    ) -> SnowflakeArtifactRevision | None:
+        pass
+
+    def create_snowflake_revision(
+        self,
+        project_id: str,
+        create: SnowflakeArtifactRevisionCreate,
+        *,
+        status: str | None = None,
+        source: str | None = None,
+    ) -> SnowflakeArtifactRevision:
+        pass
+
+    def patch_snowflake_revision(
+        self,
+        project_id: str,
+        revision_id: str,
+        *,
+        content: str | None,
+        structured_payload: dict | None,
+    ) -> SnowflakeArtifactRevision | None:
+        pass
+
+    def list_snowflake_heads(self, project_id: str) -> list[SnowflakeArtifactHead]:
+        pass
+
+    def snowflake_pending_counts(self, project_id: str) -> dict[int, int]:
+        pass
+
+    def decide_snowflake_revision(
+        self,
+        *,
+        project_id: str,
+        revision_id: str,
+        decision: str,
+        expected_head_revision_id: str,
+        review_reason: str = "",
+    ) -> tuple[SnowflakeArtifactRevision, SnowflakeArtifactHead, list[int], str]:
+        pass
+
+    def skip_snowflake_step(
+        self, project_id: str, step_number: int
+    ) -> SnowflakeArtifactHead:
+        pass
+
+    def list_snowflake_records(
+        self, project_id: str, step_number: int, *, limit: int = 50, offset: int = 0
+    ) -> tuple[list[SnowflakeRecordRevision], int]:
+        pass
+
+    def create_snowflake_record_revision(
+        self,
+        project_id: str,
+        create: SnowflakeRecordRevisionCreate,
+        *,
+        status: str = "draft",
+    ) -> SnowflakeRecordRevision:
+        pass
+
+    def list_snowflake_record_revisions(
+        self,
+        project_id: str,
+        step_number: int,
+        record_id: str,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[list[SnowflakeRecordRevision], int]:
+        pass
+
+    def decide_snowflake_record_revision(
+        self,
+        project_id: str,
+        revision_id: str,
+        *,
+        decision: str,
+        expected_revision_id: str,
+        review_reason: str = "",
+    ) -> SnowflakeRecordDecisionResponse:
         pass
 
     def list_canon_entities(self, project_id: str) -> list[CanonEntity]:

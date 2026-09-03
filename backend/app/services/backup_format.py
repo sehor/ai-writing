@@ -20,6 +20,10 @@ MAX_MEMBERS = 10_000
 TABLES_IN_ORDER = (
     "projects",
     "snowflake_artifacts",
+    "snowflake_artifact_revisions",
+    "snowflake_artifact_heads",
+    "snowflake_record_revisions",
+    "snowflake_record_heads",
     "canon_entities",
     "manuscript_chapters",
     "scene_contracts",
@@ -39,7 +43,31 @@ TABLES_IN_ORDER = (
     "story_threads",
     "story_thread_events",
 )
-NARRATIVE_TABLES = frozenset(TABLES_IN_ORDER[14:])
+LEGACY_V2_TABLES = tuple(
+    table
+    for table in TABLES_IN_ORDER
+    if table not in {
+        "snowflake_artifact_revisions",
+        "snowflake_artifact_heads",
+        "snowflake_record_revisions",
+        "snowflake_record_heads",
+    }
+)
+REVISION_V2_TABLES = tuple(
+    table
+    for table in TABLES_IN_ORDER
+    if table not in {"snowflake_record_revisions", "snowflake_record_heads"}
+)
+NARRATIVE_TABLES = frozenset(
+    {
+        "story_facts",
+        "story_fact_character_knowledge",
+        "knowledge_states",
+        "narrative_relations",
+        "story_threads",
+        "story_thread_events",
+    }
+)
 _DEVICE_NAME = re.compile(r"^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)", re.I)
 
 
@@ -124,7 +152,15 @@ def validate_tables(manifest: dict, tables: Any) -> dict:
     ):
         raise BackupError("Manifest row counts do not match the package.")
     if manifest["format_version"] == FORMAT_VERSION:
-        if set(tables) != set(TABLES_IN_ORDER) or manifest.get("tables") != list(TABLES_IN_ORDER):
+        schema_version = manifest.get("schema_version", 0)
+        expected_tables = (
+            TABLES_IN_ORDER
+            if schema_version >= 11
+            else REVISION_V2_TABLES
+            if schema_version >= 9
+            else LEGACY_V2_TABLES
+        )
+        if set(tables) != set(expected_tables) or manifest.get("tables") != list(expected_tables):
             raise BackupError("Backup v2 must declare and include every project table.")
     projects = tables.get("projects")
     if not isinstance(projects, list) or len(projects) != 1:

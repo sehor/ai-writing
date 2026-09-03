@@ -8,6 +8,7 @@ in app.data.repositories.scene_proposals.
 from app.data.repositories.scene_proposals import (
     SceneChapterMissingError,
     SceneProposalNotFoundError,
+    SceneProposalQualityError,
     SceneProposalReviewedError,
     SceneSequenceConflictError,
 )
@@ -15,6 +16,7 @@ from app.data.repositories.scene_proposals import (
 __all__ = [
     "SceneChapterMissingError",
     "SceneProposalNotFoundError",
+    "SceneProposalQualityError",
     "SceneProposalReviewedError",
     "SceneSequenceConflictError",
 ]

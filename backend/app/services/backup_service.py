@@ -29,6 +29,7 @@ from app.services.backup_format import (
     validate_module_path,
     validate_project_id,
 )
+from app.data.migrations import backfill_legacy_snowflake_artifacts
 
 __all__ = [
     "ProjectBackupService",
@@ -191,6 +192,8 @@ class ProjectBackupService:
     def _restore_database(self, connection: sqlite3.Connection, project_id: str, tables: dict):
         connection.execute("DELETE FROM projects WHERE id = ?", (project_id,))
         insert_rows(connection, tables)
+        if "snowflake_artifact_revisions" not in tables:
+            backfill_legacy_snowflake_artifacts(connection, project_id)
         connection.execute(
             "UPDATE outbox_jobs SET status = 'pending', processing_started_at = '' WHERE project_id = ? AND status = 'processing'",
             (project_id,),

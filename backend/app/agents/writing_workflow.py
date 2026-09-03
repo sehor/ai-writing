@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+import json
 from typing import Protocol
 
 from app.data import WritingDataStore
@@ -11,9 +12,11 @@ from app.models import (
     SnowflakeGenerationRequest,
     SnowflakeGenerationResponse,
     SnowflakeStep,
+    SnowflakeValidationReport,
     WorkflowAgentTrace,
 )
 from app.text_utils import truncate as summarize
+from app.snowflake.validators import validate_snowflake_payload
 
 
 class WorkflowNotConfiguredError(RuntimeError):
@@ -40,9 +43,26 @@ class WritingWorkflowState:
     artifact: str = ""
     content: str = ""
     trace: list[WorkflowAgentTrace] = field(default_factory=list)
+    validation_report: SnowflakeValidationReport | None = None
 
-    def record(self, stage: str, agent_name: str, status: str) -> None:
-        self.trace.append(WorkflowAgentTrace(stage=stage, agent_name=agent_name, status=status))
+    def record(
+        self,
+        stage: str,
+        agent_name: str,
+        status: str,
+        *,
+        finding_count: int = 0,
+        details: str = "",
+    ) -> None:
+        self.trace.append(
+            WorkflowAgentTrace(
+                stage=stage,
+                agent_name=agent_name,
+                status=status,
+                finding_count=finding_count,
+                details=details,
+            )
+        )
 
 
 class WorkflowAgent(Protocol):
@@ -199,7 +219,15 @@ class LocalConsistencyReviewer:
     stage = "post_generation"
 
     def run(self, state: WritingWorkflowState) -> WritingWorkflowState:
-        state.record(self.stage, self.name, "checked against loaded canon")
+        report = validate_snowflake_payload(state.request.step_number, state.content)
+        state.validation_report = report
+        state.record(
+            self.stage,
+            self.name,
+            report.status,
+            finding_count=len(report.findings),
+            details="Snowflake structured-output validation executed.",
+        )
         return state
 
 
@@ -244,6 +272,7 @@ class LocalDraftWritingWorkflow:
             artifact=state.artifact,
             content=state.content,
             workflow_trace=state.trace,
+            validation_report=state.validation_report,
         )
 
 
@@ -275,7 +304,13 @@ def build_local_draft(state: WritingWorkflowState) -> str:
         "",
         "## Author Direction",
         state.request.user_input,
+        "",
+        "## Generation Scope",
+        f"Mode: {state.request.generation_mode}",
+        f"Base revision: {state.request.base_revision_id or 'none'}",
     ]
+    if state.request.target_records:
+        sections.extend(["", "## Selected Records", json.dumps(state.request.target_records, ensure_ascii=False)])
     if previous_context:
         sections.extend(["", "## Upstream Snowflake Context", previous_context])
     if canon_context:
@@ -309,6 +344,64 @@ def draft_for_step(step_number: int, premise: str, user_input: str) -> str:
     source = user_input or premise
     if step_number == 1:
         return f"{single_line(source)}"
+    if step_number == 2:
+        return json.dumps(
+            {
+                name: {
+                    "beat_id": name,
+                    "event": single_line(source) if name == "setup" else f"Develop the {name.replace('_', ' ')}.",
+                    "cause": "Show the causal trigger.",
+                    "protagonist_action": "Show the protagonist's consequential response.",
+                    "escalation": "Raise the cost and narrow the options." if name in {"disaster_2", "disaster_3"} else "",
+                }
+                for name in ("setup", "disaster_1", "disaster_2", "disaster_3", "ending")
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    if step_number == 3:
+        return json.dumps(
+            {"characters": [{
+                "name": "Protagonist", "role": "protagonist",
+                "one_sentence_summary": single_line(source),
+                "motivation": "Define the internal motivation.",
+                "goal": "Define the external story goal.",
+                "conflict": "Define the central opposition.",
+                "epiphany": "Define the final realization.",
+                "viewpoint_summary": "Expand the story from this character's viewpoint.",
+            }]},
+            ensure_ascii=False,
+            indent=2,
+        )
+    if step_number == 4:
+        return json.dumps(
+            {"paragraphs": [
+                {"beat_id": beat, "text": f"Expand the {beat.replace('_', ' ')} while preserving causal continuity."}
+                for beat in ("setup", "disaster_1", "disaster_2", "disaster_3", "ending")
+            ]},
+            ensure_ascii=False,
+            indent=2,
+        )
+    if step_number == 5:
+        return json.dumps(
+            {"viewpoints": [{
+                "character_name": "Protagonist", "character_ref": "protagonist",
+                "viewpoint_story": single_line(source),
+                "knows": [], "does_not_know": [], "misunderstands": [],
+            }]},
+            ensure_ascii=False,
+            indent=2,
+        )
+    if step_number == 6:
+        return json.dumps(
+            {"blocks": [{
+                "record_id": "act-1-sequence-1", "act": "Act I", "section": "Opening",
+                "sequence": 1, "synopsis": single_line(source),
+                "step4_paragraph_refs": ["setup"], "character_refs": ["protagonist"],
+            }]},
+            ensure_ascii=False,
+            indent=2,
+        )
     if step_number == 8:
         return "\n".join(
             [
@@ -317,8 +410,12 @@ def draft_for_step(step_number: int, premise: str, user_input: str) -> str:
                 f"- Goal: {single_line(source)}",
                 "- Conflict: Define the immediate opposition.",
                 "- Turning point: Define the irreversible change.",
+                "- Outcome: Define the disaster, setback, or decisive result.",
                 "- Required Canon: Link confirmed entities before drafting.",
                 "- Forbidden facts: List information that cannot be revealed yet.",
+                "- Information Delta: State what the reader and POV character learn.",
+                "- Character State Delta: State how the POV character changes.",
+                "- StoryThread Actions: plant: Define a reviewable narrative thread.",
                 "- Open threads: List questions this scene opens or advances.",
             ]
         )

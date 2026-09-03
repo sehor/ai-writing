@@ -9,6 +9,8 @@ from app.models import (
     MemoryRecordCreate,
     ManuscriptRevision,
     NarrativeRelationCreate,
+    StoryThreadCreate,
+    StoryThreadEventCreate,
     StoryThreadStatusUpdate,
     WritebackProposalCreate,
 )
@@ -98,6 +100,23 @@ def validate_writeback_payload(proposal: WritebackProposalCreate) -> None:
         if from_state == proposed_state:
             raise ValueError("Story thread lifecycle proposal must change status.")
         _validate_clp_evidence(proposal)
+        return
+    if proposal.target == "story_thread":
+        if proposal.action != "create":
+            raise ValueError("Story thread proposals only support create actions.")
+        StoryThreadCreate.model_validate(proposal.payload)
+        return
+    if proposal.target == "story_thread_event":
+        if proposal.action != "create":
+            raise ValueError("Story thread event proposals only support create actions.")
+        event_payload = {
+            key: value
+            for key, value in proposal.payload.items()
+            if key not in {"thread_title", "scene_proposal_id"}
+        }
+        StoryThreadEventCreate.model_validate(event_payload)
+        if not proposal.target_record_id and not str(proposal.payload.get("thread_title", "")).strip():
+            raise ValueError("Story thread event proposals require a thread id or title.")
         return
     raise ValueError(f"Unsupported write-back target: {proposal.target}")
 

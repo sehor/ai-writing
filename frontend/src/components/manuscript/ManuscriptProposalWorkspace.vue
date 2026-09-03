@@ -19,9 +19,11 @@ const {
   pendingProposalCount,
   acceptedSceneCount,
   revisionCount,
+  proposalConsistencyReport,
+  isCheckingProposalConsistency,
 } = storeToRefs(store)
 const { pendingWritebackCount } = storeToRefs(useReviewsStore())
-const { updateProposalStatus } = store
+const { updateProposalStatus, checkProposalConsistency } = store
 const workspace = useWorkspaceStore()
 const draft = useProposalDraftStore()
 const currentScene = computed(() => store.manuscriptScenes.find((scene) => scene.scene_id === activeProposal.value?.scene_id))
@@ -37,6 +39,9 @@ watch(() => [workspace.activeProjectId, activeProposal.value?.id], () => {
   const version = store.manuscriptScenes.find((scene) => scene.scene_id === proposal.scene_id)?.version ?? 0
   draft.open(workspace.activeProjectId, proposal, version)
 }, { immediate: true })
+watch(() => [draft.title, draft.content, activeProposal.value?.id], () => {
+  store.proposalConsistencyReport = null
+})
 onBeforeUnmount(() => draft.persist())
 </script>
 
@@ -84,6 +89,15 @@ onBeforeUnmount(() => draft.persist())
           <div class="button-row">
             <button
               v-if="activeProposal.status === 'pending_review'"
+              class="secondary"
+              type="button"
+              :disabled="isCheckingProposalConsistency || !draft.title.trim() || !draft.content.trim()"
+              @click="checkProposalConsistency(activeProposal.id)"
+            >
+              {{ isCheckingProposalConsistency ? '检查中…' : '接受前一致性检查' }}
+            </button>
+            <button
+              v-if="activeProposal.status === 'pending_review'"
               class="secondary danger"
               type="button"
               :disabled="isUpdatingProposal"
@@ -102,6 +116,20 @@ onBeforeUnmount(() => draft.persist())
             </button>
           </div>
         </div>
+
+        <section v-if="proposalConsistencyReport" class="consistency-preview">
+          <p class="eyebrow">Pre-accept Consistency</p>
+          <p :class="{ error: proposalConsistencyReport.summary.critical_count > 0 }">
+            {{ proposalConsistencyReport.summary.finding_count }} findings ·
+            {{ proposalConsistencyReport.summary.critical_count }} critical
+          </p>
+          <ul v-if="proposalConsistencyReport.findings.length">
+            <li v-for="finding in proposalConsistencyReport.findings" :key="finding.id">
+              <strong>{{ statusText(finding.severity) }}</strong> · {{ finding.title }}
+              <small>{{ finding.manuscript_excerpt }}</small>
+            </li>
+          </ul>
+        </section>
 
         <section>
           <p class="eyebrow">Proposed Draft</p>

@@ -38,11 +38,16 @@ class SceneChapterMissingError(ValueError):
     """A proposal points at a chapter that does not belong to the project."""
 
 
+class SceneProposalQualityError(ValueError):
+    """A proposal has blocking validation findings and cannot be accepted."""
+
+
 SCENE_PROPOSAL_COLUMNS = """
     SELECT id, project_id, sequence, chapter_id, chapter_hint, title, pov, goal,
-           conflict, turning_point, required_canon_ids, required_canon_raw,
-           forbidden_fact_refs, open_threads, source_ref, source_excerpt,
-           warnings_json, status, applied_scene_id, created_at, reviewed_at
+           conflict, turning_point, outcome, required_canon_ids, required_canon_raw,
+           forbidden_fact_refs, information_delta, character_state_delta,
+           story_thread_actions, open_threads, source_ref, source_excerpt,
+           warnings_json, blocking_errors_json, status, applied_scene_id, created_at, reviewed_at
     FROM scene_proposals
 """
 
@@ -59,13 +64,18 @@ def scene_proposal_from_row(row: sqlite3.Row) -> SceneProposal:
         goal=row["goal"],
         conflict=row["conflict"],
         turning_point=row["turning_point"],
+        outcome=row["outcome"],
         required_canon_ids=row["required_canon_ids"],
         required_canon_raw=row["required_canon_raw"],
         forbidden_fact_refs=row["forbidden_fact_refs"],
+        information_delta=row["information_delta"],
+        character_state_delta=row["character_state_delta"],
+        story_thread_actions=row["story_thread_actions"],
         open_threads=row["open_threads"],
         source_ref=row["source_ref"],
         source_excerpt=row["source_excerpt"],
         warnings=json.loads(row["warnings_json"]),
+        blocking_errors=json.loads(row["blocking_errors_json"]),
         status=row["status"],
         applied_scene_id=row["applied_scene_id"],
         created_at=row["created_at"],
@@ -85,13 +95,18 @@ def scene_proposal_to_params(proposal: SceneProposal) -> tuple:
         proposal.goal,
         proposal.conflict,
         proposal.turning_point,
+        proposal.outcome,
         proposal.required_canon_ids,
         proposal.required_canon_raw,
         proposal.forbidden_fact_refs,
+        proposal.information_delta,
+        proposal.character_state_delta,
+        proposal.story_thread_actions,
         proposal.open_threads,
         proposal.source_ref,
         proposal.source_excerpt,
         json.dumps(proposal.warnings, ensure_ascii=False),
+        json.dumps(proposal.blocking_errors, ensure_ascii=False),
         proposal.status,
         proposal.applied_scene_id,
         proposal.created_at,
@@ -109,24 +124,30 @@ def _insert_params(create: SceneProposalCreate) -> tuple:
         create.goal,
         create.conflict,
         create.turning_point,
+        create.outcome,
         create.required_canon_ids,
         create.required_canon_raw,
         create.forbidden_fact_refs,
+        create.information_delta,
+        create.character_state_delta,
+        create.story_thread_actions,
         create.open_threads,
         create.source_ref,
         create.source_excerpt,
         json.dumps(create.warnings, ensure_ascii=False),
+        json.dumps(create.blocking_errors, ensure_ascii=False),
     )
 
 
 INSERT_SQL = """
     INSERT INTO scene_proposals (
         id, project_id, sequence, chapter_id, chapter_hint, title, pov, goal,
-        conflict, turning_point, required_canon_ids, required_canon_raw,
-        forbidden_fact_refs, open_threads, source_ref, source_excerpt,
-        warnings_json, status, applied_scene_id, created_at, reviewed_at
+        conflict, turning_point, outcome, required_canon_ids, required_canon_raw,
+        forbidden_fact_refs, information_delta, character_state_delta,
+        story_thread_actions, open_threads, source_ref, source_excerpt,
+        warnings_json, blocking_errors_json, status, applied_scene_id, created_at, reviewed_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', '', ?, '')
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', '', ?, '')
 """
 
 

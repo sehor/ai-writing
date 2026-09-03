@@ -23,7 +23,8 @@ from app.data.repositories.projects import project_from_row
 from app.data.repositories.review import reference_suggestion_from_row, writeback_proposal_from_row
 from app.data.repositories.scene_proposals import scene_proposal_from_row
 from app.data.repositories.scenes import scene_contract_from_row
-from app.data.repositories.snowflake import artifact_from_row
+from app.data.repositories.snowflake import artifact_from_row, head_from_row, revision_from_row
+from app.data.repositories.snowflake_records import record_head_from_row, record_revision_from_row
 from app.models import CharacterKnowledge
 
 
@@ -34,6 +35,10 @@ def _character_knowledge(row):
 RECORD_READERS = {
     "projects": project_from_row,
     "snowflake_artifacts": artifact_from_row,
+    "snowflake_artifact_revisions": revision_from_row,
+    "snowflake_artifact_heads": head_from_row,
+    "snowflake_record_revisions": record_revision_from_row,
+    "snowflake_record_heads": record_head_from_row,
     "canon_entities": canon_entity_from_row,
     "manuscript_chapters": manuscript_chapter_from_row,
     "scene_contracts": scene_contract_from_row,

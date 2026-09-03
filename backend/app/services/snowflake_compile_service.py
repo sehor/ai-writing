@@ -13,6 +13,7 @@ and an explicit re-run supersedes stale pending proposals.
 """
 
 from dataclasses import dataclass
+import re
 
 from app.analysis.service import AnalysisService, compute_input_hash
 from app.data import WritingDataStore
@@ -23,6 +24,7 @@ from app.models import (
     SceneProposal,
     SceneProposalCreate,
     SceneProposalStatus,
+    WritebackProposalCreate,
 )
 from app.snowflake_compiler import (
     CANON_EXTRACT_STEP,
@@ -35,6 +37,10 @@ from app.snowflake_compiler import (
 
 CANON_EXTRACTOR_PROCESSOR = "local_canon_extractor"
 SCENE_PARSER_PROCESSOR = "local_scene_parser"
+THREAD_ACTION_RE = re.compile(
+    r"^(plant|reinforce|misdirect|escalate|partial_payoff|payoff)\s*[:|\-]\s*(.+)$",
+    re.IGNORECASE,
+)
 
 
 @dataclass
@@ -194,6 +200,12 @@ class SnowflakeCompileService:
                     run_version=run.run_version,
                     warnings=run.result_json.get("warnings", []),
                     proposals=proposals,
+                    thread_proposals=[
+                        proposal
+                        for proposal_id in run.result_json.get("thread_proposal_ids", [])
+                        if (proposal := self.data_store.get_writeback_proposal(project_id, proposal_id))
+                        is not None
+                    ],
                 )
 
         try:
@@ -226,16 +238,37 @@ class SnowflakeCompileService:
                 goal=scene.goal,
                 conflict=scene.conflict,
                 turning_point=scene.turning_point,
+                outcome=scene.outcome,
                 required_canon_ids=",".join(getattr(scene, "resolved_canon_ids", [])),
                 required_canon_raw="\n".join(scene.required_canon_names),
                 forbidden_fact_refs=scene.forbidden_fact_refs,
+                information_delta=scene.information_delta,
+                character_state_delta=scene.character_state_delta,
+                story_thread_actions=scene.story_thread_actions,
                 open_threads=scene.open_threads,
                 source_ref=source_ref,
                 source_excerpt=scene.source_excerpt,
                 warnings=scene.warnings,
+                blocking_errors=scene.blocking_errors,
             )
             for scene in outcome.scenes
         ]
+        known_thread_titles = {
+            thread.title.strip().lower()
+            for thread in self.data_store.list_story_threads(project_id)
+        }
+        for create in creates:
+            for raw in create.story_thread_actions.splitlines():
+                match = THREAD_ACTION_RE.match(raw.strip())
+                if (
+                    match
+                    and match.group(1).lower() != "plant"
+                    and match.group(2).strip().lower() not in known_thread_titles
+                ):
+                    create.blocking_errors.append(
+                        f"StoryThread '{match.group(2).strip()}' must exist before "
+                        f"the '{match.group(1).lower()}' action can be accepted."
+                    )
 
         with self.data_store.connect() as connection:
             if force:
@@ -247,6 +280,10 @@ class SnowflakeCompileService:
             created = self.data_store.create_scene_proposals(
                 project_id, creates, connection=connection
             )
+            thread_creates = self._thread_proposal_creates(project_id, created)
+            thread_proposals = self.data_store.create_writeback_proposals(
+                project_id, thread_creates, connection=connection
+            )
             run = self.data_store.record_analysis_run(
                 connection,
                 project_id=project_id,
@@ -256,6 +293,7 @@ class SnowflakeCompileService:
                 status="succeeded",
                 result_json={
                     "proposal_ids": [proposal.id for proposal in created],
+                    "thread_proposal_ids": [proposal.id for proposal in thread_proposals],
                     "warnings": outcome.warnings,
                 },
             )
@@ -269,7 +307,66 @@ class SnowflakeCompileService:
             run_version=run.run_version,
             warnings=outcome.warnings,
             proposals=created,
+            thread_proposals=thread_proposals,
         )
+
+    def _thread_proposal_creates(
+        self, project_id: str, scenes: list[SceneProposal]
+    ) -> list[WritebackProposalCreate]:
+        existing = {
+            thread.title.strip().lower(): thread
+            for thread in self.data_store.list_story_threads(project_id)
+        }
+        proposed_titles: set[str] = set()
+        result: list[WritebackProposalCreate] = []
+        for scene in scenes:
+            for raw in scene.story_thread_actions.splitlines():
+                match = THREAD_ACTION_RE.match(raw.strip())
+                if not match:
+                    continue
+                action = match.group(1).lower()
+                title = match.group(2).strip()
+                key = title.lower()
+                thread = existing.get(key)
+                if thread is None and action != "plant":
+                    continue
+                if thread is None and key not in proposed_titles:
+                    result.append(
+                        WritebackProposalCreate(
+                            target="story_thread",
+                            action="create",
+                            title=f"Create StoryThread: {title}",
+                            rationale=f"Step 8 scene {scene.sequence} references this thread.",
+                            source_ref=scene.source_ref,
+                            payload={
+                                "thread_type": "foreshadow",
+                                "title": title,
+                                "status": "planned",
+                                "planted_at": scene.sequence if action == "plant" else None,
+                                "importance": 3,
+                                "reveal_constraints": "",
+                            },
+                        )
+                    )
+                    proposed_titles.add(key)
+                result.append(
+                    WritebackProposalCreate(
+                        target="story_thread_event",
+                        action="create",
+                        title=f"{action.replace('_', ' ').title()} thread: {title}",
+                        rationale=f"Step 8 scene {scene.sequence} proposes a thread event.",
+                        source_ref=scene.source_ref,
+                        target_record_id=thread.id if thread else "",
+                        payload={
+                            "thread_title": title,
+                            "scene_id": scene.id,
+                            "scene_proposal_id": scene.id,
+                            "action": action,
+                            "note": scene.source_excerpt,
+                        },
+                    )
+                )
+        return result
 
     # ------------------------------------------------------------------
     # Review of parsed scene proposals

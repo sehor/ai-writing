@@ -26,6 +26,7 @@ from app.data.repositories.scene_proposals import (
     SceneProposalNotFoundError,
     SceneProposalReviewedError,
     SceneProposalRepository,
+    SceneProposalQualityError,
     SceneSequenceConflictError,
     merge_required_canon,
     step_from_source_ref,
@@ -44,8 +45,32 @@ from app.models import (
     SceneContractCreate,
     SceneProposal,
     SnowflakeArtifact,
+    SnowflakeArtifactHead,
+    SnowflakeArtifactRevision,
+    StoryThreadCreate,
+    StoryThreadEventCreate,
     WritebackProposal,
 )
+from app.snowflake.dependencies import downstream_steps
+from app.snowflake.validators import validate_snowflake_payload
+
+
+class SnowflakeRevisionNotFoundError(LookupError):
+    pass
+
+
+class SnowflakeRevisionStateError(ValueError):
+    pass
+
+
+class SnowflakeHeadConflictError(ValueError):
+    pass
+
+
+class SnowflakeRevisionValidationError(ValueError):
+    def __init__(self, report):
+        self.report = report
+        super().__init__("Snowflake revision has blocking validation findings.")
 from app.outbox.handlers import (
     manuscript_revision_analysis_payload,
     manuscript_revision_index_payload,
@@ -83,6 +108,86 @@ def enqueue_snowflake_index_job(
         ),
     )
     return saved, job_id
+
+
+def decide_snowflake_revision(
+    connection: sqlite3.Connection,
+    *,
+    project_id: str,
+    revision_id: str,
+    decision: str,
+    expected_head_revision_id: str,
+    review_reason: str = "",
+) -> tuple[SnowflakeArtifactRevision, SnowflakeArtifactHead, list[int], str]:
+    """Review a revision; acceptance is the sole Snowflake commit point."""
+    snowflake = SnowflakeRepository(connection)
+    revision = snowflake.get_revision(project_id, revision_id)
+    if revision is None:
+        raise SnowflakeRevisionNotFoundError("Snowflake revision not found.")
+    head = snowflake.get_head(project_id, revision.step_number)
+    if decision == "accepted" and (
+        head.accepted_revision_id != expected_head_revision_id
+        or revision.base_head_revision_id != expected_head_revision_id
+    ):
+        raise SnowflakeHeadConflictError(
+            "Snowflake accepted head changed; reload the step before accepting this revision."
+        )
+    if revision.status == decision:
+        return revision, head, [], ""
+    if revision.status not in {"draft", "pending_review"}:
+        raise SnowflakeRevisionStateError(
+            f"Snowflake revision in status '{revision.status}' cannot be reviewed."
+        )
+    if decision == "rejected":
+        rejected = snowflake.set_revision_status(
+            project_id,
+            revision_id,
+            "rejected",
+            review_reason=review_reason,
+        )
+        return rejected, head, [], ""
+    if decision != "accepted":
+        raise SnowflakeRevisionStateError(f"Unsupported Snowflake decision: {decision}")
+
+    validation = validate_snowflake_payload(
+        revision.step_number,
+        revision.content,
+        revision.structured_payload,
+    )
+    if validation.status == "failed":
+        raise SnowflakeRevisionValidationError(validation)
+
+    accepted = snowflake.set_revision_status(
+        project_id,
+        revision_id,
+        "accepted",
+        review_reason=review_reason,
+    )
+    accepted_head = snowflake.accept_revision(accepted)
+    accepted_projection = SnowflakeArtifact(
+        project_id=project_id,
+        step_number=accepted.step_number,
+        artifact=accepted.artifact_type,
+        content=accepted.content,
+    )
+    snowflake.save(accepted_projection)
+    ProjectRepository(connection).advance_current_step(project_id, accepted.step_number)
+    affected = list(downstream_steps(accepted.step_number))
+    snowflake.mark_stale(
+        project_id,
+        tuple(affected),
+        reason=f"Step {accepted.step_number} accepted head changed.",
+        trigger_revision_id=accepted.id,
+    )
+    job_id = OutboxRepository(connection).insert(
+        project_id=project_id,
+        job_type="llm_wiki_ingest",
+        aggregate_type="snowflake_artifact_revision",
+        aggregate_id=accepted.id,
+        payload=snowflake_index_payload(accepted_projection),
+        idempotency_key=f"llm_wiki_ingest:snowflake_revision:{accepted.id}",
+    )
+    return accepted, accepted_head, affected, job_id
 
 
 def enqueue_manuscript_revision_index_job(
@@ -391,6 +496,11 @@ def accept_scene_proposals(
     chapter_ids = {chapter.id for chapter in chapters_repo.list_chapters(project_id)}
     seen_sequences: dict[int, str] = {}
     for proposal in ordered:
+        if proposal.blocking_errors:
+            raise SceneProposalQualityError(
+                f"Scene proposal '{proposal.id}' is blocked: "
+                + "; ".join(proposal.blocking_errors)
+            )
         if proposal.sequence in seen_sequences:
             raise SceneSequenceConflictError(
                 f"Proposals '{seen_sequences[proposal.sequence]}' and "
@@ -425,8 +535,12 @@ def accept_scene_proposals(
                 goal=proposal.goal,
                 conflict=proposal.conflict,
                 turning_point=proposal.turning_point,
+                outcome=proposal.outcome,
                 required_canon=merge_required_canon(proposal),
                 forbidden_facts=proposal.forbidden_fact_refs,
+                information_delta=proposal.information_delta,
+                character_state_delta=proposal.character_state_delta,
+                story_thread_actions=proposal.story_thread_actions,
                 open_threads=proposal.open_threads,
                 source_artifact_step=step_from_source_ref(proposal.source_ref),
             ),
@@ -481,6 +595,36 @@ def accept_writeback_proposal(
 
     if proposal.target == "story_thread_status":
         applied = _apply_story_thread_status_proposal(connection, project_id, proposal)
+    elif proposal.target == "story_thread":
+        applied = NarrativeRepository(connection).create_thread(
+            project_id, StoryThreadCreate.model_validate(proposal.payload)
+        )
+    elif proposal.target == "story_thread_event":
+        narrative = NarrativeRepository(connection)
+        thread_id = proposal.target_record_id
+        if not thread_id:
+            thread_title = str(proposal.payload.get("thread_title", "")).strip().lower()
+            matches = [
+                thread for thread in narrative.list_threads(project_id)
+                if thread.title.strip().lower() == thread_title
+            ]
+            if len(matches) != 1:
+                raise WritebackTargetMissingError(thread_title or "unresolved-thread")
+            thread_id = matches[0].id
+        event_payload = {
+            key: value
+            for key, value in proposal.payload.items()
+            if key not in {"thread_title", "scene_proposal_id"}
+        }
+        scene_proposal_id = str(proposal.payload.get("scene_proposal_id", "")).strip()
+        if scene_proposal_id:
+            scene_proposal = SceneProposalRepository(connection).get(project_id, scene_proposal_id)
+            if scene_proposal is None or not scene_proposal.applied_scene_id:
+                raise WritebackTargetMissingError(scene_proposal_id)
+            event_payload["scene_id"] = scene_proposal.applied_scene_id
+        applied = narrative.add_thread_event(
+            project_id, thread_id, StoryThreadEventCreate.model_validate(event_payload)
+        )
     elif proposal.action == "update":
         applied = _apply_canon_update_proposal(canon_repo, project_id, proposal)
     elif proposal.target == "canon_entity":

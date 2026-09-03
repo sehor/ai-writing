@@ -10,6 +10,105 @@ export type SnowflakeStep = {
   title: string
   artifact: string
   description: string
+  dependencies: number[]
+  optional: boolean
+  schema_version: number
+  validator_name: string
+  virtual: boolean
+}
+
+export type SnowflakeRevisionStatus =
+  | 'draft'
+  | 'pending_review'
+  | 'accepted'
+  | 'rejected'
+  | 'superseded'
+  | 'legacy_draft'
+
+export type SnowflakeHeadState = 'missing' | 'approved' | 'stale' | 'skipped'
+
+export type SnowflakeArtifactRevision = {
+  id: string
+  project_id: string
+  step_number: number
+  artifact_type: string
+  revision_no: number
+  source: 'human' | 'ai' | 'legacy' | 'import' | 'restore'
+  status: SnowflakeRevisionStatus
+  content: string
+  structured_payload: Record<string, unknown>
+  schema_version: number
+  parent_revision_id: string
+  base_head_revision_id: string
+  upstream_snapshot: Record<string, string>
+  review_reason: string
+  created_at: string
+  reviewed_at: string
+}
+
+export type SnowflakeStepState = {
+  step: SnowflakeStep
+  state: SnowflakeHeadState
+  accepted_revision: SnowflakeArtifactRevision | null
+  pending_count: number
+  stale_reason: string
+  stale_trigger_revision_id: string
+}
+
+export type SnowflakeRevisionPage = {
+  data: SnowflakeArtifactRevision[]
+  page: number
+  page_size: number
+  total_items: number
+  total_pages: number
+}
+
+export type SnowflakeRecordRevision = {
+  id: string
+  project_id: string
+  step_number: number
+  record_id: string
+  position: number
+  revision_no: number
+  source: 'human' | 'ai' | 'legacy' | 'import' | 'restore'
+  status: SnowflakeRevisionStatus
+  payload: Record<string, unknown>
+  base_revision_id: string
+  review_reason: string
+  created_at: string
+  reviewed_at: string
+}
+
+export type SnowflakeRecordPage = {
+  data: SnowflakeRecordRevision[]
+  page: number
+  page_size: number
+  total_items: number
+  total_pages: number
+}
+
+export type SnowflakeRevisionDecisionResponse = {
+  revision: SnowflakeArtifactRevision
+  head: {
+    project_id: string
+    step_number: number
+    accepted_revision_id: string
+    state: SnowflakeHeadState
+    stale_reason: string
+    stale_trigger_revision_id: string
+  }
+  affected_steps: number[]
+  outbox_job_id: string
+}
+
+export type SnowflakeManuscriptProgress = {
+  project_id: string
+  total_scene_contracts: number
+  pending_manuscript_proposals: number
+  accepted_latest_revisions: number
+  stale_scene_count: number
+  completion_percent: number
+  complete: boolean
 }
 
 export type SnowflakeArtifact = {
@@ -27,6 +126,7 @@ export type WorkflowAgentTrace = {
 
 export type SnowflakeGenerationResponse = SnowflakeArtifact & {
   workflow_trace: WorkflowAgentTrace[]
+  revision: SnowflakeArtifactRevision | null
 }
 
 export type CanonEntityType = 'character' | 'location' | 'item' | 'faction' | 'rule'
@@ -60,8 +160,12 @@ export type SceneContract = {
   goal: string
   conflict: string
   turning_point: string
+  outcome: string
   required_canon: string
   forbidden_facts: string
+  information_delta: string
+  character_state_delta: string
+  story_thread_actions: string
   open_threads: string
   source_artifact_step: number
 }
@@ -82,13 +186,18 @@ export type SceneProposal = {
   goal: string
   conflict: string
   turning_point: string
+  outcome: string
   required_canon_ids: string
   required_canon_raw: string
   forbidden_fact_refs: string
+  information_delta: string
+  character_state_delta: string
+  story_thread_actions: string
   open_threads: string
   source_ref: string
   source_excerpt: string
   warnings: string[]
+  blocking_errors: string[]
   status: SceneProposalStatus
   applied_scene_id: string
   created_at: string
@@ -121,6 +230,7 @@ export type SceneParseReport = {
   run_version: number
   warnings: string[]
   proposals: SceneProposal[]
+  thread_proposals: WritebackProposal[]
 }
 
 export type SceneProposalAcceptanceReport = {
@@ -220,7 +330,13 @@ export type ManuscriptExport = {
 export type ReviewStatus = 'pending_review' | 'accepted' | 'rejected' | 'superseded'
 
 export type WritebackProposalStatus = ReviewStatus
-export type WritebackTarget = 'canon_entity' | 'memory_record' | 'narrative_relation' | 'story_thread_status'
+export type WritebackTarget =
+  | 'canon_entity'
+  | 'memory_record'
+  | 'narrative_relation'
+  | 'story_thread'
+  | 'story_thread_event'
+  | 'story_thread_status'
 export type StoryThreadStatus = 'planned' | 'planted' | 'developing' | 'dormant' | 'paid_off' | 'abandoned'
 export type StoryThread = {
   id: string; project_id: string; title: string; thread_type: string
@@ -440,6 +556,7 @@ export type BackupPreviewSummary = {
   legacy_incomplete: boolean
   can_overwrite: boolean
   warnings: string[]
+  blocking_errors: string[]
   project: {
     id: string
     title: string
