@@ -1,10 +1,24 @@
 # Snowflake Method 业务闭环改进执行计划
 
-- 状态：Proposed，等待人工评审
+- 状态：Implemented；兼容接口的物理删除待人工确认
 - 编写日期：2026-09-03
-- 审查基线：`HEAD 967bb82`，包含审查时已有的未提交前端改动
-- 审查方式：静态代码审查；未运行测试，未修改业务代码
+- 设计审查基线：`967bb82`
+- 实施提交：`7d601b6`、`af47f26`、`c4aa732`
+- 验证基线：后端 263 项测试、前端 31 项 Node 测试和 27 项 Vitest 测试通过；Python compileall、ESLint、前端 build 通过
 - 文档关系：本计划是 `docs/ai-writing-improvement-plan.md` 的 Snowflake 专项补充，不替代已有的全局改进路线图
+
+## 0. 实施状态
+
+P0–P5 与 SF-601/SF-602 已完成。SF-603 已完成运行时兼容收口：旧接口标记弃用，`snowflake_artifacts` 只作为 accepted projection 更新，Step 10 旧正文保留为 `legacy_draft`，`open_threads` 不再作为生成依据，未执行的检查不再伪装成 reviewer 成功。
+
+以下项目有意保留，不能视为未完成缺陷：
+
+- 旧 Snowflake generate/artifact PUT 与 Manuscript status-accept 接口继续提供迁移期兼容；
+- `open_threads` 字段继续支持历史备份读取，但不参与新生成；
+- Step 10 `legacy_draft` 继续只读保留，并只能由作者选段导入为待审核 Manuscript proposal；
+- 上述兼容面的物理删除需要项目负责人确认历史备份支持周期和客户端迁移完成情况。
+
+第 4 节记录的是 `967bb82` 时点的历史审查证据，用于解释本计划来源，不代表当前实现状态。
 
 ## 1. 目标
 
@@ -859,36 +873,34 @@ rtk pnpm build
 
 全部完成必须同时满足：
 
-- [ ] AI generation 只创建 `pending_review` revision。
-- [ ] 每个 Snowflake 步骤拥有不可变修订历史和 accepted head。
-- [ ] 上游 accepted revision 变化会传递标记下游 stale。
-- [ ] UI 不再把存在记录简单等同于 Saved/Approved。
-- [ ] Step 2、3、4、7、8 拥有明确且可验证的结构化契约。
-- [ ] Step 9 可以显式跳过。
-- [ ] 第 6–9 步支持记录式分页和局部生成。
-- [ ] Scene Contract 的关键字段缺失会阻止接受。
-- [ ] Step 8 可以创建可审核的 StoryThread/Event proposal。
-- [ ] Manuscript 生成能读取已接受的 StoryThread 和线程事件。
-- [ ] Snowflake Step 10 不再产生独立 manuscript blob。
-- [ ] Step 10 完成度来自 accepted ManuscriptRevision 覆盖率。
-- [ ] consistency reviewer 返回真实 findings，critical 问题在接受前可见。
-- [ ] 旧 Step 1–9 内容无损迁移，旧 Step 10 内容可恢复且不被自动批准。
-- [ ] 后端测试、前端测试、编译和构建全部通过。
+- [x] AI generation 只创建 `pending_review` revision。
+- [x] 每个 Snowflake 步骤拥有不可变修订历史和 accepted head。
+- [x] 上游 accepted revision 变化会传递标记下游 stale。
+- [x] UI 不再把存在记录简单等同于 Saved/Approved。
+- [x] Step 2、3、4、7、8 拥有明确且可验证的结构化契约。
+- [x] Step 9 可以显式跳过。
+- [x] 第 6–9 步支持记录式分页和局部生成。
+- [x] Scene Contract 的关键字段缺失会阻止接受。
+- [x] Step 8 可以创建可审核的 StoryThread/Event proposal。
+- [x] Manuscript 生成能读取已接受的 StoryThread 和线程事件。
+- [x] Snowflake Step 10 不再产生独立 manuscript blob。
+- [x] Step 10 完成度来自 accepted ManuscriptRevision 覆盖率。
+- [x] consistency reviewer 返回真实 findings，critical 问题在接受前可见。
+- [x] 旧 Step 1–9 内容无损迁移，旧 Step 10 内容可恢复且不被自动批准。
+- [x] 后端测试、前端测试、编译和构建全部通过。
 
-## 16. 开放问题
+## 16. 已采用的实施决策
 
-实施前需要确认：
-
-1. 人工编辑后的 Save 是否只创建 draft，还是允许提供单独的 `Save and approve` 快捷操作？推荐默认只保存 draft。
-2. 哪些 Scene Contract 缺项属于 critical？推荐 POV、Goal、Conflict、Turning Point、Outcome 和未解析 Required Canon 为 critical。
-3. critical finding 是否允许 override？推荐允许，但要求理由，并记录操作者与时间。
-4. 旧 Step 10 Artifact 是否需要提供半自动场景切分预览？推荐作为迁移后的独立任务，不阻塞主链合流。
-5. stale 是否首版只做步骤级，还是直接实现记录级？推荐首版步骤级，Step 6–9 记录式存储稳定后再细化到记录级。
-6. 第 7 步的非人物世界资料应继续作为同一步的相邻记录，还是迁移到独立 World Bible？推荐首版保留相邻记录，但不再称其为 Character Profile。
+1. 人工 Save 只创建 draft；批准使用独立 Accept 操作。
+2. Scene Contract 关键字段和未解析 Required Canon 由服务端 blocking quality gate 判定。
+3. 当前不提供 critical finding override；作者必须修订内容后再接受。未来若增加 override，必须单独设计理由、操作者和时间审计。
+4. 旧 Step 10 Artifact 采用人工选段并导入 pending Manuscript proposal，不做自动切分或自动批准。
+5. stale 主链保持步骤级；Step 6–9 的内容存储和生成粒度为记录级。
+6. 第 7 步世界资料保留为相邻的 World Bible record，与 Character Profile/Canon 写回边界分离。
 
 ## 17. 首批执行清单
 
-在文档获批后，按以下顺序开始：
+首批任务已按以下顺序完成：
 
 1. SF-001：建立 SnowflakeStepSpec。
 2. SF-002：修复 lifespan-aware compiler route test fixture。
@@ -896,4 +908,4 @@ rtk pnpm build
 4. SF-102：实现 pending -> accepted/rejected 事务。
 5. SF-103：前端切换到明确的 revision review 状态。
 
-完成这五项并通过阶段验收后，再进入 stale、结构化契约和 Step 10 合流。
+这五项已通过阶段验收，后续 stale、结构化契约和 Step 10 合流也已完成。
