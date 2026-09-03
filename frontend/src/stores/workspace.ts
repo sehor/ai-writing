@@ -94,10 +94,16 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         fetchApi('/snowflake/workflow/status'),
       ])
       const health = await healthResponse.json()
-      projectsStore.projects = await projectsResponse.json()
+      const loadedProjects = await projectsResponse.json()
+      const mergedProjects = new Map(
+        [...loadedProjects, ...projectsStore.projects].map((project) => [project.id, project])
+      )
+      projectsStore.projects = [...mergedProjects.values()]
       snowflake.steps = await stepsResponse.json()
       workflowRuntime.value = await runtimeResponse.json()
-      activeProjectId.value = projectsStore.projects[0]?.id ?? ''
+      if (!activeProjectId.value) {
+        activeProjectId.value = projectsStore.projects[0]?.id ?? ''
+      }
       activeStepNumber.value = activeProject.value?.current_step ?? 1
       apiStatus.value = health.status
     } catch {

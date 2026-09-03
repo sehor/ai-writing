@@ -84,8 +84,7 @@ button {
   gap: 8px;
 }
 
-.nav button,
-.project-list button {
+.nav button {
   padding: 11px 12px;
   border-radius: 8px;
   color: #dce4e8;
@@ -94,9 +93,7 @@ button {
 }
 
 .nav button.active,
-.nav button:hover,
-.project-list button.active,
-.project-list button:hover {
+.nav button:hover {
   background: #273449;
 }
 
@@ -105,26 +102,12 @@ button {
   opacity: 0.45;
 }
 
-.project-list {
-  display: grid;
-  gap: 8px;
-}
-
 .section-label {
   margin: 0 0 2px;
   color: #9da9b5;
   font-size: 12px;
   font-weight: 700;
   text-transform: uppercase;
-}
-
-.project-list button {
-  display: grid;
-  gap: 3px;
-}
-
-.project-list small {
-  color: #aeb8c2;
 }
 
 .backup-panel {
@@ -258,6 +241,13 @@ button {
   line-height: 1.5;
 }
 
+.topbar-notice {
+  margin: 8px 0 0;
+  color: #24533f;
+  font-size: 13px;
+  font-weight: 700;
+}
+
 .eyebrow {
   margin-bottom: 5px;
   font-size: 12px;
@@ -327,7 +317,147 @@ button {
   color: #8f271d;
 }
 
-.create-project,
+.secondary:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.project-dialog-trigger {
+  white-space: nowrap;
+}
+
+.project-dialog {
+  width: min(640px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 0;
+  border: 1px solid #ccd5cf;
+  border-radius: 10px;
+  color: #1f2933;
+  background: #f6f7f4;
+  box-shadow: 0 24px 70px rgb(24 33 47 / 28%);
+}
+
+.project-dialog::backdrop {
+  background: rgb(24 33 47 / 58%);
+}
+
+.project-dialog-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px;
+  border-bottom: 1px solid #d8ded9;
+  background: #ffffff;
+}
+
+.project-dialog-header h2 {
+  margin: 0;
+  font-size: 21px;
+}
+
+.dialog-close {
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
+  color: #43515c;
+  background: transparent;
+  cursor: pointer;
+  font-size: 25px;
+  line-height: 1;
+}
+
+.dialog-close:hover {
+  background: #edf1ee;
+}
+
+.dialog-close:focus-visible,
+.project-picker-list button:focus-visible,
+.project-create-disclosure summary:focus-visible {
+  outline: 3px solid #cfe8da;
+  outline-offset: 2px;
+}
+
+.project-dialog-body {
+  display: grid;
+  gap: 18px;
+  padding: 22px 24px 24px;
+  overflow-y: auto;
+}
+
+.project-picker-list {
+  display: grid;
+  gap: 8px;
+  padding: 0;
+  margin: 0;
+  list-style: none;
+}
+
+.project-picker-list button {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 18px;
+  width: 100%;
+  padding: 13px 14px;
+  border: 1px solid #d8ded9;
+  border-radius: 8px;
+  color: #1f2933;
+  text-align: left;
+  background: #ffffff;
+  cursor: pointer;
+}
+
+.project-picker-list button:hover {
+  border-color: #7da991;
+  background: #f1f7f3;
+}
+
+.project-picker-list button.current {
+  border-color: #5a9d80;
+  box-shadow: inset 3px 0 0 #5a9d80;
+}
+
+.project-picker-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.project-picker-copy small {
+  overflow: hidden;
+  color: #687681;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-picker-step {
+  color: #24533f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.empty-projects {
+  margin: 0;
+  color: #687681;
+}
+
+.project-create-disclosure {
+  border-top: 1px solid #d8ded9;
+  padding-top: 16px;
+}
+
+.project-create-disclosure summary {
+  width: max-content;
+  color: #24533f;
+  cursor: pointer;
+  font-weight: 700;
+}
+
+.project-dialog-form {
+  margin-top: 16px;
+}
+
 .pipeline,
 .artifact-editor,
 .canon-workspace,
@@ -338,13 +468,6 @@ button {
   border-top: 1px solid #d8ded9;
 }
 
-.create-project {
-  display: grid;
-  grid-template-columns: minmax(180px, 280px) minmax(0, 1fr);
-  gap: 24px;
-}
-
-.create-project h3,
 .pipeline h3,
 .artifact-editor h3,
 .canon-workspace h3,
@@ -402,6 +525,12 @@ textarea:focus {
   color: #9a2d20;
 }
 
+.success {
+  margin: 0;
+  color: #24533f;
+  font-weight: 700;
+}
+
 .step-chip {
   color: #24533f;
   background: #dcefe4;
@@ -416,10 +545,7 @@ textarea:focus {
 }
 
 .steps li {
-  display: grid;
-  grid-template-columns: 42px 1fr;
-  gap: 14px;
-  padding: 14px;
+  padding: 0;
   border: 1px solid #dce3dd;
   border-radius: 8px;
   background: #ffffff;
@@ -435,12 +561,22 @@ textarea:focus {
 }
 
 .step-selector {
-  width: 42px;
-  height: 42px;
-  padding: 3px;
+  display: grid;
+  grid-template-columns: 42px minmax(0, 1fr);
+  align-items: start;
+  gap: 14px;
+  width: 100%;
+  min-height: 70px;
+  padding: 14px;
   border-radius: 8px;
+  color: inherit;
+  text-align: left;
   background: transparent;
   cursor: pointer;
+}
+
+.step-selector:hover {
+  background: #f5f8f6;
 }
 
 .step-selector:focus-visible {
@@ -458,8 +594,70 @@ textarea:focus {
   font-weight: 700;
 }
 
-.steps h4 {
+.step-copy {
+  display: grid;
+  gap: 3px;
+}
+
+.step-copy strong {
   font-size: 16px;
+}
+
+.step-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.selected-step-label {
+  border-radius: 999px;
+  padding: 3px 8px;
+  color: #24533f;
+  background: #dcefe4;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.open-step-label {
+  color: #687681;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.step-copy > span {
+  color: #687681;
+}
+
+.step-copy > .step-heading {
+  color: #1f2933;
+}
+
+.step-workspace-header {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 24px;
+  padding: 24px 0;
+  border-top: 1px solid #d8ded9;
+}
+
+.step-workspace-title h3 {
+  margin: 0;
+  font-size: 24px;
+}
+
+.step-workspace-title > p:last-child {
+  max-width: 720px;
+  margin: 7px 0 0;
+  color: #687681;
+  line-height: 1.5;
+}
+
+.step-navigation {
+  display: flex;
+  gap: 8px;
 }
 
 .steps p {
@@ -1101,13 +1299,11 @@ code {
 
   .topbar,
   .panel-header,
-  .create-project,
   .form-actions {
     align-items: flex-start;
     flex-direction: column;
   }
 
-  .create-project,
   .canon-grid,
   .canon-fields,
   .chapter-grid,
@@ -1124,5 +1320,29 @@ code {
   .trace-list li {
     display: flex;
     flex-direction: column;
+  }
+
+  .status-stack {
+    justify-content: flex-start;
+  }
+
+  .project-dialog-header,
+  .project-dialog-body {
+    padding-right: 18px;
+    padding-left: 18px;
+  }
+
+  .project-picker-list button {
+    grid-template-columns: 1fr;
+    gap: 8px;
+  }
+
+  .step-workspace-header {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+
+  .step-navigation {
+    justify-content: space-between;
   }
 }

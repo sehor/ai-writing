@@ -171,7 +171,7 @@ async function killProcessTree(child, { label = 'child process' } = {}) {
     if (process.platform === 'win32') {
       try {
         spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' })
-          .once('exit', settle)
+          .once('error', () => child.kill())
       } catch {
         child.kill()
       }

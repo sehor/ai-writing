@@ -1,13 +1,11 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useSnowflakeStore } from '../stores/snowflake'
-import { useProjectsStore } from '../stores/projects'
 
 const workspace = useWorkspaceStore()
 const snowflake = useSnowflakeStore()
-const projectsStore = useProjectsStore()
 const {
   activeStepNumber,
   activeStep,
@@ -32,14 +30,6 @@ const {
   sceneProposalStatus
 } = storeToRefs(snowflake)
 const {
-  newProject,
-  isCreating,
-  createError
-} = storeToRefs(projectsStore)
-const {
-  createProject
-} = projectsStore
-const {
   saveArtifact,
   generateArtifact,
   compileStepArtifact,
@@ -50,6 +40,18 @@ const {
 const {
   selectStep
 } = workspace
+
+const isStepWorkspaceOpen = ref(false)
+
+function openStep(stepNumber: number) {
+  selectStep(stepNumber)
+  isStepWorkspaceOpen.value = true
+}
+
+function moveStep(offset: number) {
+  const nextStep = steps.value.find((step) => step.number === activeStepNumber.value + offset)
+  if (nextStep) selectStep(nextStep.number)
+}
 
 const compilerStep = computed(() => {
   const number = activeStep.value?.number ?? 0
@@ -74,44 +76,13 @@ function statusLabel(status: string): string {
 </script>
 
 <template>
-<section
-        class="create-project"
-        aria-labelledby="create-project-title"
-      >
-        <div>
-          <p class="eyebrow">New Project</p>
-          <h3 id="create-project-title">Start a Snowflake draft</h3>
-        </div>
-
-        <form @submit.prevent="createProject">
-          <label>
-            <span>Title</span>
-            <input v-model="newProject.title" autocomplete="off" placeholder="The Glass City" />
-          </label>
-          <label>
-            <span>Premise</span>
-            <textarea
-              v-model="newProject.premise"
-              rows="3"
-              placeholder="A disgraced cartographer discovers the city map is rewriting its people."
-            />
-          </label>
-          <div class="form-actions">
-            <p v-if="createError" class="error">{{ createError }}</p>
-            <button class="primary" type="submit" :disabled="isCreating">
-              {{ isCreating ? 'Creating...' : 'Create Project' }}
-            </button>
-          </div>
-        </form>
-      </section>
-
-      <section class="pipeline">
+      <section v-if="!isStepWorkspaceOpen" class="pipeline">
         <div class="panel-header">
           <div>
             <p class="eyebrow">Compiler Pipeline</p>
             <h3>Snowflake Method</h3>
           </div>
-          <span class="step-chip">Current step {{ activeProject?.current_step ?? 1 }}</span>
+          <span class="step-chip">{{ artifacts.length }} saved</span>
         </div>
 
         <ol class="steps">
@@ -127,17 +98,55 @@ function statusLabel(status: string): string {
               class="step-selector"
               type="button"
               :aria-label="`Open step ${step.number}: ${step.title}`"
-              @click="selectStep(step.number)"
+              :aria-current="step.number === activeStepNumber ? 'step' : undefined"
+              @click="openStep(step.number)"
             >
               <span class="step-number">{{ step.number }}</span>
+              <span class="step-copy">
+                <span class="step-heading">
+                  <strong>{{ step.title }}</strong>
+                  <span
+                    v-if="artifacts.some((artifact) => artifact.step_number === step.number)"
+                    class="selected-step-label"
+                  >Saved</span>
+                  <span v-else class="open-step-label">Open</span>
+                </span>
+                <span>{{ step.description }}</span>
+                <code>{{ step.artifact }}</code>
+              </span>
             </button>
-            <div>
-              <h4>{{ step.title }}</h4>
-              <p>{{ step.description }}</p>
-              <code>{{ step.artifact }}</code>
-            </div>
           </li>
         </ol>
+      </section>
+
+      <template v-else>
+      <section class="step-workspace-header" aria-labelledby="step-workspace-title">
+        <button class="secondary back-to-steps" type="button" @click="isStepWorkspaceOpen = false">
+          &larr; All Snowflake steps
+        </button>
+        <div class="step-workspace-title">
+          <p class="eyebrow">Snowflake Method &middot; Step {{ activeStepNumber }} of {{ steps.length }}</p>
+          <h3 id="step-workspace-title">{{ activeStep?.title ?? 'Snowflake Step' }}</h3>
+          <p>{{ activeStep?.description }}</p>
+        </div>
+        <div class="step-navigation" aria-label="Step navigation">
+          <button
+            class="secondary"
+            type="button"
+            :disabled="activeStepNumber <= 1"
+            @click="moveStep(-1)"
+          >
+            Previous
+          </button>
+          <button
+            class="secondary"
+            type="button"
+            :disabled="activeStepNumber >= steps.length"
+            @click="moveStep(1)"
+          >
+            Next
+          </button>
+        </div>
       </section>
 
       <section
@@ -356,6 +365,7 @@ function statusLabel(status: string): string {
           No scene proposals yet. Save the Step 8 artifact, then parse it.
         </p>
       </section>
+      </template>
 </template>
 
 <style scoped>

@@ -75,8 +75,8 @@ ingestion.
 
 UI flow with the real labels/selectors used:
 
-1. **Create project** — `.create-project` form: placeholders `The Glass City` /
-   premise textarea, button `Create Project`; asserts `.topbar h2` shows the title.
+1. **Create project** — opens the project dialog, expands `Create new project`,
+   fills the title/premise, and asserts `.topbar h2` shows the title.
 2. **Save Step 7** — sidebar step selector aria-label `Open step 7: Character Bible`,
    `.artifact-editor textarea`, button `Save Artifact`, status text `Artifact saved.`
 3. **Compile Canon proposals** — heading `Step 7: Compile into Canon Proposals`,
@@ -107,7 +107,7 @@ UI flow with the real labels/selectors used:
    `# Mira Archive`, `## Chapter 1: The Locked Map`, `### 1. Archive Threshold`.
 10. **Restart persistence** — the backend process is stopped and restarted against
     the SAME temp root on the same port; the page is reloaded, the project is
-    re-selected from `.sidebar .project-list`; Canon still shows Mira (with the
+    re-selected from the `Open project` dialog; Canon still shows Mira (with the
     updated state in the editor), Manuscript still shows chapter, scene, and the
     Version 1 scene/revision; APIs confirm exactly one revision/scene at version 1.
 11. **Step 8 compiler** — sidebar step selector `Open step 8: Scene List`, save the

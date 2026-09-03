@@ -19,14 +19,16 @@ export const useProjectsStore = defineStore('projects', () => {
   })
   const isCreating = ref(false)
   const createError = ref('')
+  const createStatus = ref('')
 
-  async function createProject() {
+  async function createProject(): Promise<ProjectSummary | null> {
     createError.value = ''
+    createStatus.value = ''
     const title = newProject.value.title.trim()
     const premise = newProject.value.premise.trim()
     if (!title || !premise) {
       createError.value = 'Title and premise are required.'
-      return
+      return null
     }
 
     isCreating.value = true
@@ -44,8 +46,11 @@ export const useProjectsStore = defineStore('projects', () => {
       // Switching the workspace selection triggers the project load fan-out.
       ws().activeProjectId = created.id
       newProject.value = { title: '', premise: '' }
+      createStatus.value = `Project "${created.title}" created successfully.`
+      return created as ProjectSummary
     } catch {
       createError.value = 'Project creation failed. Check that the API is running.'
+      return null
     } finally {
       isCreating.value = false
     }
@@ -70,6 +75,7 @@ export const useProjectsStore = defineStore('projects', () => {
     newProject,
     isCreating,
     createError,
+    createStatus,
     createProject,
     advanceActiveProject,
   }

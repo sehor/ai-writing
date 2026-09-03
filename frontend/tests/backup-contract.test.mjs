@@ -48,7 +48,7 @@ test('a finished import refreshes the project list and selects the restored proj
   assert.match(backupsStore, /ws\(\)\.activeProjectId = result\.project\.id/)
   assert.match(sidebar, /data-testid="confirm-import"/)
 })
-test('backup UI lives in the sidebar next to the project list', () => {
+test('backup UI remains available in the sidebar', () => {
   assert.match(sidebar, /class="backup-panel" aria-label="Backup and restore"/)
   assert.match(sidebar, /useBackupsStore/)
 })

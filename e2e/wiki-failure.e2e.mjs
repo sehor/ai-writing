@@ -77,7 +77,8 @@ async function run(page) {
   // ------------------------------------------------------------------
   step('create project ' + PROJECT_TITLE)
   await page.goto(vite.url + '/')
-  await page.locator('.create-project').waitFor({ state: 'visible' })
+  await page.getByRole('button', { name: 'Open project' }).click()
+  await page.getByText('Create new project', { exact: true }).click()
   await page.getByPlaceholder('The Glass City').fill(PROJECT_TITLE)
   await page.getByPlaceholder(/disgraced cartographer discovers/).fill(PROJECT_PREMISE)
   await page.getByRole('button', { name: 'Create Project' }).click()

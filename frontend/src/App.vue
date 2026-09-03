@@ -3,8 +3,10 @@ import { onMounted, onBeforeUnmount } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorkspaceStore } from './stores/workspace'
 import { useAnalysisJobsStore } from './stores/analysisJobs'
+import { useProjectsStore } from './stores/projects'
 
 import AppSidebar from './components/AppSidebar.vue'
+import ProjectDialog from './components/ProjectDialog.vue'
 import SnowflakeWorkspace from './components/SnowflakeWorkspace.vue'
 import CanonWorkspace from './components/CanonWorkspace.vue'
 import MemoryWorkspace from './components/MemoryWorkspace.vue'
@@ -13,6 +15,7 @@ import ManuscriptWorkspace from './components/ManuscriptWorkspace.vue'
 
 const workspace = useWorkspaceStore()
 const { activeSection, activeProject, apiStatus, workflowRuntime, runtimeLabel, runtimeTitle, isLoadingProject } = storeToRefs(workspace)
+const { createStatus } = storeToRefs(useProjectsStore())
 const { loadInitialData } = workspace
 
 onMounted(() => {
@@ -31,8 +34,10 @@ onBeforeUnmount(() => useAnalysisJobsStore().stop())
           <p class="eyebrow">Project</p>
           <h2>{{ activeProject?.title ?? 'No Project' }}</h2>
           <p class="premise">{{ activeProject?.premise ?? 'Create a project to begin.' }}</p>
+          <p v-if="createStatus" class="topbar-notice" role="status">{{ createStatus }}</p>
         </div>
         <div class="status-stack">
+          <ProjectDialog />
           <span class="status" :class="{ offline: apiStatus !== 'ok' }">
             API {{ apiStatus }}
           </span>

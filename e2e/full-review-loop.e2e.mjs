@@ -110,6 +110,11 @@ async function clickNavButton(page, name) {
   await page.locator('.sidebar nav.nav button', { hasText: name }).first().click()
 }
 
+async function openProject(page, title) {
+  await page.getByRole('button', { name: 'Open project' }).click()
+  await page.locator('.project-picker-list button', { hasText: title }).click()
+}
+
 /** Wait for API truth without refreshing the UI: the app must poll on its own. */
 async function waitForJobs(check, { timeoutMs = 60000, label } = {}) {
   const deadline = Date.now() + timeoutMs
@@ -136,16 +141,23 @@ async function run(page) {
   // ------------------------------------------------------------------
   step('open app and create project ' + PROJECT_TITLE)
   await page.goto(vite.url + '/')
-  await page.locator('.create-project').waitFor({ state: 'visible' })
+  await page.getByRole('button', { name: 'Open project' }).click()
+  await page.getByText('Create new project', { exact: true }).click()
   await page.getByPlaceholder('The Glass City').fill(PROJECT_TITLE)
   await page
     .getByPlaceholder(/disgraced cartographer discovers/)
     .fill(PROJECT_PREMISE)
   await page.getByRole('button', { name: 'Create Project' }).click()
-  await page.locator('.topbar h2', { hasText: PROJECT_TITLE }).waitFor({ state: 'visible' })
   await page
-    .locator('.sidebar .project-list button', { hasText: PROJECT_TITLE })
+    .locator('.topbar-notice', {
+      hasText: `Project "${PROJECT_TITLE}" created successfully.`,
+    })
     .waitFor({ state: 'visible' })
+  await page.locator('.topbar h2', { hasText: PROJECT_TITLE }).waitFor({ state: 'visible' })
+  assert.equal(await page.locator('.sidebar .project-list').count(), 0)
+  await page.getByRole('button', { name: 'Open project' }).click()
+  await page.locator('.project-picker-list button', { hasText: PROJECT_TITLE }).waitFor()
+  await page.getByRole('button', { name: 'Close project dialog' }).click()
 
   const projects = await client.get('/projects')
   const project = projects.find((item) => item.title === PROJECT_TITLE)
@@ -155,9 +167,10 @@ async function run(page) {
   // 2. Snowflake workspace: save the Step 7 artifact (character bible).
   // ------------------------------------------------------------------
   step('save Step 7 character bible artifact')
-  await page
-    .getByRole('button', { name: 'Open step 7: Character Bible' })
-    .click()
+  await page.getByText('Character Bible', { exact: true }).click()
+  await page.getByRole('heading', { name: 'Step 7: Character Bible' }).waitFor()
+  await page.getByRole('button', { name: 'All Snowflake steps' }).waitFor()
+  assert.equal(await page.locator('.steps').count(), 0)
   await page.locator('.artifact-editor textarea').fill(CHARACTER_BIBLE)
   await page.getByRole('button', { name: 'Save Artifact' }).click()
   await page
@@ -279,7 +292,7 @@ async function run(page) {
   await page.getByTestId('proposal-draft-content').fill(editedContent)
   // Reload restores the local draft without changing the stored AI original.
   await page.reload()
-  await page.locator('.project-list button', { hasText: PROJECT_TITLE }).click()
+  await openProject(page, PROJECT_TITLE)
   await clickNavButton(page, 'Manuscript')
   assert.equal(await page.getByTestId('proposal-draft-content').inputValue(), editedContent)
   await page
@@ -492,10 +505,7 @@ async function run(page) {
   await stopBackend(backend)
   backend = await startBackend({ dataRoot: tempRoot, port: BACKEND_PORT })
   await page.reload()
-  await page
-    .locator('.sidebar .project-list button', { hasText: PROJECT_TITLE })
-    .waitFor({ state: 'visible' })
-  await page.locator('.sidebar .project-list button', { hasText: PROJECT_TITLE }).click()
+  await openProject(page, PROJECT_TITLE)
   await page.locator('.topbar h2', { hasText: PROJECT_TITLE }).waitFor({ state: 'visible' })
 
   // Canon persisted.
@@ -720,6 +730,7 @@ async function main() {
   const page = await browser.newPage()
   page.setDefaultTimeout(30000)
   page.on('pageerror', (error) => pageErrors.push(String(error)))
+  page.on('dialog', (dialog) => dialog.accept())
 
   try {
     await run(page)

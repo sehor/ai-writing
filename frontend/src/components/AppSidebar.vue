@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { storeToRefs } from 'pinia'
 import { useWorkspaceStore } from '../stores/workspace'
-import { useProjectsStore } from '../stores/projects'
 import { useBackupsStore } from '../stores/backups'
 
 const workspace = useWorkspaceStore()
@@ -9,7 +8,6 @@ const {
   activeProjectId,
   activeSection
 } = storeToRefs(workspace)
-const { projects } = storeToRefs(useProjectsStore())
 const backups = useBackupsStore()
 const {
   preview: backupPreview,
@@ -70,19 +68,6 @@ function rowCountSummary(counts: Record<string, number>): string {
           Manuscript
         </button>
       </nav>
-
-      <section class="project-list" aria-label="Projects">
-        <p class="section-label">Projects</p>
-        <button
-          v-for="project in projects"
-          :key="project.id"
-          :class="{ active: project.id === activeProjectId }"
-          @click="activeProjectId = project.id"
-        >
-          <span>{{ project.title }}</span>
-          <small>Step {{ project.current_step }}</small>
-        </button>
-      </section>
 
       <section class="backup-panel" aria-label="Backup and restore">
         <p class="section-label">备份 / 恢复</p>
