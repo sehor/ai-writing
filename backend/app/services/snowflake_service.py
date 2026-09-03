@@ -49,9 +49,13 @@ from app.models import (
 from app.outbox.handlers import snowflake_index_payload
 from app.agents.writing_workflow import WritingWorkflow
 from app.snowflake.step_spec import SNOWFLAKE_STEP_SPECS, get_step_spec
-from app.snowflake.contracts import CharacterBibleRecord, RECORD_CONTRACTS, WorldBibleRecord
 from pydantic import ValidationError
-from app.snowflake.validators import structured_payload_from_content, validate_snowflake_payload
+from app.snowflake.validators import (
+    record_contract_for,
+    structured_payload_from_content,
+    validate_snowflake_payload,
+    validate_snowflake_record_generation,
+)
 
 
 SNOWFLAKE_STEPS = [
@@ -83,7 +87,9 @@ class RevisionNotFoundError(LookupError):
 
 
 class SnowflakeRecordValidationError(ValueError):
-    pass
+    def __init__(self, message: str, report=None):
+        self.report = report
+        super().__init__(message)
 
 
 class SnowflakeService:
@@ -279,11 +285,9 @@ class SnowflakeService:
         self, project_id: str, create: SnowflakeRecordRevisionCreate
     ) -> SnowflakeRecordRevision:
         try:
-            if create.step_number == 7:
-                record_type = str(create.payload.get("record_type", ""))
-                contract = CharacterBibleRecord if record_type == "character" else WorldBibleRecord
-            else:
-                contract = RECORD_CONTRACTS[create.step_number]
+            contract = record_contract_for(create.step_number, create.payload)
+            if contract is None:
+                raise KeyError(create.step_number)
             contract.model_validate(create.payload)
         except (ValidationError, KeyError) as exc:
             raise SnowflakeRecordValidationError(
@@ -418,34 +422,77 @@ class SnowflakeService:
     ) -> SnowflakeGenerationResponse:
         target_records: list[dict[str, Any]] = []
         if request.target_record_ids and request.step_number >= 6:
-            records, _ = self.data_store.list_snowflake_records(
-                project_id, request.step_number, limit=100, offset=0
+            records = self.data_store.get_snowflake_records(
+                project_id, request.step_number, request.target_record_ids
             )
-            wanted = set(request.target_record_ids)
             target_records = [
                 {
                     "record_id": record.record_id,
                     "revision_id": record.id,
+                    "position": record.position,
                     "payload": record.payload,
                 }
                 for record in records
-                if record.record_id in wanted
             ]
-            if len(target_records) != len(wanted):
+            if len(target_records) != len(request.target_record_ids):
                 raise ValueError("One or more target Snowflake records were not found.")
-        return self.generate(
-            SnowflakeGenerationRequest(
-                project_id=project_id,
+        generation_request = SnowflakeGenerationRequest(
+            project_id=project_id,
+            step_number=request.step_number,
+            user_input=request.instruction,
+            base_revision_id=request.base_revision_id,
+            target_record_ids=request.target_record_ids,
+            target_records=target_records,
+            generation_mode=request.generation_mode,
+            previous_artifacts_context_chars=request.previous_artifacts_context_chars,
+        )
+        if not target_records:
+            return self.generate(generation_request, workflow)[0]
+
+        generated = workflow.run_snowflake_generation(generation_request)
+        spec = get_step_spec(request.step_number)
+        if generated.step_number != request.step_number or generated.artifact != spec.artifact_type:
+            raise ValueError("Provider returned a Snowflake artifact for the wrong step or type.")
+        generated_records, validation = validate_snowflake_record_generation(
+            request.step_number,
+            generated.content,
+            request.target_record_ids,
+        )
+        if validation.status == "failed":
+            raise SnowflakeRecordValidationError(
+                "Provider returned invalid targeted Snowflake records.",
+                validation,
+            )
+        current_by_id = {record["record_id"]: record for record in target_records}
+        current_revisions_by_id = {record.record_id: record for record in records}
+        generated_by_id = {record.record_id: record for record in generated_records}
+        creates = [
+            SnowflakeRecordRevisionCreate(
                 step_number=request.step_number,
-                user_input=request.instruction,
-                base_revision_id=request.base_revision_id,
-                target_record_ids=request.target_record_ids,
-                target_records=target_records,
-                generation_mode=request.generation_mode,
-                previous_artifacts_context_chars=request.previous_artifacts_context_chars,
-            ),
-            workflow,
-        )[0]
+                record_id=record_id,
+                position=current_by_id[record_id]["position"],
+                payload=generated_by_id[record_id].payload,
+                base_revision_id=(
+                    current_by_id[record_id]["revision_id"]
+                    if current_revisions_by_id[record_id].status == "accepted"
+                    else current_revisions_by_id[record_id].base_revision_id
+                ),
+                source="ai",
+            )
+            for record_id in request.target_record_ids
+        ]
+        record_revisions = self.data_store.create_snowflake_record_revisions(
+            project_id,
+            creates,
+            status="pending_review",
+        )
+        return generated.model_copy(
+            update={
+                "revision": None,
+                "record_revisions": record_revisions,
+                "validation_report": validation,
+            }
+        )
 
 
 # ---------------------------------------------------------------------------

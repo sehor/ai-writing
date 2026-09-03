@@ -14,7 +14,7 @@ from app.models import (
     NarrativeRelationCreate,
     ProjectCreate,
     SceneContractCreate,
-    SnowflakeArtifact,
+    SnowflakeArtifactRevisionCreate,
     StoryFactCreate,
     StoryThreadCreate,
     StoryThreadEventCreate,
@@ -91,13 +91,18 @@ class NarrativeSnapshotTests(unittest.TestCase):
                     source_ref="author:canon",
                 ),
             )
-            store.save_snowflake_artifact(
-                SnowflakeArtifact(
-                    project_id=project.id,
+            revision = store.create_snowflake_revision(
+                project.id,
+                SnowflakeArtifactRevisionCreate(
                     step_number=8,
-                    artifact="scene_contracts",
                     content="STEP8_SECRET: scene 21 reveals the archivist forged the map.",
-                )
+                ),
+            )
+            store.decide_snowflake_revision(
+                project_id=project.id,
+                revision_id=revision.id,
+                decision="accepted",
+                expected_head_revision_id="",
             )
 
             earlier = store.create_manuscript_proposal(

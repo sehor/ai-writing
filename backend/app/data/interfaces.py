@@ -91,9 +91,6 @@ class WritingDataStore(Protocol):
     def get_snowflake_artifact(self, project_id: str, step_number: int) -> SnowflakeArtifact | None:
         pass
 
-    def save_snowflake_artifact(self, artifact: SnowflakeArtifact) -> SnowflakeArtifact:
-        pass
-
     def list_snowflake_revisions(
         self,
         project_id: str,
@@ -156,6 +153,11 @@ class WritingDataStore(Protocol):
     ) -> tuple[list[SnowflakeRecordRevision], int]:
         pass
 
+    def get_snowflake_records(
+        self, project_id: str, step_number: int, record_ids: list[str]
+    ) -> list[SnowflakeRecordRevision]:
+        pass
+
     def create_snowflake_record_revision(
         self,
         project_id: str,
@@ -163,6 +165,15 @@ class WritingDataStore(Protocol):
         *,
         status: str = "draft",
     ) -> SnowflakeRecordRevision:
+        pass
+
+    def create_snowflake_record_revisions(
+        self,
+        project_id: str,
+        creates: list[SnowflakeRecordRevisionCreate],
+        *,
+        status: str = "draft",
+    ) -> list[SnowflakeRecordRevision]:
         pass
 
     def list_snowflake_record_revisions(

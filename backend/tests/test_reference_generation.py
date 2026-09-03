@@ -16,7 +16,8 @@ from app.models import (
     ProjectCreate,
     ReferenceGenerationRequest,
     SceneContractCreate,
-    SnowflakeArtifact,
+    SnowflakeArtifactRevisionCreate,
+    StoryThreadCreate,
 )
 
 
@@ -31,13 +32,18 @@ class ReferenceGenerationTests(unittest.TestCase):
                     premise="A cartographer must map a city that erases memory.",
                 )
             )
-            store.save_snowflake_artifact(
-                SnowflakeArtifact(
-                    project_id=project.id,
+            revision = store.create_snowflake_revision(
+                project.id,
+                SnowflakeArtifactRevisionCreate(
                     step_number=8,
-                    artifact="scene_contracts",
                     content="Scene 1 asks Mira to enter the archive.",
-                )
+                ),
+            )
+            store.decide_snowflake_revision(
+                project_id=project.id,
+                revision_id=revision.id,
+                decision="accepted",
+                expected_head_revision_id="",
             )
             store.create_canon_entity(
                 project.id,
@@ -77,6 +83,14 @@ class ReferenceGenerationTests(unittest.TestCase):
                     source_artifact_step=8,
                 ),
             )
+            store.create_story_thread(
+                project.id,
+                StoryThreadCreate(
+                    thread_type="mystery",
+                    title="Structured archive mystery",
+                    status="developing",
+                ),
+            )
             request = ReferenceGenerationRequest(
                 suggestion_type="scene_bridge",
                 scope_type="scene",
@@ -105,6 +119,8 @@ class ReferenceGenerationTests(unittest.TestCase):
         self.assertIn("Scene Bridge", created.title)
         self.assertIn("I do not know how to bridge", created.used_context)
         self.assertIn("Mira cannot know", created.used_context)
+        self.assertIn("Structured archive mystery", created.used_context)
+        self.assertNotIn("Who changed the map?", created.used_context)
         self.assertTrue(created.workflow_trace)
         self.assertTrue(created.canon_warnings)
         self.assertEqual(created.proposed_writebacks, [])

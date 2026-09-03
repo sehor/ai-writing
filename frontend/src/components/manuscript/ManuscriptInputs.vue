@@ -242,11 +242,11 @@ const {
         />
       </label>
       <label>
-        <span>Open Threads</span>
+        <span>Legacy open-thread notes</span>
         <textarea
           v-model="sceneDraft.open_threads"
           rows="4"
-          placeholder="Questions advanced or opened by this scene."
+          placeholder="Compatibility only; use structured StoryThread actions for generation."
         />
       </label>
 

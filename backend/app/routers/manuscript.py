@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 import sqlite3
 
 from app.data import WritingDataStore, get_data_store
@@ -9,6 +9,7 @@ from app.outbox.dispatcher import (
     wake_outbox_best_effort,
 )
 from app.models import (
+    LegacyManuscriptImportCreate,
     ManuscriptExportResponse,
     ManuscriptChapter,
     ManuscriptChapterCreate,
@@ -247,6 +248,22 @@ def create_provider_manuscript_proposal_from_scene(
 
 
 @router.post(
+    "/projects/{project_id}/manuscript/proposals/from-legacy-snowflake/{revision_id}",
+    response_model=ManuscriptProposal,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_manuscript_proposal_from_legacy_snowflake(
+    project_id: str,
+    revision_id: str,
+    selection: LegacyManuscriptImportCreate,
+    data_store: WritingDataStore = Depends(get_data_store),
+    service: ManuscriptService = Depends(),
+) -> ManuscriptProposal:
+    require_project(project_id, data_store)
+    return service.import_legacy_snowflake_draft(project_id, revision_id, selection)
+
+
+@router.post(
     "/projects/{project_id}/manuscript/proposals/{proposal_id}/accept",
     response_model=ManuscriptProposal,
 )
@@ -287,12 +304,27 @@ def update_manuscript_proposal_status(
     project_id: str,
     proposal_id: str,
     update: ManuscriptProposalStatusUpdate,
+    response: Response,
     data_store: WritingDataStore = Depends(get_data_store),
     service: ManuscriptService = Depends(),
     dispatcher: OutboxDispatcher = Depends(get_outbox_dispatcher),
 ) -> ManuscriptProposal:
     require_project(project_id, data_store)
-    proposal = service.update_proposal_status(project_id, proposal_id, update.status)
+    deprecation_headers = {
+        "Deprecation": "true",
+        "Link": (
+            f"</api/projects/{project_id}/manuscript/proposals/{proposal_id}/accept>; "
+            'rel="successor-version"'
+        ),
+    }
+    try:
+        proposal = service.update_proposal_status(project_id, proposal_id, update.status)
+    except HTTPException as exc:
+        if update.status == "accepted":
+            exc.headers = {**(exc.headers or {}), **deprecation_headers}
+        raise
+    if update.status == "accepted":
+        response.headers.update(deprecation_headers)
     # P1-07/P1-03: acceptance enqueued wiki + consistency + write-back jobs
     # transactionally; the background dispatcher executes them after this
     # response has been sent.

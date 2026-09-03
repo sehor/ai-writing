@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.data import SQLiteWritingDataStore, get_data_store
 from app.main import app
+from app.models import ManuscriptProposalCreate
 
 
 class ManuscriptPreAcceptConsistencyTests(unittest.TestCase):
@@ -53,9 +54,31 @@ class ManuscriptPreAcceptConsistencyTests(unittest.TestCase):
                         json=draft,
                     )
                     self.assertEqual(blocked.status_code, 422, blocked.text)
+
+                    critical_proposal = store.create_manuscript_proposal(
+                        project["id"],
+                        ManuscriptProposalCreate(
+                            scene_id=scene["id"],
+                            title="Critical legacy-route proposal",
+                            content="Mira whispers that the king is alive.",
+                        ),
+                    )
+                    legacy_bypass = client.put(
+                        f"/api/projects/{project['id']}/manuscript/proposals/{critical_proposal.id}/status",
+                        json={"status": "accepted"},
+                    )
+                    self.assertEqual(legacy_bypass.status_code, 422, legacy_bypass.text)
+                    self.assertEqual(legacy_bypass.headers.get("deprecation"), "true")
+                    self.assertIn("/accept", legacy_bypass.headers.get("link", ""))
                     self.assertEqual(store.list_manuscript_revisions(project["id"]), [])
                     self.assertEqual(
                         store.get_manuscript_proposal(project["id"], proposal["id"]).status,
+                        "pending_review",
+                    )
+                    self.assertEqual(
+                        store.get_manuscript_proposal(
+                            project["id"], critical_proposal.id
+                        ).status,
                         "pending_review",
                     )
             finally:

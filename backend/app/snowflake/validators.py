@@ -6,8 +6,18 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from app.models import SnowflakeValidationFinding, SnowflakeValidationReport
-from app.snowflake.contracts import STEP_CONTRACTS
+from app.models import (
+    SnowflakeGeneratedRecord,
+    SnowflakeGeneratedRecordSet,
+    SnowflakeValidationFinding,
+    SnowflakeValidationReport,
+)
+from app.snowflake.contracts import (
+    CharacterBibleRecord,
+    RECORD_CONTRACTS,
+    STEP_CONTRACTS,
+    WorldBibleRecord,
+)
 
 
 _JSON_FENCE = re.compile(r"^```(?:json)?\s*(.*?)\s*```$", re.DOTALL | re.IGNORECASE)
@@ -118,5 +128,94 @@ def validate_snowflake_payload(
     return SnowflakeValidationReport(
         step_number=step_number,
         status="failed" if any(f.severity == "critical" for f in findings) else "passed",
+        findings=findings,
+    )
+
+
+def record_contract_for(step_number: int, payload: dict[str, Any]):
+    if step_number == 7:
+        return (
+            CharacterBibleRecord
+            if payload.get("record_type") == "character"
+            else WorldBibleRecord
+        )
+    return RECORD_CONTRACTS.get(step_number)
+
+
+def validate_snowflake_record_generation(
+    step_number: int,
+    content: str,
+    expected_record_ids: list[str],
+) -> tuple[list[SnowflakeGeneratedRecord], SnowflakeValidationReport]:
+    """Validate provider output for a targeted Step 6–9 generation."""
+    payload = structured_payload_from_content(content)
+    findings: list[SnowflakeValidationFinding] = []
+    try:
+        generated = SnowflakeGeneratedRecordSet.model_validate(payload)
+    except ValidationError as exc:
+        generated = SnowflakeGeneratedRecordSet.model_construct(records=[])
+        findings.extend(
+            SnowflakeValidationFinding(
+                code="record_generation_shape_invalid",
+                severity="critical",
+                message=error["msg"],
+                path=".".join(str(part) for part in error["loc"]),
+                evidence=str(error.get("input", ""))[:240],
+            )
+            for error in exc.errors(include_url=False)
+        )
+
+    expected = set(expected_record_ids)
+    returned_ids = [record.record_id for record in generated.records]
+    returned = set(returned_ids)
+    if len(returned_ids) != len(returned):
+        findings.append(
+            SnowflakeValidationFinding(
+                code="duplicate_record_id",
+                severity="critical",
+                message="Targeted generation returned a record more than once.",
+            )
+        )
+    if returned != expected:
+        findings.append(
+            SnowflakeValidationFinding(
+                code="target_record_mismatch",
+                severity="critical",
+                message="Targeted generation must return exactly the selected record IDs.",
+                evidence=f"expected={sorted(expected)} returned={sorted(returned)}",
+            )
+        )
+
+    for index, record in enumerate(generated.records):
+        contract = record_contract_for(step_number, record.payload)
+        if contract is None:
+            findings.append(
+                SnowflakeValidationFinding(
+                    code="record_contract_missing",
+                    severity="critical",
+                    message=f"Snowflake step {step_number} has no record contract.",
+                    path=f"records.{index}.payload",
+                )
+            )
+            continue
+        try:
+            contract.model_validate(record.payload)
+        except ValidationError as exc:
+            findings.extend(
+                SnowflakeValidationFinding(
+                    code="record_contract_validation_error",
+                    severity="critical",
+                    message=error["msg"],
+                    path=".".join(
+                        ["records", str(index), "payload", *(str(part) for part in error["loc"])]
+                    ),
+                    evidence=str(error.get("input", ""))[:240],
+                )
+                for error in exc.errors(include_url=False)
+            )
+
+    return generated.records, SnowflakeValidationReport(
+        step_number=step_number,
+        status="failed" if findings else "passed",
         findings=findings,
     )

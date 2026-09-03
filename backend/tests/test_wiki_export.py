@@ -13,7 +13,7 @@ from app.models import (
     MemoryRecordCreate,
     ProjectCreate,
     SceneContractCreate,
-    SnowflakeArtifact,
+    SnowflakeArtifactRevisionCreate,
 )
 from app.exports.wiki import build_wiki_export
 
@@ -29,13 +29,18 @@ class WikiExportTests(unittest.TestCase):
                     premise="A cartographer maps a city that edits memory.",
                 )
             )
-            store.save_snowflake_artifact(
-                SnowflakeArtifact(
-                    project_id=project.id,
+            revision = store.create_snowflake_revision(
+                project.id,
+                SnowflakeArtifactRevisionCreate(
                     step_number=8,
-                    artifact="scene_contracts",
                     content="Scene list for the city archive.",
-                )
+                ),
+            )
+            store.decide_snowflake_revision(
+                project_id=project.id,
+                revision_id=revision.id,
+                decision="accepted",
+                expected_head_revision_id="",
             )
             canon = store.create_canon_entity(
                 project.id,

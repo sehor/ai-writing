@@ -1,13 +1,15 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useSnowflakeStore } from '../stores/snowflake'
+import { useManuscriptStore } from '../stores/manuscript'
 import SnowflakeRevisionHistory from './snowflake/SnowflakeRevisionHistory.vue'
 import SnowflakeRecords from './snowflake/SnowflakeRecords.vue'
 
 const workspace = useWorkspaceStore()
 const snowflake = useSnowflakeStore()
+const manuscript = useManuscriptStore()
 const {
   activeStepNumber,
   activeStep,
@@ -22,6 +24,7 @@ const {
   artifactError,
   artifactDraft,
   generationInstruction,
+  generationMode,
   previousArtifactsContextChars,
   activeRevision,
   revisions,
@@ -47,15 +50,65 @@ const {
   acceptSceneProposalBatch,
   rejectSceneProposal
 } = snowflake
+const { sceneContracts } = storeToRefs(manuscript)
 const {
   selectStep
 } = workspace
 
 const isStepWorkspaceOpen = ref(false)
+const legacySource = ref<HTMLTextAreaElement | null>(null)
+const legacyImportSceneId = ref('')
+const legacyImportTitle = ref('')
+const legacyImportContent = ref('')
+const legacyImportError = ref('')
+const legacyImportStatus = ref('')
+const isImportingLegacy = ref(false)
 
 function openStep(stepNumber: number) {
   selectStep(stepNumber)
   isStepWorkspaceOpen.value = true
+}
+
+watch(
+  () => [activeProject.value?.id, activeStepNumber.value],
+  ([projectId, stepNumber]) => {
+    if (projectId && stepNumber === 10) void manuscript.refreshSceneContracts(String(projectId))
+  },
+  { immediate: true },
+)
+
+function captureLegacySelection() {
+  const source = legacySource.value
+  if (!source || source.selectionStart === source.selectionEnd) return
+  legacyImportContent.value = source.value.slice(source.selectionStart, source.selectionEnd).trim()
+  legacyImportError.value = ''
+  legacyImportStatus.value = 'Selection captured. Choose its Scene Contract and import it for review.'
+}
+
+function updateLegacyImportTitle() {
+  const scene = sceneContracts.value.find((item) => item.id === legacyImportSceneId.value)
+  if (scene) legacyImportTitle.value = scene.title
+}
+
+async function importLegacySelection() {
+  if (!legacyStep10Revision.value) return
+  legacyImportError.value = ''
+  legacyImportStatus.value = ''
+  isImportingLegacy.value = true
+  try {
+    await snowflake.importLegacyDraftSelection(
+      legacyStep10Revision.value.id,
+      legacyImportSceneId.value,
+      legacyImportTitle.value,
+      legacyImportContent.value,
+    )
+    legacyImportStatus.value = 'Pending Manuscript proposal created. Open Manuscript to review it.'
+    legacyImportContent.value = ''
+  } catch (error) {
+    legacyImportError.value = error instanceof Error ? error.message : 'Could not import selection.'
+  } finally {
+    isImportingLegacy.value = false
+  }
 }
 
 function moveStep(offset: number) {
@@ -218,8 +271,52 @@ function openManuscript() {
           </dl>
           <details v-if="legacyStep10Revision" class="legacy-manuscript">
             <summary>Legacy Step 10 draft · read-only</summary>
-            <p>This historical draft is preserved but is not an approved Manuscript revision.</p>
-            <pre>{{ legacyStep10Revision.content }}</pre>
+            <p>
+              This historical draft is preserved but is not approved. Select text below, then
+              import it into a Scene Contract as a pending Manuscript proposal.
+            </p>
+            <textarea
+              ref="legacySource"
+              :value="legacyStep10Revision.content"
+              rows="10"
+              readonly
+              aria-label="Preserved legacy Step 10 draft"
+              @select="captureLegacySelection"
+            />
+            <div class="legacy-import-form">
+              <label>
+                <span>Target Scene Contract</span>
+                <select v-model="legacyImportSceneId" @change="updateLegacyImportTitle">
+                  <option value="">Choose a scene</option>
+                  <option v-for="scene in sceneContracts" :key="scene.id" :value="scene.id">
+                    {{ scene.sequence }}. {{ scene.title }}
+                  </option>
+                </select>
+              </label>
+              <label>
+                <span>Proposal title</span>
+                <input v-model="legacyImportTitle" maxlength="160" />
+              </label>
+              <label>
+                <span>Selected legacy text</span>
+                <textarea v-model="legacyImportContent" rows="6" readonly />
+              </label>
+              <p v-if="legacyImportError" class="error">{{ legacyImportError }}</p>
+              <p v-else-if="legacyImportStatus" class="save-state">{{ legacyImportStatus }}</p>
+              <button
+                class="secondary"
+                type="button"
+                :disabled="
+                  isImportingLegacy ||
+                  !legacyImportSceneId ||
+                  !legacyImportTitle.trim() ||
+                  !legacyImportContent
+                "
+                @click="importLegacySelection"
+              >
+                {{ isImportingLegacy ? 'Importing...' : 'Import selection for review' }}
+              </button>
+            </div>
           </details>
         </div>
         <button class="primary" type="button" @click="openManuscript">Open Manuscript workspace</button>
@@ -273,6 +370,18 @@ function openManuscript() {
             />
             <small id="snowflake-context-budget-help">
               Characters shared by all earlier steps. Most recent steps are kept first.
+            </small>
+          </label>
+
+          <label class="generation-mode">
+            <span>Generation mode</span>
+            <select v-model="generationMode" :disabled="!activeProject">
+              <option value="replace">Replace / full step</option>
+              <option value="selection">Revise selected records</option>
+              <option value="continue">Continue selected records</option>
+            </select>
+            <small v-if="activeStepNumber >= 6 && activeStepNumber <= 9">
+              Select records below. Targeted results become pending record revisions, not an approved artifact.
             </small>
           </label>
         </div>
@@ -607,6 +716,12 @@ function openManuscript() {
 .compile-hint {
   margin: 0;
   color: var(--text-muted, #6b7280);
+}
+
+.legacy-import-form {
+  display: grid;
+  gap: 0.75rem;
+  margin-top: 0.75rem;
 }
 
 .compile-summary {

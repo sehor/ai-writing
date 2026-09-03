@@ -10,7 +10,6 @@ Functions here never commit; the transaction boundary belongs to
 SqliteUnitOfWork.
 """
 
-from hashlib import sha256
 import sqlite3
 
 from app.data.helpers import make_record_id, utc_now
@@ -84,32 +83,6 @@ from app.review.writeback_apply import (
 )
 
 
-def enqueue_snowflake_index_job(
-    connection: sqlite3.Connection,
-    artifact: SnowflakeArtifact,
-    advance_step_to: int | None = None,
-) -> tuple[SnowflakeArtifact, str]:
-    """Save a snowflake artifact and enqueue its wiki index job atomically."""
-    saved = SnowflakeRepository(connection).save(artifact)
-    if advance_step_to is not None:
-        ProjectRepository(connection).advance_current_step(saved.project_id, advance_step_to)
-    job_id = OutboxRepository(connection).insert(
-        project_id=saved.project_id,
-        job_type="llm_wiki_ingest",
-        aggregate_type="snowflake_artifact",
-        aggregate_id=f"{saved.project_id}:{saved.step_number}",
-        payload=snowflake_index_payload(saved),
-        # Content hash keeps the key stable per save event without
-        # depending on clock precision between rapid saves.
-        idempotency_key=(
-            f"llm_wiki_ingest:snowflake:{saved.project_id}:"
-            f"{saved.step_number}:"
-            f"{sha256(saved.content.encode('utf-8')).hexdigest()[:16]}"
-        ),
-    )
-    return saved, job_id
-
-
 def decide_snowflake_revision(
     connection: sqlite3.Connection,
     *,
@@ -170,7 +143,7 @@ def decide_snowflake_revision(
         artifact=accepted.artifact_type,
         content=accepted.content,
     )
-    snowflake.save(accepted_projection)
+    snowflake.update_accepted_projection(accepted_projection)
     ProjectRepository(connection).advance_current_step(project_id, accepted.step_number)
     affected = list(downstream_steps(accepted.step_number))
     snowflake.mark_stale(

@@ -16,7 +16,10 @@ from app.models import (
     WorkflowAgentTrace,
 )
 from app.text_utils import truncate as summarize
-from app.snowflake.validators import validate_snowflake_payload
+from app.snowflake.validators import (
+    validate_snowflake_payload,
+    validate_snowflake_record_generation,
+)
 
 
 class WorkflowNotConfiguredError(RuntimeError):
@@ -219,7 +222,14 @@ class LocalConsistencyReviewer:
     stage = "post_generation"
 
     def run(self, state: WritingWorkflowState) -> WritingWorkflowState:
-        report = validate_snowflake_payload(state.request.step_number, state.content)
+        if state.request.target_records:
+            _records, report = validate_snowflake_record_generation(
+                state.request.step_number,
+                state.content,
+                state.request.target_record_ids,
+            )
+        else:
+            report = validate_snowflake_payload(state.request.step_number, state.content)
         state.validation_report = report
         state.record(
             self.stage,
@@ -277,6 +287,20 @@ class LocalDraftWritingWorkflow:
 
 
 def build_local_draft(state: WritingWorkflowState) -> str:
+    if state.request.target_records:
+        return json.dumps(
+            {
+                "records": [
+                    {
+                        "record_id": record["record_id"],
+                        "payload": record["payload"],
+                    }
+                    for record in state.request.target_records
+                ]
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
     project_title = state.project.title if state.project else state.request.project_id
     premise = state.project.premise if state.project else ""
     step_title = state.step.title if state.step else f"Step {state.request.step_number}"

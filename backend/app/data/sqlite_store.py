@@ -25,7 +25,6 @@ from app.data.flows import (
     decide_snowflake_revision,
     enqueue_manuscript_revision_analysis_jobs,
     enqueue_manuscript_revision_index_job,
-    enqueue_snowflake_index_job,
     restore_manuscript_revision,
     update_manuscript_scene,
 )
@@ -37,7 +36,6 @@ from app.data.repositories.projects import ProjectRepository
 from app.data.repositories.review import ReviewRepository
 from app.data.repositories.scene_proposals import SceneProposalRepository
 from app.data.repositories.scenes import SceneRepository
-from app.data.repositories.snowflake import SnowflakeRepository
 from app.data.repositories.snowflake_records import SnowflakeRecordRepository
 from app.data.migrations import initialize_schema
 from app.data.unit_of_work import SqliteUnitOfWork, open_connection
@@ -168,24 +166,6 @@ class SQLiteWritingDataStore:
         with SqliteUnitOfWork(self.database_path) as uow:
             return uow.snowflake.get(project_id, step_number)
 
-    def save_snowflake_artifact(
-        self,
-        artifact: SnowflakeArtifact,
-        connection: sqlite3.Connection | None = None,
-    ) -> SnowflakeArtifact:
-        if connection is not None:
-            return SnowflakeRepository(connection).save(artifact)
-        with SqliteUnitOfWork(self.database_path) as uow:
-            return uow.snowflake.save(artifact)
-
-    def enqueue_snowflake_index_job(
-        self,
-        artifact: SnowflakeArtifact,
-        advance_step_to: int | None = None,
-    ) -> tuple[SnowflakeArtifact, str]:
-        with SqliteUnitOfWork(self.database_path) as uow:
-            return enqueue_snowflake_index_job(uow.connection, artifact, advance_step_to)
-
     def list_snowflake_revisions(
         self,
         project_id: str,
@@ -277,6 +257,14 @@ class SQLiteWritingDataStore:
                 project_id, step_number, limit=limit, offset=offset
             )
 
+    def get_snowflake_records(
+        self, project_id: str, step_number: int, record_ids: list[str]
+    ) -> list[SnowflakeRecordRevision]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return SnowflakeRecordRepository(uow.connection).get_current_by_record_ids(
+                project_id, step_number, record_ids
+            )
+
     def create_snowflake_record_revision(
         self,
         project_id: str,
@@ -288,6 +276,18 @@ class SQLiteWritingDataStore:
             return SnowflakeRecordRepository(uow.connection).create(
                 project_id, create, status=status
             )
+
+    def create_snowflake_record_revisions(
+        self,
+        project_id: str,
+        creates: list[SnowflakeRecordRevisionCreate],
+        *,
+        status: str = "draft",
+    ) -> list[SnowflakeRecordRevision]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            uow.connection.execute("BEGIN IMMEDIATE")
+            repository = SnowflakeRecordRepository(uow.connection)
+            return [repository.create(project_id, create, status=status) for create in creates]
 
     def list_snowflake_record_revisions(
         self,

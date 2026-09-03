@@ -92,7 +92,7 @@ class SnowflakeRepository:
         ).fetchone()
         return artifact_from_row(row) if row else None
 
-    def save(self, artifact: SnowflakeArtifact) -> SnowflakeArtifact:
+    def update_accepted_projection(self, artifact: SnowflakeArtifact) -> SnowflakeArtifact:
         """Update the legacy accepted-head projection only."""
         self.connection.execute(
             """

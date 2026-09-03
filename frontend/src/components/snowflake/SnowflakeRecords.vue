@@ -6,7 +6,7 @@ import { useWorkspaceStore } from '../../stores/workspace'
 
 const snowflake = useSnowflakeStore()
 const workspace = useWorkspaceStore()
-const { records, recordPage, recordTotalPages } = storeToRefs(snowflake)
+const { records, recordPage, recordTotalPages, selectedRecordIds } = storeToRefs(snowflake)
 const recordId = ref('')
 const position = ref(1)
 const payloadText = ref('{}')
@@ -51,6 +51,11 @@ async function decide(id: string, decision: 'accepted' | 'rejected') {
   }
 }
 
+async function changePage(page: number) {
+  await snowflake.loadRecords(workspace.activeStepNumber, page)
+  if (records.value[0]) openRecord(records.value[0].record_id)
+}
+
 watch(
   () => [workspace.activeProjectId, workspace.activeStepNumber],
   async () => {
@@ -70,17 +75,48 @@ watch(
         <p class="eyebrow">Structured records</p>
         <h3>Step {{ workspace.activeStepNumber }} record revisions</h3>
       </div>
-      <span class="step-chip">page {{ recordPage }} / {{ Math.max(recordTotalPages, 1) }}</span>
+      <div class="record-pagination" aria-label="Structured record pages">
+        <span class="step-chip">page {{ recordPage }} / {{ Math.max(recordTotalPages, 1) }}</span>
+        <button
+          class="secondary"
+          type="button"
+          :disabled="recordPage <= 1"
+          @click="changePage(recordPage - 1)"
+        >
+          Previous
+        </button>
+        <button
+          class="secondary"
+          type="button"
+          :disabled="recordPage >= recordTotalPages"
+          @click="changePage(recordPage + 1)"
+        >
+          Next
+        </button>
+      </div>
     </div>
     <p class="compile-hint">
       Long-form planning is stored as pageable records. Each save creates a draft revision; Accept is the only commit point.
     </p>
+    <p class="save-state">
+      {{ selectedRecordIds.length }} record(s) selected for AI generation. Selection is preserved across pages in this step.
+    </p>
     <div class="record-grid">
       <aside class="proposal-list">
-        <button v-for="record in records" :key="record.id" type="button" @click="openRecord(record.record_id)">
-          <span>{{ record.record_id }}</span>
-          <small>r{{ record.revision_no }} · {{ record.status }}</small>
-        </button>
+        <div v-for="record in records" :key="record.id" class="record-list-item">
+          <label class="record-selector">
+            <input
+              type="checkbox"
+              :checked="selectedRecordIds.includes(record.record_id)"
+              :aria-label="`Select ${record.record_id} for AI generation`"
+              @change="snowflake.toggleRecordSelection(record.record_id)"
+            />
+          </label>
+          <button type="button" @click="openRecord(record.record_id)">
+            <span>{{ record.record_id }}</span>
+            <small>r{{ record.revision_no }} · {{ record.status }}</small>
+          </button>
+        </div>
         <button type="button" class="secondary" @click="recordId = ''; position = records.length + 1; payloadText = '{}'">
           + New record
         </button>
@@ -106,5 +142,9 @@ watch(
 <style scoped>
 .record-workspace { border-top: 1px solid var(--border); padding-top: 1rem; }
 .record-grid { display: grid; grid-template-columns: minmax(180px, 0.35fr) minmax(0, 1fr); gap: 1rem; }
+.record-list-item { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: stretch; gap: 0.25rem; }
+.record-selector { display: grid; place-items: center; padding: 0.5rem; }
+.record-list-item button { min-width: 0; }
+.record-pagination { display: flex; align-items: center; gap: 0.5rem; }
 @media (max-width: 780px) { .record-grid { grid-template-columns: 1fr; } }
 </style>

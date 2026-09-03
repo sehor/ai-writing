@@ -130,7 +130,7 @@ class ConsistencyRuleTests(unittest.TestCase):
 class ConsistencyReportRouteTests(unittest.TestCase):
     """POST runs once per input; GET replays the latest stored report."""
 
-    PROSE = 'Mira held the Iron Key. "the archive burned down that night," she said.'
+    PROSE = "Mira held the Iron Key and checked the archive doors."
 
     def _setup(self, store: SQLiteWritingDataStore, client: TestClient) -> tuple[str, str]:
         project_id = client.post(
@@ -226,10 +226,8 @@ class ConsistencyReportRouteTests(unittest.TestCase):
         # The report already exists before anybody asked for it.
         self.assertEqual(automatic.status_code, 200)
         body = automatic.json()
-        self.assertEqual(body["summary"]["finding_count"], 1)
-        self.assertEqual(body["summary"]["critical_count"], 1)
-        self.assertEqual(body["findings"][0]["rule_code"], RULE_FORBIDDEN_FACT_MENTION)
-        self.assertIn("the archive burned down", body["findings"][0]["manuscript_excerpt"])
+        self.assertEqual(body["summary"]["finding_count"], 0)
+        self.assertEqual(body["summary"]["critical_count"], 0)
 
         # An unchanged manual request replays the automatic run.
         self.assertEqual(first.status_code, 200)
@@ -238,7 +236,7 @@ class ConsistencyReportRouteTests(unittest.TestCase):
         self.assertEqual(first.headers.get("X-Analysis-Run-Id"), body["run_id"])
 
         self.assertEqual(forced.headers.get("X-Analysis-Run-Version"), "2")
-        self.assertEqual(forced.json()["summary"]["finding_count"], 1)
+        self.assertEqual(forced.json()["summary"]["finding_count"], 0)
 
         # GET returns the newest stored state (post-force run v2).
         self.assertEqual(latest.status_code, 200)

@@ -6,7 +6,7 @@ here; workflow resolution happens behind the app-owned interface in
 app.services.snowflake_service.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.agents.writing_workflow import (
     WorkflowNotConfiguredError,
@@ -181,6 +181,14 @@ def create_snowflake_generation(
         return service.generate_revision(project_id, request, workflow)
     except StepNotFoundError as exc:
         raise not_found_step() from exc
+    except SnowflakeRecordValidationError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "message": str(exc),
+                "validation_report": exc.report.model_dump() if exc.report else None,
+            },
+        ) from exc
     except ValueError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
     except WorkflowNotConfiguredError as exc:
@@ -193,8 +201,6 @@ def create_snowflake_generation(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail={"message": str(exc), "workflow_trace": [t.model_dump() for t in exc.trace]},
         ) from exc
-    except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)) from exc
 
 
 @router.post(
@@ -383,16 +389,23 @@ def get_snowflake_artifact(
 @router.put(
     "/projects/{project_id}/snowflake/artifacts/{step_number}",
     response_model=SnowflakeArtifact,
+    deprecated=True,
 )
 def save_snowflake_artifact(
     project_id: str,
     step_number: int,
     update: SnowflakeArtifactUpdate,
+    response: Response,
     data_store: WritingDataStore = Depends(get_data_store),
     service: SnowflakeService = Depends(get_snowflake_service),
     dispatcher: OutboxDispatcher = Depends(get_outbox_dispatcher),
 ) -> SnowflakeArtifact:
     require_project(project_id, data_store)
+    response.headers["Deprecation"] = "true"
+    response.headers["Link"] = (
+        f"</api/projects/{project_id}/snowflake/artifact-revisions>; "
+        'rel="successor-version"'
+    )
     try:
         saved, job_id = service.save_artifact(project_id, step_number, update.content)
     except StepNotFoundError as exc:
@@ -413,15 +426,22 @@ def save_snowflake_artifact(
 @router.post(
     "/snowflake/generate",
     response_model=SnowflakeGenerationResponse,
+    deprecated=True,
 )
 def generate_snowflake_artifact(
     request: SnowflakeGenerationRequest,
+    response: Response,
     data_store: WritingDataStore = Depends(get_data_store),
     workflow: WritingWorkflow = Depends(get_writing_workflow),
     service: SnowflakeService = Depends(get_snowflake_service),
     dispatcher: OutboxDispatcher = Depends(get_outbox_dispatcher),
 ) -> SnowflakeGenerationResponse:
     require_project(request.project_id, data_store)
+    response.headers["Deprecation"] = "true"
+    response.headers["Link"] = (
+        f"</api/projects/{request.project_id}/snowflake/generations>; "
+        'rel="successor-version"'
+    )
     try:
         generated, job_id = service.generate(request, workflow)
     except StepNotFoundError as exc:

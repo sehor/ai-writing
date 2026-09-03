@@ -39,6 +39,9 @@ def build_reference_context(
         "## Memory / Style",
         format_memory(snapshot.memory_records),
         "",
+        "## Structured Story Threads",
+        format_story_threads(snapshot),
+        "",
         "## Recent Manuscript",
         "\n\n".join(
             f"### {scene.title} v{scene.version}\n{truncate(scene.content, 1200)}"
@@ -185,7 +188,6 @@ def describe_scope(
                     f"Turning point: {scene.turning_point or 'unset'}",
                     f"Required Canon: {scene.required_canon or 'unset'}",
                     f"Forbidden facts: {scene.forbidden_facts or 'unset'}",
-                    f"Open threads: {scene.open_threads or 'none'}",
                 ]
             )
     if request.scope_type == "canon_entity" and request.scope_ref:
@@ -317,6 +319,27 @@ def format_memory(records: list[MemoryRecord]) -> str:
     return "\n\n".join(
         f"### {record.record_type}: {record.title}\nScope: {record.scope or 'global'}\n{truncate(record.content, 1000)}"
         for record in records[:12]
+    )
+
+
+def format_story_threads(snapshot: ProjectCognitionSnapshot) -> str:
+    if not snapshot.story_threads:
+        return "No structured StoryThread records are available."
+    events_by_thread: dict[str, list[str]] = {}
+    for event in snapshot.story_thread_events:
+        events_by_thread.setdefault(event.thread_id, []).append(
+            f"{event.action}@{event.scene_id}"
+        )
+    return "\n".join(
+        (
+            f"- {thread.thread_type}: {thread.title} | status={thread.status}"
+            + (
+                f" | events={', '.join(events_by_thread[thread.id])}"
+                if events_by_thread.get(thread.id)
+                else ""
+            )
+        )
+        for thread in snapshot.story_threads
     )
 
 

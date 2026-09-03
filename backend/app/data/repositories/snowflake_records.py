@@ -148,6 +148,34 @@ class SnowflakeRecordRepository:
         ).fetchall()
         return [record_revision_from_row(row) for row in rows], total
 
+    def get_current_by_record_ids(
+        self,
+        project_id: str,
+        step_number: int,
+        record_ids: list[str],
+    ) -> list[SnowflakeRecordRevision]:
+        if not record_ids:
+            return []
+        placeholders = ", ".join("?" for _ in record_ids)
+        rows = self.connection.execute(
+            f"""
+            SELECT r.*
+            FROM snowflake_record_heads h
+            JOIN snowflake_record_revisions r ON r.id = (
+                SELECT r2.id FROM snowflake_record_revisions r2
+                WHERE r2.project_id = h.project_id
+                  AND r2.step_number = h.step_number
+                  AND r2.record_id = h.record_id
+                ORDER BY r2.revision_no DESC LIMIT 1
+            )
+            WHERE h.project_id = ? AND h.step_number = ?
+              AND h.record_id IN ({placeholders})
+            """,
+            (project_id, step_number, *record_ids),
+        ).fetchall()
+        by_id = {row["record_id"]: record_revision_from_row(row) for row in rows}
+        return [by_id[record_id] for record_id in record_ids if record_id in by_id]
+
     def list_history(
         self,
         project_id: str,

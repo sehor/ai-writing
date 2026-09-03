@@ -127,6 +127,7 @@ export type WorkflowAgentTrace = {
 export type SnowflakeGenerationResponse = SnowflakeArtifact & {
   workflow_trace: WorkflowAgentTrace[]
   revision: SnowflakeArtifactRevision | null
+  record_revisions: SnowflakeRecordRevision[]
 }
 
 export type CanonEntityType = 'character' | 'location' | 'item' | 'faction' | 'rule'
@@ -278,7 +279,7 @@ export type ManuscriptProposal = {
   id: string
   project_id: string
   scene_id: string
-  source: 'scene_contract'
+  source: 'scene_contract' | 'legacy_snowflake_import'
   title: string
   content: string
   context: string

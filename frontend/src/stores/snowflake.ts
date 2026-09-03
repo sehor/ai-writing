@@ -20,6 +20,7 @@ import type {
   SceneParseReport,
   SceneProposal,
   SceneProposalAcceptanceReport,
+  ManuscriptProposal,
 } from '../types'
 import { useGraphStore } from './graph'
 import { useManuscriptStore } from './manuscript'
@@ -44,11 +45,14 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
   const activeRevisionId = ref('')
   const artifactDraft = ref('')
   const generationInstruction = ref('')
+  const generationMode = ref<'replace' | 'continue' | 'selection'>('replace')
   const previousArtifactsContextChars = ref(64000)
   const manuscriptProgress = ref<SnowflakeManuscriptProgress | null>(null)
   const records = ref<SnowflakeRecordRevision[]>([])
   const recordPage = ref(1)
   const recordTotalPages = ref(0)
+  const selectedRecordIds = ref<string[]>([])
+  let recordSelectionStep = 0
   const workflowTrace = ref<WorkflowAgentTrace[]>([])
   const artifactError = ref('')
   const artifactStatus = ref('')
@@ -169,7 +173,13 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     const projectId = ws().activeProject?.id
     if (!projectId || stepNumber < 6 || stepNumber > 9) {
       records.value = []
+      selectedRecordIds.value = []
+      recordSelectionStep = 0
       return
+    }
+    if (recordSelectionStep !== stepNumber) {
+      selectedRecordIds.value = []
+      recordSelectionStep = stepNumber
     }
     const response = await fetchApi(
       `/projects/${projectId}/snowflake/steps/${stepNumber}/records?page=${page}&page_size=50`
@@ -180,6 +190,12 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     records.value = loaded.data
     recordPage.value = loaded.page
     recordTotalPages.value = loaded.total_pages
+  }
+
+  function toggleRecordSelection(recordId: string) {
+    selectedRecordIds.value = selectedRecordIds.value.includes(recordId)
+      ? selectedRecordIds.value.filter((id) => id !== recordId)
+      : [...selectedRecordIds.value, recordId]
   }
 
   async function createRecordRevision(recordId: string, position: number, payload: Record<string, unknown>) {
@@ -219,6 +235,31 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     )
     if (!response.ok) throw new Error((await readErrorDetail(response)).message || 'Could not review record revision')
     await loadRecords(revision.step_number, recordPage.value)
+  }
+
+  async function importLegacyDraftSelection(
+    revisionId: string,
+    sceneId: string,
+    title: string,
+    content: string,
+  ): Promise<ManuscriptProposal> {
+    const projectId = ws().activeProject?.id
+    if (!projectId) throw new Error('Select a project first.')
+    const response = await fetchApi(
+      `/projects/${projectId}/manuscript/proposals/from-legacy-snowflake/${revisionId}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ scene_id: sceneId, title, content }),
+      },
+    )
+    if (!response.ok) {
+      throw new Error((await readErrorDetail(response)).message || 'Could not import legacy selection')
+    }
+    const proposal: ManuscriptProposal = await response.json()
+    await useManuscriptStore().loadManuscriptProposals(projectId)
+    artifactStatus.value = 'Legacy selection imported as a pending Manuscript proposal.'
+    return proposal
   }
 
   function openRevision(revisionId: string) {
@@ -299,6 +340,8 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     const projectId = ws().activeProject?.id
     const instruction = generationInstruction.value.trim() || ws().activeProject?.premise.trim()
     const contextChars = Number(previousArtifactsContextChars.value)
+    const isRecordStep = ws().activeStepNumber >= 6 && ws().activeStepNumber <= 9
+    const targetRecordIds = isRecordStep ? selectedRecordIds.value : []
 
     if (!projectId || !ws().activeStep || !instruction) {
       artifactError.value = 'Create or select a project first.'
@@ -306,6 +349,10 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     }
     if (!Number.isInteger(contextChars) || contextChars < 1000 || contextChars > 400000) {
       artifactError.value = 'Context budget must be an integer from 1,000 to 400,000 characters.'
+      return
+    }
+    if (isRecordStep && generationMode.value !== 'replace' && targetRecordIds.length === 0) {
+      artifactError.value = 'Select at least one structured record for this generation mode.'
       return
     }
 
@@ -325,7 +372,8 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
           step_number: ws().activeStepNumber,
           instruction,
           base_revision_id: activeStepState.value?.accepted_revision?.id ?? '',
-          generation_mode: 'replace',
+          target_record_ids: targetRecordIds,
+          generation_mode: generationMode.value,
           previous_artifacts_context_chars: contextChars,
         }),
       })
@@ -341,6 +389,12 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
       }
       const generated: SnowflakeGenerationResponse = await response.json()
       if (!isActiveProject(projectId) || !requestScopes.isCurrent(generationScope)) {
+        return
+      }
+      if (generated.record_revisions?.length) {
+        workflowTrace.value = generated.workflow_trace
+        artifactStatus.value = `${generated.record_revisions.length} AI record proposal(s) generated — review each pending revision below.`
+        await loadRecords(generated.step_number, recordPage.value)
         return
       }
       if (!generated.revision) throw new Error('Generation did not return a review revision')
@@ -664,8 +718,11 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     activeRevisionId.value = ''
     artifactDraft.value = ''
     generationInstruction.value = ''
+    generationMode.value = 'replace'
     manuscriptProgress.value = null
     records.value = []
+    selectedRecordIds.value = []
+    recordSelectionStep = 0
     recordPage.value = 1
     recordTotalPages.value = 0
     sceneProposals.value = []
@@ -688,11 +745,13 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     activeRevisionId,
     artifactDraft,
     generationInstruction,
+    generationMode,
     previousArtifactsContextChars,
     manuscriptProgress,
     records,
     recordPage,
     recordTotalPages,
+    selectedRecordIds,
     workflowTrace,
     artifactError,
     artifactStatus,
@@ -718,8 +777,10 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     loadRevisions,
     loadManuscriptProgress,
     loadRecords,
+    toggleRecordSelection,
     createRecordRevision,
     decideRecordRevision,
+    importLegacyDraftSelection,
     openRevision,
     saveArtifact,
     generateArtifact,

@@ -17,6 +17,7 @@ from app.integrations.provider_registry import (
 from app.manuscript_export import build_export_markdown
 from app.observability import timed_operation
 from app.models import (
+    LegacyManuscriptImportCreate,
     ManuscriptExportResponse,
     ManuscriptProposal,
     ManuscriptProposalAcceptance,
@@ -54,6 +55,49 @@ class ManuscriptService:
                 status_code=status.HTTP_404_NOT_FOUND, detail="Accepted manuscript scene not found."
             )
         return scene
+
+    def import_legacy_snowflake_draft(
+        self,
+        project_id: str,
+        revision_id: str,
+        selection: LegacyManuscriptImportCreate,
+    ) -> ManuscriptProposal:
+        revision = self.data_store.get_snowflake_revision(project_id, revision_id)
+        if revision is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Legacy Snowflake draft not found.",
+            )
+        if revision.step_number != 10 or revision.status != "legacy_draft":
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Only preserved Step 10 legacy drafts can be imported.",
+            )
+        if self.data_store.get_scene_contract(project_id, selection.scene_id) is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Scene contract not found.",
+            )
+        if selection.content not in revision.content:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Imported content must be an exact selection from the legacy draft.",
+            )
+        return self.data_store.create_manuscript_proposal(
+            project_id,
+            ManuscriptProposalCreate(
+                scene_id=selection.scene_id,
+                source="legacy_snowflake_import",
+                title=selection.title,
+                content=selection.content,
+                context=f"Human selection from preserved Snowflake revision {revision.id}.",
+                checklist=[
+                    "Selection boundaries were chosen by a human.",
+                    "Review Canon and scene consistency before accepting.",
+                    "Import remains a proposal until explicit acceptance.",
+                ],
+            ),
+        )
 
     def export(self, project_id: str) -> ManuscriptExportResponse:
         project = self.data_store.get_project(project_id)
@@ -184,18 +228,22 @@ class ManuscriptService:
         except ValueError as exc:
             raise conflict_from(exc) from exc
         if status_str == "accepted":
-            # The explicit edited-draft endpoint runs the pre-accept gate.
-            # The legacy status endpoint remains compatible until callers migrate.
-            if draft is not None:
-                report = self.preview_proposal_consistency(project_id, proposal_id, draft)
-                if report.summary.critical_count:
-                    raise HTTPException(
-                        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-                        detail={
-                            "message": "Critical consistency findings must be resolved before acceptance.",
-                            "consistency_report": report.model_dump(),
-                        },
-                    )
+            if draft is None:
+                scene = self.data_store.get_manuscript_scene(project_id, current.scene_id)
+                draft = ManuscriptProposalAcceptance(
+                    title=current.title,
+                    content=current.content,
+                    expected_scene_version=scene.version if scene else 0,
+                )
+            report = self.preview_proposal_consistency(project_id, proposal_id, draft)
+            if report.summary.critical_count:
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail={
+                        "message": "Critical consistency findings must be resolved before acceptance.",
+                        "consistency_report": report.model_dump(),
+                    },
+                )
             try:
                 scene = self.data_store.accept_manuscript_proposal(
                     project_id, proposal_id, draft=draft
@@ -236,7 +284,9 @@ class ManuscriptService:
             project_id=project_id,
             scene_id=proposal.scene_id,
             data_store=self.data_store,
-            cognition=self.cognition,
+            # Acceptance correctness is based on authoritative scene/canon data.
+            # Advisory cognition outages must not make manuscript review unavailable.
+            cognition=None,
         )
         candidate = ManuscriptRevision(
             id=f"proposal-preview:{proposal.id}",

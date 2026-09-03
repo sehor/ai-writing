@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 CanonEntityType = Literal["character", "location", "item", "faction", "rule"]
@@ -23,7 +23,7 @@ GraphNodeType = Literal[
 GraphEdgeType = Literal["contains", "depends_on", "references", "informs"]
 GraphRiskSeverity = Literal["info", "warning", "critical"]
 WorkflowRuntimeType = Literal["local_deterministic", "provider_deepseek"]
-ManuscriptProposalSource = Literal["scene_contract"]
+ManuscriptProposalSource = Literal["scene_contract", "legacy_snowflake_import"]
 ManuscriptProposalStatus = Literal["pending_review", "accepted", "rejected", "superseded"]
 WritebackTarget = Literal[
     "canon_entity",
@@ -291,6 +291,20 @@ class SnowflakeGenerationCreate(BaseModel):
             raise ValueError("Value cannot be blank.")
         return normalized
 
+    @model_validator(mode="after")
+    def validate_generation_scope(self):
+        if len(self.target_record_ids) != len(set(self.target_record_ids)):
+            raise ValueError("Target record IDs must be unique.")
+        if self.target_record_ids and self.step_number < 6:
+            raise ValueError("Target record IDs are available only for Snowflake steps 6–9.")
+        if (
+            self.step_number >= 6
+            and self.generation_mode in {"selection", "continue"}
+            and not self.target_record_ids
+        ):
+            raise ValueError("This generation mode requires at least one target record ID.")
+        return self
+
 
 class SnowflakeGenerationRequest(BaseModel):
     project_id: str = Field(min_length=1, max_length=120)
@@ -309,6 +323,33 @@ class SnowflakeGenerationRequest(BaseModel):
         if not normalized:
             raise ValueError("Value cannot be blank.")
         return normalized
+
+    @model_validator(mode="after")
+    def validate_generation_scope(self):
+        if len(self.target_record_ids) != len(set(self.target_record_ids)):
+            raise ValueError("Target record IDs must be unique.")
+        if self.target_record_ids and self.step_number < 6:
+            raise ValueError("Target record IDs are available only for Snowflake steps 6–9.")
+        if (
+            self.step_number in {6, 7, 8, 9}
+            and self.generation_mode in {"selection", "continue"}
+            and not self.target_record_ids
+        ):
+            raise ValueError("This generation mode requires at least one target record ID.")
+        return self
+
+
+class SnowflakeGeneratedRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    record_id: str = Field(min_length=1, max_length=160)
+    payload: dict[str, Any]
+
+
+class SnowflakeGeneratedRecordSet(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    records: list[SnowflakeGeneratedRecord] = Field(min_length=1, max_length=200)
 
 
 class SnowflakeArtifactUpdate(BaseModel):
@@ -368,6 +409,7 @@ class SnowflakeGenerationResponse(BaseModel):
     content: str
     workflow_trace: list[WorkflowAgentTrace] = Field(default_factory=list)
     revision: SnowflakeArtifactRevision | None = None
+    record_revisions: list[SnowflakeRecordRevision] = Field(default_factory=list)
     validation_report: SnowflakeValidationReport | None = None
 
 
@@ -553,7 +595,15 @@ class SceneContractCreate(BaseModel):
     information_delta: str = Field(default="", max_length=4000)
     character_state_delta: str = Field(default="", max_length=4000)
     story_thread_actions: str = Field(default="", max_length=4000)
-    open_threads: str = Field(default="", max_length=4000)
+    open_threads: str = Field(
+        default="",
+        max_length=4000,
+        json_schema_extra={"deprecated": True},
+        description=(
+            "Legacy compatibility notes. Excluded from generation context; use structured "
+            "StoryThread records and events."
+        ),
+    )
     source_artifact_step: int = Field(default=8, ge=1, le=10)
 
     @field_validator(
@@ -642,6 +692,19 @@ class ManuscriptProposalAcceptance(BaseModel):
     @classmethod
     def trim_draft(cls, value):
         return value.strip() if isinstance(value, str) else value
+
+
+class LegacyManuscriptImportCreate(BaseModel):
+    """A human-selected excerpt from a preserved Step 10 legacy draft."""
+
+    scene_id: str = Field(min_length=1, max_length=160)
+    title: str = Field(min_length=1, max_length=160)
+    content: str = Field(min_length=1, max_length=40000)
+
+    @field_validator("scene_id", "title", "content")
+    @classmethod
+    def trim_legacy_import(cls, value: str) -> str:
+        return value.strip()
 
 
 class ManuscriptProposal(ManuscriptProposalCreate):
@@ -918,7 +981,15 @@ class SceneProposalCreate(BaseModel):
     information_delta: str = Field(default="", max_length=4000)
     character_state_delta: str = Field(default="", max_length=4000)
     story_thread_actions: str = Field(default="", max_length=4000)
-    open_threads: str = Field(default="", max_length=4000)
+    open_threads: str = Field(
+        default="",
+        max_length=4000,
+        json_schema_extra={"deprecated": True},
+        description=(
+            "Legacy compatibility notes retained during import. Structured StoryThread actions "
+            "are the generation source."
+        ),
+    )
     source_ref: str = Field(default="", max_length=160)
     source_excerpt: str = Field(default="", max_length=2000)
     warnings: list[str] = Field(default_factory=list)

@@ -177,6 +177,8 @@ class RegistryRouteWiringTests(unittest.TestCase):
                             },
                         )
                         self.assertEqual(generated.status_code, 200)
+                        self.assertEqual(generated.headers.get("deprecation"), "true")
+                        self.assertIn("/snowflake/generations", generated.headers.get("link", ""))
                         self.assertTrue(generated.json()["content"])
             finally:
                 app.dependency_overrides.clear()

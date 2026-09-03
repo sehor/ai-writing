@@ -26,7 +26,12 @@ from app.models import (
     SnowflakeStep,
 )
 from app.text_utils import truncate as truncate_context
-from app.snowflake.contracts import STEP_CONTRACTS
+from app.snowflake.contracts import (
+    CharacterBibleRecord,
+    RECORD_CONTRACTS,
+    STEP_CONTRACTS,
+    WorldBibleRecord,
+)
 
 
 DEFAULT_DEEPSEEK_BASE_URL = "https://api.deepseek.com"
@@ -255,14 +260,30 @@ def build_generation_instruction(state: WritingWorkflowState) -> str:
     if state.request.target_records:
         import json
 
+        if state.request.step_number == 7:
+            record_schemas = [
+                CharacterBibleRecord.model_json_schema(),
+                WorldBibleRecord.model_json_schema(),
+            ]
+        else:
+            record_contract = RECORD_CONTRACTS.get(state.request.step_number)
+            record_schemas = [record_contract.model_json_schema()] if record_contract else []
+
         output_rules.extend(
             [
                 "- Revise only these selected records; preserve their record_id values:",
                 json.dumps(state.request.target_records, ensure_ascii=False),
+                "- Return one JSON object only (no Markdown fence) in this exact envelope:",
+                '{"records":[{"record_id":"selected-id","payload":{}}]}',
+                "- Return every selected record exactly once and no unselected records.",
+                "- Each payload must validate against one of these record schemas:",
+                json.dumps(record_schemas, ensure_ascii=False),
             ]
         )
     contract = STEP_CONTRACTS.get(state.request.step_number)
-    if contract is not None:
+    if state.request.target_records:
+        pass
+    elif contract is not None:
         import json
 
         output_rules.extend(

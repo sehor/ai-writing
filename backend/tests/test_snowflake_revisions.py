@@ -4,13 +4,16 @@ import unittest
 
 from app.data import SQLiteWritingDataStore
 from app.data.flows import SnowflakeHeadConflictError
+from app.llm_wiki.local_backend import LocalFileLlmWiki
 from app.llm_wiki.stage_protocol import get_stage_policy
 from app.models import (
     ProjectCreate,
-    SnowflakeArtifact,
     SnowflakeArtifactRevisionCreate,
+    SnowflakeGenerationCreate,
+    SnowflakeGenerationResponse,
     SnowflakeRecordRevisionCreate,
 )
+from app.services.snowflake_service import SnowflakeRecordValidationError, SnowflakeService
 from app.snowflake.dependencies import downstream_steps
 from app.snowflake.step_spec import SNOWFLAKE_STEP_SPECS, validate_step_graph
 
@@ -232,6 +235,98 @@ class SnowflakeRevisionStoreTests(unittest.TestCase):
                 expected_revision_id="unexpected",
             )
 
+    def test_targeted_generation_finds_record_after_first_hundred_and_creates_review_revision(
+        self,
+    ) -> None:
+        def payload(index: int) -> dict:
+            return {
+                "record_id": f"block-{index}",
+                "act": "Act I",
+                "section": "Sequence",
+                "sequence": index,
+                "synopsis": f"Synopsis {index}",
+                "step4_paragraph_refs": ["setup"],
+                "character_refs": ["protagonist"],
+            }
+
+        for index in range(1, 102):
+            self.store.create_snowflake_record_revision(
+                self.project.id,
+                SnowflakeRecordRevisionCreate(
+                    step_number=6,
+                    record_id=f"block-{index}",
+                    position=index,
+                    payload=payload(index),
+                ),
+            )
+
+        class CapturingWorkflow:
+            request = None
+
+            def run_snowflake_generation(inner_self, request):
+                inner_self.request = request
+                revised = payload(101)
+                revised["synopsis"] = "AI-proposed revision for record 101"
+                import json
+
+                return SnowflakeGenerationResponse(
+                    project_id=request.project_id,
+                    step_number=6,
+                    artifact="expanded_plot",
+                    content=json.dumps(
+                        {"records": [{"record_id": "block-101", "payload": revised}]}
+                    ),
+                )
+
+        workflow = CapturingWorkflow()
+        service = SnowflakeService(
+            self.store,
+            LocalFileLlmWiki(Path(self.temp.name) / "wiki"),
+        )
+        generated = service.generate_revision(
+            self.project.id,
+            SnowflakeGenerationCreate(
+                step_number=6,
+                instruction="Strengthen this sequence.",
+                target_record_ids=["block-101"],
+                generation_mode="selection",
+            ),
+            workflow,
+        )
+
+        self.assertEqual(workflow.request.target_records[0]["record_id"], "block-101")
+        self.assertIsNone(generated.revision)
+        self.assertEqual(len(generated.record_revisions), 1)
+        self.assertEqual(generated.record_revisions[0].record_id, "block-101")
+        self.assertEqual(generated.record_revisions[0].status, "pending_review")
+        self.assertEqual(generated.record_revisions[0].revision_no, 2)
+
+        class WrongTargetWorkflow(CapturingWorkflow):
+            def run_snowflake_generation(inner_self, request):
+                generated = super().run_snowflake_generation(request)
+                return generated.model_copy(
+                    update={
+                        "content": generated.content.replace("block-101", "block-unselected")
+                    }
+                )
+
+        with self.assertRaises(SnowflakeRecordValidationError):
+            service.generate_revision(
+                self.project.id,
+                SnowflakeGenerationCreate(
+                    step_number=6,
+                    instruction="Return the wrong target.",
+                    target_record_ids=["block-101"],
+                    generation_mode="selection",
+                ),
+                WrongTargetWorkflow(),
+            )
+        history, total = self.store.list_snowflake_record_revisions(
+            self.project.id, 6, "block-101", limit=10, offset=0
+        )
+        self.assertEqual(total, 2)
+        self.assertEqual(history[0].id, generated.record_revisions[0].id)
+
 
 class SnowflakeLegacyMigrationTests(unittest.TestCase):
     def test_legacy_step_ten_is_preserved_without_becoming_an_accepted_head(self) -> None:
@@ -239,15 +334,15 @@ class SnowflakeLegacyMigrationTests(unittest.TestCase):
             path = Path(temp) / "legacy.db"
             store = SQLiteWritingDataStore(path)
             store.init()
-            store.save_snowflake_artifact(
-                SnowflakeArtifact(
-                    project_id="demo-novel",
-                    step_number=10,
-                    artifact="manuscript",
-                    content="Legacy full manuscript.",
-                )
-            )
             with store.connect() as connection:
+                connection.execute(
+                    """
+                    INSERT INTO snowflake_artifacts (
+                        project_id, step_number, artifact, content
+                    ) VALUES (?, ?, ?, ?)
+                    """,
+                    ("demo-novel", 10, "manuscript", "Legacy full manuscript."),
+                )
                 connection.execute("DELETE FROM schema_migrations WHERE version = 9")
                 connection.execute("DROP TABLE snowflake_artifact_heads")
                 connection.execute("DROP TABLE snowflake_artifact_revisions")
