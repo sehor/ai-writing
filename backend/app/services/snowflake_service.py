@@ -12,15 +12,15 @@ from math import ceil
 
 from fastapi import Depends
 
+from app.agents.snowflake_workflow import SnowflakeWorkflow
+from app.agents.writing_workflow import LocalDraftWritingWorkflow, WritingWorkflow
 from app.data import WritingDataStore, get_data_store
-from app.integrations.provider_registry import (
-    ProviderDependencies,
-    ProviderConfigurationError,
-    ProviderNotConfiguredError,
-    ProviderRegistry,
-    ProviderSnowflakeWorkflow,
-    default_provider_registry,
-    resolve_default_provider,
+from app.llm import (
+    ModelGatewayError,
+    ModelGatewayRegistry,
+    ModelRuntime,
+    default_model_gateway_registry,
+    resolve_default_model_gateway,
 )
 from app.llm_wiki.dependencies import get_llm_wiki
 from app.llm_wiki.interfaces import LlmWiki, WikiSourceDocument
@@ -48,7 +48,6 @@ from app.models import (
     WorkflowRuntimeStatus,
 )
 from app.outbox.handlers import snowflake_index_payload
-from app.agents.writing_workflow import WritingWorkflow
 from app.snowflake.step_spec import SNOWFLAKE_STEP_SPECS, get_step_spec
 from app.snowflake.validators import (
     structured_payload_from_content,
@@ -127,11 +126,11 @@ class SnowflakeService:
         self,
         data_store: WritingDataStore,
         llm_wiki: LlmWiki,
-        registry: ProviderRegistry | None = None,
+        registry: ModelGatewayRegistry | None = None,
     ):
         self.data_store = data_store
         self.llm_wiki = llm_wiki
-        self.registry = registry if registry is not None else default_provider_registry
+        self.registry = registry if registry is not None else default_model_gateway_registry
 
     # -- steps -----------------------------------------------------------
 
@@ -151,32 +150,24 @@ class SnowflakeService:
     def runtime_status(self) -> WorkflowRuntimeStatus:
         """Report the configured generation backend without raising."""
         try:
-            provider = self.registry.create("deepseek", ProviderDependencies())
-        except ProviderConfigurationError as exc:
+            gateway, _skip_reason = resolve_default_model_gateway(self.registry)
+        except ModelGatewayError as exc:
             return WorkflowRuntimeStatus(
                 runtime="local_deterministic",
+                runtime_kind="local_deterministic",
                 provider="local",
                 provider_configured=False,
-                details=f"DeepSeek environment is invalid: {exc}",
+                details=f"{exc.safe_message} Using deterministic local drafts.",
             )
-        except ProviderNotConfiguredError:
-            return WorkflowRuntimeStatus(
-                runtime="local_deterministic",
-                provider="local",
-                provider_configured=False,
-                details="DEEPSEEK_API_KEY is not configured; using deterministic local drafts.",
-            )
-        described: dict[str, Any] = {}
-        describe = getattr(provider, "describe", None)
-        if callable(describe):
-            described = describe() or {}
+        described = gateway.describe()
         return WorkflowRuntimeStatus(
-            runtime="provider_deepseek",
-            provider="deepseek",
+            runtime=f"provider_{described.provider_id}",
+            runtime_kind="model_gateway",
+            provider=described.provider_id,
             provider_configured=True,
-            model=described.get("model", ""),
-            base_url=described.get("base_url", ""),
-            details="DeepSeek provider runtime is configured for Snowflake draft generation.",
+            model=described.model_id,
+            base_url=described.base_url,
+            details=f"{described.provider_id} model gateway is configured for draft generation.",
         )
 
     # -- artifacts ---------------------------------------------------------
@@ -551,6 +542,9 @@ class SnowflakeService:
             target_records=target_records,
             generation_mode=request.generation_mode,
             previous_artifacts_context_chars=request.previous_artifacts_context_chars,
+            model_profile=request.model_profile,
+            allow_fallback=request.allow_fallback,
+            allow_repair=request.allow_repair,
         )
         if request.step_number not in {6, 7, 8, 9}:
             return self.generate(generation_request, workflow)[0]
@@ -640,9 +634,33 @@ def get_writing_workflow(
     data_store: WritingDataStore = Depends(get_data_store),
     llm_wiki: LlmWiki = Depends(get_llm_wiki),
 ) -> WritingWorkflow:
-    """Resolve the configured provider behind the app-owned workflow interface."""
-    provider, _skip_reason = resolve_default_provider(ProviderDependencies())
-    return ProviderSnowflakeWorkflow(provider, data_store, SNOWFLAKE_STEPS, llm_wiki)
+    """Route explicit model selections remotely and preserve default local fallback."""
+    runtime = ModelRuntime(recorder=data_store)
+    return SelectableWritingWorkflow(
+        local=LocalDraftWritingWorkflow(data_store, SNOWFLAKE_STEPS, llm_wiki),
+        remote=SnowflakeWorkflow(data_store, SNOWFLAKE_STEPS, runtime, llm_wiki),
+        runtime=runtime,
+    )
+
+
+class SelectableWritingWorkflow:
+    def __init__(
+        self,
+        *,
+        local: WritingWorkflow,
+        remote: WritingWorkflow,
+        runtime: ModelRuntime,
+    ) -> None:
+        self.local = local
+        self.remote = remote
+        self.runtime = runtime
+
+    def run_snowflake_generation(
+        self, request: SnowflakeGenerationRequest
+    ) -> SnowflakeGenerationResponse:
+        if request.model_profile or self.runtime.has_configured_gateway():
+            return self.remote.run_snowflake_generation(request)
+        return self.local.run_snowflake_generation(request)
 
 
 def snowflake_wiki_document(artifact: SnowflakeArtifact) -> WikiSourceDocument:

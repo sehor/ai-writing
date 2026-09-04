@@ -1,7 +1,7 @@
 # 十步雪花法 Prompt 规范
 
-> 状态：Partially implemented（领域契约与审核链已落地；独立 Prompt 资产尚未落地）
-> 日期：2026-09-03
+> 状态：Partially implemented（领域契约、审核链与核心 Prompt/Provider 解耦已落地；逐步语义深化仍待完成）
+> 日期：2026-09-04
 > 实现基线：`7d601b6`、`af47f26`、`c4aa732`
 > Prompt 语言：生产模板使用英文；说明与验收规则使用中文
 > 适用范围：雪花法 Step 1–10 的生成、重生成、校验与渲染
@@ -12,7 +12,7 @@
 
 已完成的基础能力：Step 1–9 结构化领域契约与本地校验、Step 6–9 分页记录及定向生成、AI 结果待审核、Step 9 可选、Step 10 按场景进入 Manuscript proposal/revision，以及 legacy Step 10 草稿的人工选段导入。
 
-尚未完成的 Prompt 专项能力：公共 Prompt 的独立版本化、十步 Prompt 注册表、Provider 中立的 `PromptPlan`/`ModelGateway`、Prompt 快照与统一 Provider 契约测试，以及基于 finish reason 的截断检测。本文因此保持“部分实施”，不能作为当前运行时 Prompt 已完全符合规范的声明。
+已完成的 Prompt 基础设施：公共 Prompt 独立版本化、十步 Prompt 注册表、Provider 中立的 `PromptPlan`/`ModelGateway`、Prompt 快照与统一 Provider 契约测试，以及基于 finish reason 的截断检测。尚未完成的是本文所列全部逐步方法指导、Step 10 fact/deviation proposals 和长输出自动分批协议；本文因此保持“部分实施”，不能作为当前运行时 Prompt 已完全符合本规范的声明。
 
 ## 1. 文档目的
 
@@ -1330,11 +1330,11 @@ backend/app/services/snowflake_service.py 的步骤定义应只保留稳定显�
 
 Step 7 不应再映射为 canon_entities。若系统需要 Canon 提案，建立独立的 writeback/propose_canon 用例，从已接受设计或正文中提取 proposal，再由应用验证和提交。
 
-### 20.2 应删除的步骤特判
+### 20.2 已删除的供应商工作流特判
 
-backend/app/agents/deepseek_workflow.py 当前仅对 Step 8 和 Step 10 增加特殊 instruction，不足以表达十步差异。
+原 `backend/app/agents/deepseek_workflow.py` 已删除。当前 Step 1–10 由 `backend/app/prompts/snowflake.py` 编译，供应商协议由 `backend/app/llm/adapters/deepseek.py` 独立处理。
 
-迁移后：
+当前核心迁移结果：
 
 - Step 1–10 各自有 PromptDefinition；
 - 公共 Prompt 只放共同权威和输出规则；
@@ -1400,8 +1400,8 @@ backend/app/agents/deepseek_workflow.py 当前仅对 Step 8 和 Step 10 增加�
 
 ## 23. 实施完成标准
 
-- [ ] 公共 system/context Prompt 独立版本化。
-- [ ] 十个 Step Prompt 均注册且无供应商名称。
+- [x] 公共 system/context Prompt 独立版本化。
+- [x] 十个 Step Prompt 均注册且无供应商名称。
 - [ ] 十个 response schema 可由本地验证器执行。
 - [ ] 每一步都有原始方法核心与产品增强的明确区分。
 - [x] Step 7 与 Canon writeback 解耦。

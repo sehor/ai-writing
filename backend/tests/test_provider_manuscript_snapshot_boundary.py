@@ -3,7 +3,7 @@ from tempfile import TemporaryDirectory
 import unittest
 
 from app.data import SQLiteWritingDataStore
-from app.integrations.provider_registry import ProviderRegistry
+from app.llm import FakeModelGateway, ModelGatewayRegistry
 from app.models import (
     CanonEntityCreate,
     KnowledgeStateCreate,
@@ -23,19 +23,6 @@ SAFE_FACT = "SAFE_PROVIDER_FACT"
 READER_ONLY_FACT = "READER_ONLY_PROVIDER_FACT"
 FUTURE_FACT = "FUTURE_PROVIDER_FACT"
 STRUCTURED_THREAD = "Structured provider thread"
-
-
-class CapturingProvider:
-    name = "boundary"
-
-    def __init__(self) -> None:
-        self.scene = None
-        self.context = ""
-
-    def generate_manuscript(self, scene, context):
-        self.scene = scene
-        self.context = context
-        return "PROVIDER_BOUNDARY_DRAFT"
 
 
 class ProviderManuscriptSnapshotBoundaryTests(unittest.TestCase):
@@ -143,28 +130,27 @@ class ProviderManuscriptSnapshotBoundaryTests(unittest.TestCase):
                 scene_id=target_scene.id,
                 data_store=store,
             ).render_generation_context()
-            provider = CapturingProvider()
-            registry = ProviderRegistry()
-            registry.register("deepseek", lambda _deps: provider)
+            gateway = FakeModelGateway(["PROVIDER_BOUNDARY_DRAFT"])
+            registry = ModelGatewayRegistry()
+            registry.register("deepseek", lambda: gateway)
             service = ManuscriptService(data_store=store, cognition=None)
-            service.registry = registry
+            service.gateway_registry = registry
 
             proposal = service.generate_provider_proposal(project.id, target_scene.id)
             manuscript_scenes = store.list_manuscript_scenes(project.id)
 
-        self.assertIsNotNone(provider.scene)
-        self.assertEqual(provider.scene.id, target_scene.id)
-        self.assertEqual(provider.scene.open_threads, "")
-        self.assertEqual(provider.context, expected_context)
+        self.assertEqual(len(gateway.requests), 1)
+        prompt_context = gateway.requests[0].prompt.messages[1].content
+        self.assertIn(expected_context, prompt_context)
         self.assertEqual(proposal.context, expected_context)
         self.assertEqual(proposal.status, "pending_review")
-        self.assertIn(SAFE_FACT, provider.context)
-        self.assertIn(STRUCTURED_THREAD, provider.context)
-        self.assertNotIn(LEGACY_OPEN_THREAD, provider.context)
-        self.assertNotIn(READER_ONLY_FACT, provider.context)
-        self.assertNotIn(FUTURE_FACT, provider.context)
-        self.assertNotIn(FUTURE_CANON_STATE, provider.context)
-        self.assertNotIn(FUTURE_SCENE, provider.context)
+        self.assertIn(SAFE_FACT, prompt_context)
+        self.assertIn(STRUCTURED_THREAD, prompt_context)
+        self.assertNotIn(LEGACY_OPEN_THREAD, prompt_context)
+        self.assertNotIn(READER_ONLY_FACT, prompt_context)
+        self.assertNotIn(FUTURE_FACT, prompt_context)
+        self.assertNotIn(FUTURE_CANON_STATE, prompt_context)
+        self.assertNotIn(FUTURE_SCENE, prompt_context)
         self.assertEqual(manuscript_scenes, [])
 
 

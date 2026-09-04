@@ -6,19 +6,19 @@ same context assembly; routers only parse requests and map errors.
 
 from fastapi import Depends
 
-from app.agents.reference_workflow import scope_for_request
-from app.agents.writing_workflow import WorkflowNotConfiguredError
+from app.agents.reference_workflow import (
+    build_local_reference_suggestion,
+    generate_gateway_reference_suggestion,
+    scope_for_request,
+)
 from app.cognition.registry import CognitionRegistry, get_cognition_registry
 from app.cognition.snapshots import build_project_snapshot
 from app.data import WritingDataStore, get_data_store
 from app.narrative import NarrativeSnapshot
-from app.integrations.provider_registry import (
-    LocalDeterministicProvider,
-    ProviderDependencies,
-    ProviderExecutionError,
-    ProviderRegistry,
-    ProviderUnavailableError,
-    default_provider_registry,
+from app.llm import (
+    ModelGatewayRegistry,
+    ModelRuntime,
+    default_model_gateway_registry,
 )
 from app.models import ReferenceGenerationRequest, ReferenceSuggestion
 from app.observability import timed_operation
@@ -30,11 +30,11 @@ class ReferenceService:
         self,
         data_store: WritingDataStore,
         cognition: CognitionRegistry,
-        registry: ProviderRegistry | None = None,
+        registry: ModelGatewayRegistry | None = None,
     ):
         self.data_store = data_store
         self.cognition = cognition
-        self.registry = registry if registry is not None else default_provider_registry
+        self.registry = registry if registry is not None else default_model_gateway_registry
 
     def list_suggestions(self, project_id: str) -> list[ReferenceSuggestion]:
         return self.data_store.list_reference_suggestions(project_id)
@@ -67,46 +67,30 @@ class ReferenceService:
         self, project_id: str, request: ReferenceGenerationRequest
     ) -> ReferenceSuggestion:
         snapshot, cognition_context, context = self._assemble(project_id, request)
-        provider = LocalDeterministicProvider(cognition=self.cognition)
         with timed_operation(
             "provider_call",
             operation="generate_reference",
-            provider=str(getattr(provider, "name", "unknown")),
+            provider="local",
             project_id=project_id,
         ):
-            suggestion = provider.generate_reference(
-                request,
-                context=context,
-                snapshot=snapshot,
-                cognition_context=cognition_context,
+            suggestion = build_local_reference_suggestion(
+                request, context, snapshot, cognition_context
             )
         return self.data_store.create_reference_suggestion(project_id, suggestion)
 
     def generate_provider(
         self, project_id: str, request: ReferenceGenerationRequest
     ) -> ReferenceSuggestion:
-        # Raises ProviderConfigurationError / ProviderNotConfiguredError;
-        # the router maps both to HTTP 501.
-        provider = self.registry.create("deepseek", ProviderDependencies())
         snapshot, cognition_context, context = self._assemble(project_id, request)
-        try:
-            with timed_operation(
-                "provider_call",
-                operation="generate_reference",
-                provider=str(getattr(provider, "name", "unknown")),
-                project_id=project_id,
-            ):
-                suggestion = provider.generate_reference(
-                    request,
-                    context=context,
-                    snapshot=snapshot,
-                    cognition_context=cognition_context,
-                )
-        except WorkflowNotConfiguredError as exc:
-            raise ProviderUnavailableError(str(exc)) from exc
-        except Exception as exc:
-            raise ProviderExecutionError(f"Provider reference generation failed: {exc}") from exc
-        return self.data_store.create_reference_suggestion(project_id, suggestion)
+        generated = generate_gateway_reference_suggestion(
+            ModelRuntime(self.registry, recorder=self.data_store),
+            request,
+            context,
+            snapshot,
+            cognition_context,
+            project_id=project_id,
+        )
+        return self.data_store.create_reference_suggestion(project_id, generated.suggestion)
 
     def update_status(
         self, project_id: str, suggestion_id: str, status_str: str

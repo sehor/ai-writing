@@ -6,11 +6,7 @@ import unittest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from app.integrations.provider_registry import (
-    LocalDeterministicProvider,
-    ProviderDependencies,
-    default_provider_registry,
-)
+from app.llm import FakeModelGateway, ModelGatewayRegistry
 from app.observability import bind_request_id, log_event, new_request_id, timed_operation
 
 
@@ -114,13 +110,15 @@ class MiddlewareTests(unittest.TestCase):
 
 
 class RegistryContractTests(unittest.TestCase):
-    def test_create_returns_concrete_provider_instance(self) -> None:
+    def test_create_returns_concrete_gateway_instance(self) -> None:
         # P2-08 instrumentation lives at service call sites (timed_operation),
-        # NOT by wrapping the provider: callers and tests rely on the concrete
+        # NOT by wrapping the gateway: callers and tests rely on the concrete
         # type coming out of the registry.
-        provider = default_provider_registry.create("local", ProviderDependencies())
-        self.assertIsInstance(provider, LocalDeterministicProvider)
-        self.assertEqual(provider.name, "local")
+        registry = ModelGatewayRegistry()
+        gateway = FakeModelGateway()
+        registry.register("fake", lambda: gateway)
+        self.assertIs(registry.create("fake"), gateway)
+        self.assertEqual(gateway.provider_id, "fake")
 
 
 if __name__ == "__main__":

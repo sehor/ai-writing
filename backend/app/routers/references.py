@@ -4,12 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.data import WritingDataStore, get_data_store
 from app.dependencies import require_project
-from app.integrations.provider_registry import (
-    ProviderConfigurationError,
-    ProviderExecutionError,
-    ProviderNotConfiguredError,
-    ProviderUnavailableError,
-)
+from app.llm import ModelGatewayError
 from app.models import (
     ReferenceGenerationRequest,
     ReferenceSuggestion,
@@ -60,24 +55,14 @@ def generate_provider_reference_suggestion(
     require_project(project_id, service.data_store)
     try:
         return service.generate_provider(project_id, request)
-    except ProviderConfigurationError as exc:
+    except ModelGatewayError as exc:
         raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail=f"DeepSeek env invalid: {exc}",
-        ) from exc
-    except (ProviderNotConfiguredError, ProviderUnavailableError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail=(
-                "DeepSeek provider is not configured."
-                if isinstance(exc, ProviderNotConfiguredError)
-                else str(exc)
+            status_code=(
+                status.HTTP_501_NOT_IMPLEMENTED
+                if exc.is_configuration_error
+                else status.HTTP_502_BAD_GATEWAY
             ),
-        ) from exc
-    except ProviderExecutionError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
+            detail=exc.safe_message,
         ) from exc
 
 

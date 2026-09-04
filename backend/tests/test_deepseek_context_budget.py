@@ -3,7 +3,7 @@ import unittest
 
 from pydantic import ValidationError
 
-from app.agents.deepseek_workflow import format_previous_artifacts
+from app.prompts.snowflake import format_previous_artifacts
 from app.agents.writing_workflow import LocalConsistencyReviewer, WritingWorkflowState
 from app.models import (
     CanonEntity,

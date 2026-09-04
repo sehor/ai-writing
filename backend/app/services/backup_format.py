@@ -35,6 +35,8 @@ TABLES_IN_ORDER = (
     "reference_suggestions",
     "outbox_jobs",
     "analysis_runs",
+    "generation_runs",
+    "generation_attempts",
     "scene_proposals",
     "story_facts",
     "story_fact_character_knowledge",
@@ -43,9 +45,12 @@ TABLES_IN_ORDER = (
     "story_threads",
     "story_thread_events",
 )
+PRE_GENERATION_RUN_TABLES = tuple(
+    table for table in TABLES_IN_ORDER if table not in {"generation_runs", "generation_attempts"}
+)
 LEGACY_V2_TABLES = tuple(
     table
-    for table in TABLES_IN_ORDER
+    for table in PRE_GENERATION_RUN_TABLES
     if table not in {
         "snowflake_artifact_revisions",
         "snowflake_artifact_heads",
@@ -55,7 +60,7 @@ LEGACY_V2_TABLES = tuple(
 )
 REVISION_V2_TABLES = tuple(
     table
-    for table in TABLES_IN_ORDER
+    for table in PRE_GENERATION_RUN_TABLES
     if table not in {"snowflake_record_revisions", "snowflake_record_heads"}
 )
 NARRATIVE_TABLES = frozenset(
@@ -155,6 +160,8 @@ def validate_tables(manifest: dict, tables: Any) -> dict:
         schema_version = manifest.get("schema_version", 0)
         expected_tables = (
             TABLES_IN_ORDER
+            if schema_version >= 12
+            else PRE_GENERATION_RUN_TABLES
             if schema_version >= 11
             else REVISION_V2_TABLES
             if schema_version >= 9

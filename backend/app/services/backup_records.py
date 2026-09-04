@@ -3,6 +3,10 @@
 import sqlite3
 
 from app.data.repositories.analysis import analysis_run_from_row
+from app.data.repositories.generation_runs import (
+    generation_attempt_from_row,
+    generation_run_from_row,
+)
 from app.data.repositories.canon import canon_entity_from_row
 from app.data.repositories.manuscript import (
     manuscript_chapter_from_row,
@@ -50,6 +54,8 @@ RECORD_READERS = {
     "reference_suggestions": reference_suggestion_from_row,
     "outbox_jobs": outbox_job_from_row,
     "analysis_runs": analysis_run_from_row,
+    "generation_runs": generation_run_from_row,
+    "generation_attempts": generation_attempt_from_row,
     "scene_proposals": scene_proposal_from_row,
     "story_facts": _fact_from_row,
     "story_fact_character_knowledge": _character_knowledge,

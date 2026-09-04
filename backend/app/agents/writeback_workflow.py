@@ -1,13 +1,17 @@
 import json
+from dataclasses import dataclass
 from typing import Any
 
-from app.agents.deepseek_workflow import DeepSeekSettings
+from app.llm.gateway import ModelGateway, ModelRequest
+from app.llm.policy import generation_policy_for
+from app.llm.runtime import ModelExecution, ModelRuntime, as_model_runtime
 from app.models import (
     CanonEntity,
     CanonEntityCreate,
     MemoryRecord,
     MemoryRecordCreate,
     ManuscriptRevision,
+    ModelExecutionOptions,
     NarrativeRelationCreate,
     StoryThreadCreate,
     StoryThreadEventCreate,
@@ -15,26 +19,42 @@ from app.models import (
     WritebackProposalCreate,
 )
 from app.review.writeback_apply import validate_update_proposal
+from app.prompts import compile_writeback_prompt
 
 
-def build_provider_writeback_proposals(
-    settings: DeepSeekSettings,
+@dataclass(frozen=True, slots=True)
+class GeneratedWritebackProposals:
+    proposals: list[WritebackProposalCreate]
+    execution: ModelExecution
+
+    @property
+    def completion(self):
+        return self.execution.completion
+
+
+def generate_gateway_writeback_proposals(
+    runtime: ModelRuntime | ModelGateway,
     revision: ManuscriptRevision,
     canon_entities: list[CanonEntity],
     memory_records: list[MemoryRecord],
-) -> list[WritebackProposalCreate]:
-    from app.agents.client_factory import get_openai_client
-
-    client = get_openai_client(api_key=settings.api_key, base_url=settings.base_url)
-    response = client.chat.completions.create(
-        model=settings.model,
-        messages=build_provider_messages(revision, canon_entities, memory_records),
-        temperature=settings.temperature,
-        max_tokens=settings.max_tokens,
+    *,
+    project_id: str = "",
+    options: ModelExecutionOptions | None = None,
+) -> GeneratedWritebackProposals:
+    prompt = compile_writeback_prompt(revision, canon_entities, memory_records)
+    request = ModelRequest(
+        prompt=prompt,
+        policy=generation_policy_for(prompt),
+        metadata={"project_id": project_id},
     )
-    content = response.choices[0].message.content if response.choices else ""
-    if not content:
-        raise ValueError("empty provider response")
+    execution = as_model_runtime(runtime).execute(
+        request, options, validate_content=parse_writeback_proposals
+    )
+    proposals = execution.validated_value
+    return GeneratedWritebackProposals(proposals=proposals, execution=execution)
+
+
+def parse_writeback_proposals(content: str) -> list[WritebackProposalCreate]:
     payload = parse_provider_json(content)
     if not isinstance(payload, list):
         raise ValueError("response must be a JSON array")
@@ -138,74 +158,6 @@ def _validate_clp_evidence(proposal: WritebackProposalCreate) -> None:
             raise ValueError("CLP proposal evidence excerpt is invalid.")
 
 
-def build_provider_messages(
-    revision: ManuscriptRevision,
-    canon_entities: list[CanonEntity],
-    memory_records: list[MemoryRecord],
-) -> list[dict[str, str]]:
-    return [
-        {
-            "role": "system",
-            "content": (
-                "You propose structured write-back changes for AI Writing Studio. "
-                "Return JSON only. Do not include Markdown. "
-                "Every item must match one of these shapes: "
-                "create: {target: 'canon_entity'|'memory_record', action: 'create', "
-                "title: string, rationale: string, source_ref: string, payload: object}; "
-                "update: {target: 'canon_entity', action: 'update', title: string, "
-                "rationale: string, source_ref: string, target_record_id: string, "
-                "expected_version: number, changes: {field: {before: string, after: string}}}. "
-                "Create canon payloads must match CanonEntityCreate; memory payloads must "
-                "match MemoryRecordCreate. Update 'field' must be one of entity_type, name, "
-                "summary, current_state, constraints, last_seen, timeline_notes, and "
-                "'expected_version' must be the current version of that canon record. "
-                "Only propose facts that are strongly supported by the accepted manuscript "
-                "revision. When unsure, omit the proposal."
-            ),
-        },
-        {
-            "role": "user",
-            "content": build_provider_context(revision, canon_entities, memory_records),
-        },
-    ]
-
-
-def build_provider_context(
-    revision: ManuscriptRevision,
-    canon_entities: list[CanonEntity],
-    memory_records: list[MemoryRecord],
-) -> str:
-    existing_canon = (
-        "\n".join(
-            f"- id={entity.id} v{entity.version} | {entity.entity_type}: {entity.name} | "
-            f"state: {truncate_state(entity.current_state)}"
-            for entity in canon_entities[:40]
-        )
-        or "No Canon entities recorded."
-    )
-    existing_memory = (
-        "\n".join(f"- {record.record_type}: {record.title}" for record in memory_records[:40])
-        or "No Memory records recorded."
-    )
-    return "\n".join(
-        [
-            f"Source ref: manuscript_revision:{revision.id}",
-            f"Scene id: {revision.scene_id}",
-            f"Title: {revision.title}",
-            f"Version: {revision.version}",
-            "",
-            "Existing Canon:",
-            existing_canon,
-            "",
-            "Existing Memory:",
-            existing_memory,
-            "",
-            "Accepted manuscript revision:",
-            revision.content,
-        ]
-    )
-
-
 def parse_provider_json(content: str) -> Any:
     text = content.strip()
     if text.startswith("```"):
@@ -216,10 +168,3 @@ def parse_provider_json(content: str) -> Any:
             lines = lines[:-1]
         text = "\n".join(lines).strip()
     return json.loads(text)
-
-
-def truncate_state(value: str, limit: int = 160) -> str:
-    text = " ".join(value.split())
-    if len(text) <= limit:
-        return text or "(empty)"
-    return f"{text[: limit - 3]}..."

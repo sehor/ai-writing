@@ -9,24 +9,24 @@ pure HTTP and map domain errors onto status codes.
 from fastapi import Depends
 from pydantic import ValidationError
 
-from app.agents.writing_workflow import WorkflowNotConfiguredError
+from app.agents.writeback_workflow import generate_gateway_writeback_proposals
 from app.analysis.http import get_analysis_service
 from app.analysis.service import AnalysisService, writeback_input_fingerprint
 from app.cognition.registry import CognitionRegistry, get_cognition_registry
 from app.cognition.snapshots import build_project_snapshot
+from app.cognition.interfaces import CommittedContentEvent
 from app.data import WritingDataStore, get_data_store
 from app.integrations.hermes import HermesAgentClient
-from app.integrations.provider_registry import (
-    LocalDeterministicProvider,
-    ProviderDependencies,
-    ProviderExecutionError,
-    ProviderRegistry,
-    ProviderUnavailableError,
-    default_provider_registry,
+from app.llm import (
+    ModelGatewayError,
+    ModelGatewayRegistry,
+    ModelRuntime,
+    default_model_gateway_registry,
 )
 from app.observability import timed_operation
 from app.models import (
     HermesRevisionProcessResponse,
+    ModelExecutionOptions,
     WritebackProposal,
     WritebackProposalCreate,
 )
@@ -50,12 +50,12 @@ class WritebackService:
         data_store: WritingDataStore,
         cognition: CognitionRegistry,
         analysis: AnalysisService,
-        registry: ProviderRegistry | None = None,
+        registry: ModelGatewayRegistry | None = None,
     ):
         self.data_store = data_store
         self.cognition = cognition
         self.analysis = analysis
-        self.registry = registry if registry is not None else default_provider_registry
+        self.registry = registry if registry is not None else default_model_gateway_registry
 
     # -- review ---------------------------------------------------------------
 
@@ -90,16 +90,27 @@ class WritebackService:
         """Deterministic local suggestions extracted from one revision."""
         revision = self._require_revision(project_id, revision_id)
         snapshot = build_project_snapshot(project_id, self.data_store)
-        provider = LocalDeterministicProvider(cognition=self.cognition)
 
         def _generate() -> list[WritebackProposalCreate]:
             with timed_operation(
                 "provider_call",
                 operation="generate_writebacks",
-                provider=str(getattr(provider, "name", "unknown")),
+                provider="local",
                 project_id=project_id,
             ):
-                return provider.generate_writebacks(revision, snapshot)
+                event = CommittedContentEvent(
+                    source="manuscript_revision",
+                    source_ref=f"manuscript_revision:{revision.id}",
+                    title=revision.title,
+                    content=revision.content,
+                    revision=revision,
+                )
+                reports = self.cognition.ingest_committed_content(snapshot, event)
+                return [
+                    proposal
+                    for report in reports
+                    for proposal in report.writeback_proposals
+                ]
 
         return self.analysis.run_writeback_generation(
             project_id=project_id,
@@ -167,38 +178,42 @@ class WritebackService:
         )
 
     def generate_provider_from_revision(
-        self, project_id: str, revision_id: str, force: bool = False
+        self,
+        project_id: str,
+        revision_id: str,
+        force: bool = False,
+        options: ModelExecutionOptions | None = None,
     ):
         """Structured write-back suggestions from the configured provider."""
         revision = self._require_revision(project_id, revision_id)
-        # Raises ProviderConfigurationError / ProviderNotConfiguredError;
-        # the router maps both to HTTP 501.
-        provider = self.registry.create("deepseek", ProviderDependencies())
-        described: dict = {}
-        describe = getattr(provider, "describe", None)
-        if callable(describe):
-            described = describe() or {}
         snapshot = build_project_snapshot(project_id, self.data_store)
+        active_options = options or ModelExecutionOptions()
 
         def _generate() -> list[WritebackProposalCreate]:
-            with timed_operation(
-                "provider_call",
-                operation="generate_writebacks",
-                provider=str(getattr(provider, "name", "unknown")),
+            generated = generate_gateway_writeback_proposals(
+                ModelRuntime(self.registry, recorder=self.data_store),
+                revision,
+                snapshot.canon_entities,
+                snapshot.memory_records,
                 project_id=project_id,
-            ):
-                return provider.generate_writebacks(revision, snapshot)
+                options=active_options,
+            )
+            return generated.proposals
 
         try:
             outcome = self.analysis.run_writeback_generation(
                 project_id=project_id,
                 source_ref=f"manuscript_revision:{revision.id}",
-                processor="deepseek_writeback",
+                processor="model_writeback",
                 fingerprint=writeback_input_fingerprint(
                     revision,
                     canon_entities=snapshot.canon_entities,
                     memory_records=snapshot.memory_records,
-                    extra={"model": described.get("model", "")},
+                    extra={
+                        "model_profile": active_options.model_profile,
+                        "allow_fallback": active_options.allow_fallback,
+                        "allow_repair": active_options.allow_repair,
+                    },
                 ),
                 generate=_generate,
                 force=force,
@@ -207,14 +222,18 @@ class WritebackService:
             # Persisted-proposal validation failure stays a 422 domain error;
             # it must not be swallowed by the generic provider handlers below.
             raise
-        except WorkflowNotConfiguredError as exc:
-            raise ProviderUnavailableError(str(exc)) from exc
+        except ModelGatewayError:
+            raise
         except (ValueError, ValidationError) as exc:
-            raise ProviderExecutionError(
-                f"Provider returned invalid write-back proposals: {exc}"
+            raise ModelGatewayError(
+                "invalid_response",
+                "Model returned invalid write-back proposals.",
             ) from exc
         except Exception as exc:
-            raise ProviderExecutionError(f"Provider write-back generation failed: {exc}") from exc
+            raise ModelGatewayError(
+                "execution",
+                "Model write-back generation failed.",
+            ) from exc
         return outcome
 
     # -- helpers -----------------------------------------------------------------

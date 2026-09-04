@@ -10,9 +10,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
 from app.agents.writing_workflow import (
     WorkflowNotConfiguredError,
-    WorkflowProviderError,
     WritingWorkflow,
 )
+from app.llm import ModelGatewayError
 from app.data import WritingDataStore, get_data_store
 from app.data.flows import (
     SnowflakeHeadConflictError,
@@ -196,10 +196,17 @@ def create_snowflake_generation(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
             detail={"message": str(exc), "workflow_trace": [t.model_dump() for t in exc.trace]},
         ) from exc
-    except WorkflowProviderError as exc:
+    except ModelGatewayError as exc:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail={"message": str(exc), "workflow_trace": [t.model_dump() for t in exc.trace]},
+            status_code=(
+                status.HTTP_501_NOT_IMPLEMENTED
+                if exc.is_configuration_error
+                else status.HTTP_502_BAD_GATEWAY
+            ),
+            detail={
+                "message": exc.safe_message,
+                "workflow_trace": [t.model_dump() for t in exc.trace],
+            },
         ) from exc
 
 
@@ -476,11 +483,15 @@ def generate_snowflake_artifact(
                 "workflow_trace": [trace.model_dump() for trace in exc.trace],
             },
         ) from exc
-    except WorkflowProviderError as exc:
+    except ModelGatewayError as exc:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
+            status_code=(
+                status.HTTP_501_NOT_IMPLEMENTED
+                if exc.is_configuration_error
+                else status.HTTP_502_BAD_GATEWAY
+            ),
             detail={
-                "message": str(exc),
+                "message": exc.safe_message,
                 "workflow_trace": [trace.model_dump() for trace in exc.trace],
             },
         ) from exc

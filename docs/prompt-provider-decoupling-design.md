@@ -1,23 +1,33 @@
 # Prompt 管理与 LLM Provider 解耦设计
 
-> 状态：Planned（尚未实施；业务闭环前置工作已完成）
-> 日期：2026-09-03
-> 跟踪基线：`c4aa732`
+> 状态：Resilient Multi-Provider Implemented（OpenRouter、repair、自动切换、能力矩阵与 generation-run 已实施）
+> 日期：2026-09-04
+> 审查基线：`c4aa732`
 > 适用范围：backend/app 下的 Snowflake、manuscript、reference、writeback 等生成流程
 > 相关文档：docs/snowflake-business-loop-improvement-plan.md、docs/snowflake-ten-step-prompt-spec.md
 
 ## 0. 当前实施状态
 
-本设计已纳入版本控制，但 Prompt/Provider 解耦主体尚未实施。`c4aa732` 已完成必要的业务前置条件：AI 结果进入待审核修订、Step 6–9 支持按记录生成与验证、Step 10 归入 Manuscript 审核链，并清除了 `open_threads` 作为生成依据的耦合。
+`c4aa732` 已完成必要的业务前置条件：AI 结果进入待审核修订、Step 6–9 支持按记录生成与验证、Step 10 归入 Manuscript 审核链，并清除了 `open_threads` 作为生成依据的耦合。当前工作树又完成了本文的核心解耦范围。
 
-仍未开始的核心范围包括：
+已经完成：
 
-- 独立的 `PromptPlan`、`PromptRegistry` 和版本化 Prompt 资产；
-- 供应商中立的 `ModelGateway` 与 DeepSeek adapter；
-- Manuscript、Reference、Writeback 工作流的网关迁移；
-- Prompt 快照、统一 Provider 契约测试和第二 adapter 验证。
+- 建立静态 `PromptPlan`、`PromptRegistry` 和 `1.0.0` 版本 Prompt 资产；
+- 建立供应商中立的 `ModelGateway`、统一结果/错误模型、DeepSeek adapter 和 Fake gateway；
+- 完成 Snowflake、Manuscript、Reference、Writeback 的网关迁移；
+- 保持 HTTP 路径、审核、接受、Canon 提交和本地 Snowflake fallback 语义；
+- 增加 Prompt 快照、上下文边界、gateway 契约、Fake gateway 用例和架构守卫测试；
+- 对 Step 6、9、10 配置独立输出预算，并把 `finish_reason=length` 作为截断失败处理。
 
-因此本文保持计划状态，不应因业务闭环已经完成而标记为 Implemented。
+扩展阶段现已完成 OpenRouter adapter、用户模型选择、最多一次受控 repair、兼容模型自动切换、静态能力矩阵及 generation-run/attempt 元数据持久化。持久层只保存安全元数据，不保存 API Key、完整 Prompt、作者正文或模型输出。远程 Prompt 平台仍延后；现有 Pydantic contracts、validators 与人工审核链继续复用。
+
+### 0.1 多 Provider 运行规则（2026-09-04）
+
+- 模型选择使用服务端允许列表中的 `model_profile`，客户端不能传任意 base URL、API Key 或 SDK 参数。
+- 当前可选 OpenRouter 模型为 `google/gemini-3.8-flash` 与 `anthropic/claude-fable-5.1`；能力、上下文窗口和输出上限集中登记在 `app.llm.capabilities`。
+- 结构化响应先执行本地 JSON、Pydantic 与领域校验；失败时同模型最多 repair 一次，仍失败后才按能力兼容的 profile 顺序切换。
+- 鉴权失败不会自动切换，以免隐藏错误凭据；限流、超时、不可用、上下文溢出、截断、空响应和无效响应可以按策略切换。
+- `generation_runs` 与 `generation_attempts` 记录 prompt/schema 版本、模型、错误码、耗时、token、repair/fallback 次数；记录随项目备份和恢复。
 
 ## 1. 决策摘要
 
@@ -46,14 +56,14 @@ flowchart TD
 
 最终效果是：更换模型时，仅新增或修改 Provider 适配器与注册配置；雪花法 Prompt、业务工作流、验证器和接口协议不需要随供应商一起重写。
 
-## 2. 当前耦合及其影响
+## 2. 重构前耦合及其影响
 
-当前实现已经有 provider registry，但抽象边界仍然过高，供应商实现同时承担了模型调用、Prompt 设计和业务工作流。
+以下表格记录审查基线中的问题，作为迁移依据；表中旧文件已在核心实施中替换或删除。
 
 | 位置 | 当前职责 | 问题 |
 |---|---|---|
 | backend/app/agents/deepseek_workflow.py | 拼装 system/context/instruction Prompt、调用 DeepSeek、记录阶段 | 文件名和类名绑定供应商；Prompt 语义与传输代码混合；十步只有少量特判 |
-| backend/app/integrations/deepseek_provider.py | 实现 WritingProvider 并实例化 DeepSeekWritingWorkflow | Provider 收到 datastore、steps、wiki 等业务对象，知道过多领域细节 |
+| backend/app/integrations/provider_registry.py | 实现 WritingProvider 并实例化 DeepSeekWritingWorkflow | Provider 收到 datastore、steps、wiki 等业务对象，知道过多领域细节 |
 | backend/app/agents/manuscript_workflow.py | 手写正文 Prompt，并直接依赖 DeepSeekSettings | 换供应商需要修改业务工作流 |
 | backend/app/agents/reference_workflow.py | 手写参考资料 Prompt，并直接依赖 DeepSeekSettings | Prompt 无统一版本、契约和测试入口 |
 | backend/app/agents/writeback_workflow.py | 手写回写 Prompt，并直接依赖 DeepSeekSettings | Canon 规则与 Provider 配置耦合 |
@@ -297,9 +307,9 @@ class ModelCapabilities:
 
 如果模型的 max_output_tokens 无法承载 Step 6、Step 9 或 Step 10，工作流必须切分任务或选择更合适的模型；不能静默截断。
 
-## 6. 建议目录结构
+## 6. 已实施目录结构
 
-以下结构可以渐进建立，不要求第一批提交一次性移动所有文件：
+核心实施采用以下最小结构；没有为尚未需要的能力、错误或 use case 拆出空模块：
 
 ~~~text
 backend/app/
@@ -311,17 +321,13 @@ backend/app/
   prompts/
     models.py
     registry.py
-    compiler.py
-    shared.py
     snowflake.py
-    manuscript.py
-    reference.py
-    writeback.py
+    creative.py
   llm/
     gateway.py
-    capabilities.py
-    errors.py
     registry.py
+    policy.py
+    fake.py
     adapters/
       deepseek.py
   agents/
@@ -338,7 +344,7 @@ backend/app/
 - llm：统一调用端口和供应商适配；
 - agents：上下文装配和流程编排；
 - services：权限、事务、持久化、业务状态推进；
-- integrations：可在迁移期保留为兼容入口，之后逐步收敛到 llm。
+- integrations：不再承载模型 Provider 门面；其他非模型集成保持原职责。
 
 不要建立一个无限膨胀的 prompt_manager.py。注册、编译、领域规范、输出验证必须是可独立测试的职责。
 
@@ -507,7 +513,7 @@ trace 阶段名应保持供应商中立，例如：
 
 ## 13. 渐进迁移计划
 
-### Phase 0：建立行为基线
+### Phase 0：建立行为基线（已完成）
 
 - 为现有 DeepSeek Prompt 生成增加 characterization tests。
 - 固定几个最小项目样例，记录 messages、调用参数和 trace。
@@ -515,7 +521,7 @@ trace 阶段名应保持供应商中立，例如：
 
 退出条件：可以判断后续重构是否意外改变当前接口和保存逻辑。
 
-### Phase 1：抽出 Prompt 编译器，不改运行行为
+### Phase 1：抽出 Prompt 编译器，不改运行行为（已完成）
 
 - 从 deepseek_workflow.py 抽出共享 system/context/instruction 生成。
 - 建立 PromptPlan、PromptRegistry 和首批 snowflake Prompt 定义。
@@ -524,7 +530,7 @@ trace 阶段名应保持供应商中立，例如：
 
 退出条件：deepseek_workflow.py 不再包含雪花法长 Prompt 字符串。
 
-### Phase 2：引入 ModelGateway 与 DeepSeekAdapter
+### Phase 2：引入 ModelGateway 与 DeepSeekAdapter（已完成）
 
 - 建立统一请求、响应、能力和错误类型。
 - 把鉴权、HTTP/SDK、用量、finish reason 处理移入 DeepSeekAdapter。
@@ -533,7 +539,7 @@ trace 阶段名应保持供应商中立，例如：
 
 退出条件：工作流可以用 FakeModelGateway 完成全链路测试。
 
-### Phase 3：建立通用 SnowflakeWorkflow
+### Phase 3：建立通用 SnowflakeWorkflow（已完成）
 
 - 将 DeepSeekWritingWorkflow 改名/替换为供应商中立的 SnowflakeWorkflow。
 - 把 step 规则移入 SnowflakeStepSpec 与 validators。
@@ -542,7 +548,7 @@ trace 阶段名应保持供应商中立，例如：
 
 退出条件：SnowflakeWorkflow 源码中不存在具体供应商 import 或名称分支。
 
-### Phase 4：迁移其他生成流程
+### Phase 4：迁移其他生成流程（已完成）
 
 依次迁移：
 
@@ -554,9 +560,9 @@ trace 阶段名应保持供应商中立，例如：
 
 退出条件：agents 目录不再 import DeepSeekSettings。
 
-### Phase 5：用第二个适配器证明边界
+### Phase 5：用第二个适配器证明边界（OpenRouter 与增强 Fake/Recording 已完成）
 
-至少实现一个 Fake/Recording adapter；条件允许时再实现真实的第二 Provider。
+已实现 OpenRouter adapter，并继续用可编排延迟与异常的 Fake gateway 做无真实 Key 的确定性测试。
 
 证明点：
 
@@ -565,7 +571,7 @@ trace 阶段名应保持供应商中立，例如：
 - 能力不足时走可预测降级或明确失败；
 - Provider 响应差异被统一模型隔离。
 
-### Phase 6：清理兼容层
+### Phase 6：清理兼容层（核心清理已完成）
 
 - 标记高层 WritingProvider 旧接口为 deprecated。
 - 删除不再使用的 DeepSeekPromptPlanner 空壳。
@@ -678,16 +684,16 @@ trace 阶段名应保持供应商中立，例如：
 
 满足以下条件才视为解耦完成：
 
-- [ ] 十步雪花法都有独立、版本化的 Prompt 定义和响应契约。
-- [ ] SnowflakeWorkflow、ManuscriptWorkflow、ReferenceWorkflow、WritebackWorkflow 不依赖具体供应商配置或 SDK。
-- [ ] DeepSeekAdapter 不读取 datastore，不理解 Snowflake step，不提交 Canon。
-- [ ] 同一个 PromptPlan 能通过 FakeModelGateway 和 DeepSeekAdapter。
-- [ ] 新增第二 Provider 不修改领域层、Prompt 资产和工作流。
+- [x] 十步雪花法都有独立、版本化的 Prompt 定义和响应契约。
+- [x] SnowflakeWorkflow、ManuscriptWorkflow、ReferenceWorkflow、WritebackWorkflow 不依赖具体供应商配置或 SDK。
+- [x] DeepSeekAdapter 不读取 datastore，不理解 Snowflake step，不提交 Canon。
+- [x] 同一个 PromptPlan 能通过 FakeModelGateway 和 DeepSeekAdapter。
+- [x] 新增第二 Provider 不修改领域层、Prompt 资产和工作流。
 - [ ] 所有 LLM 响应经过 parse、schema、domain 三层验证后才能提交。
 - [ ] trace 包含 prompt、schema、provider、model 和验证版本。
-- [ ] Step 6/9/10 有明确的长输出切分或 token 预算策略。
+- [x] Step 6/9/10 有明确的长输出 token 预算，并对截断结果失败关闭。
 - [x] Prompt、UI 与服务的“自动保存/人工确认”语义一致：AI 输出进入待审核修订，接受后才更新权威状态。
-- [ ] 旧接口有明确兼容期和删除条件。
+- [x] 高层 WritingProvider 和供应商命名工作流已在调用点迁移后删除；现有 HTTP 接口保持兼容。
 
 ## 19. 与现有雪花改进计划的关系
 

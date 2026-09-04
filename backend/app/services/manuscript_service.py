@@ -1,21 +1,19 @@
 from difflib import unified_diff
 from fastapi import Depends, HTTPException, status
 
-from app.agents.writing_workflow import WorkflowNotConfiguredError
+from app.agents.manuscript_workflow import generate_manuscript_scene
 from app.analysis.consistency import CONSISTENCY_PROCESSOR, check_revision
 from app.analysis.models import ConsistencyReport, ConsistencyReportSummary
 from app.cognition.registry import CognitionRegistry, get_cognition_registry
 from app.narrative import NarrativeSnapshot
 from app.data import WritingDataStore, get_data_store, utc_now
-from app.integrations.provider_registry import (
-    ProviderConfigurationError,
-    ProviderDependencies,
-    ProviderNotConfiguredError,
-    ProviderRegistry,
-    default_provider_registry,
+from app.llm import (
+    ModelGatewayError,
+    ModelGatewayRegistry,
+    ModelRuntime,
+    default_model_gateway_registry,
 )
 from app.manuscript_export import build_export_markdown
-from app.observability import timed_operation
 from app.models import (
     LegacyManuscriptImportCreate,
     ManuscriptExportResponse,
@@ -26,6 +24,7 @@ from app.models import (
     ManuscriptRevision,
     ManuscriptScene,
     ManuscriptSceneUpdate,
+    ModelExecutionOptions,
 )
 from app.review.service import conflict_from, decide
 from app.services.compile_service import build_compile_checklist, build_scene_draft
@@ -41,7 +40,7 @@ class ManuscriptService:
         self.cognition = cognition
         # Constructor params double as FastAPI DI defaults, so provider
         # resolution stays a plain attribute instead of an injected argument.
-        self.registry: ProviderRegistry = default_provider_registry
+        self.gateway_registry: ModelGatewayRegistry = default_model_gateway_registry
 
     def update_scene(
         self, project_id: str, scene_id: str, update: ManuscriptSceneUpdate
@@ -169,41 +168,36 @@ class ManuscriptService:
         )
         return self.data_store.create_manuscript_proposal(project_id, proposal)
 
-    def generate_provider_proposal(self, project_id: str, scene_id: str) -> ManuscriptProposal:
+    def generate_provider_proposal(
+        self,
+        project_id: str,
+        scene_id: str,
+        options: ModelExecutionOptions | None = None,
+    ) -> ManuscriptProposal:
         scene, project = self._get_scene_and_project(project_id, scene_id)
-        try:
-            provider = self.registry.create("deepseek", ProviderDependencies())
-        except ProviderConfigurationError as exc:
-            raise HTTPException(
-                status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=f"DeepSeek env invalid: {exc}"
-            )
-        except ProviderNotConfiguredError:
-            raise HTTPException(
-                status_code=status.HTTP_501_NOT_IMPLEMENTED,
-                detail="DeepSeek provider not configured.",
-            )
-
         snapshot = self._build_snapshot(project_id, project, scene)
         context = snapshot.render_generation_context()
         try:
-            with timed_operation(
-                "provider_call",
-                operation="generate_manuscript",
-                provider=str(getattr(provider, "name", "unknown")),
-                project_id=project_id,
-            ):
-                content = provider.generate_manuscript(snapshot.scene_for_generation(), context)
-        except WorkflowNotConfiguredError as exc:
-            raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(exc))
-        except Exception as exc:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY, detail=f"Provider generation failed: {exc}"
+            execution = generate_manuscript_scene(
+                ModelRuntime(self.gateway_registry, recorder=self.data_store),
+                context,
+                project_id,
+                options,
             )
+        except ModelGatewayError as exc:
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_501_NOT_IMPLEMENTED
+                    if exc.is_configuration_error
+                    else status.HTTP_502_BAD_GATEWAY
+                ),
+                detail=exc.safe_message,
+            ) from exc
 
         proposal = ManuscriptProposalCreate(
             scene_id=scene.id,
             title=f"{scene.sequence}. {scene.title} provider draft",
-            content=content,
+            content=execution.completion.result.content,
             context=context,
             checklist=[*build_compile_checklist(), "Provider draft is reviewed before accepting."],
         )

@@ -28,6 +28,8 @@ import type {
   SceneDraft,
   MemoryDraft,
   ReferenceDraft
+  ,ModelExecutionOptions
+  ,ModelProfile
 } from "../types"
 
 type ApiStatus = 'checking' | 'ok' | 'offline'
@@ -45,6 +47,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const activeSection = ref<ActiveSection>('snowflake')
   const apiStatus = ref<ApiStatus>('checking')
   const workflowRuntime = ref<WorkflowRuntimeStatus | null>(null)
+  const modelProfiles = ref<ModelProfile[]>([])
+  const selectedModelProfile = ref(localStorage.getItem('ai-writing:model-profile') ?? '')
 
   // ---- Domain stores: coordinated here, never owned here ----
   const editorSession = useEditorSessionStore()
@@ -65,8 +69,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     if (!workflowRuntime.value) {
       return 'Runtime checking'
     }
-    if (workflowRuntime.value.runtime === 'provider_deepseek') {
-      return `Runtime DeepSeek ${workflowRuntime.value.model}`
+    if (workflowRuntime.value.runtime_kind === 'model_gateway' || workflowRuntime.value.provider_configured) {
+      const provider = workflowRuntime.value.provider || 'Model'
+      return `Runtime ${provider} ${workflowRuntime.value.model}`.trim()
     }
     return 'Runtime Local'
   })
@@ -87,11 +92,12 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   async function loadInitialData() {
     try {
-      const [healthResponse, projectsResponse, stepsResponse, runtimeResponse] = await Promise.all([
+      const [healthResponse, projectsResponse, stepsResponse, runtimeResponse, profilesResponse] = await Promise.all([
         fetchApi('/health'),
         fetchApi('/projects'),
         fetchApi('/snowflake/steps'),
         fetchApi('/snowflake/workflow/status'),
+        fetchApi('/model-profiles'),
       ])
       const health = await healthResponse.json()
       const loadedProjects = await projectsResponse.json()
@@ -101,6 +107,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       projectsStore.projects = [...mergedProjects.values()]
       snowflake.steps = await stepsResponse.json()
       workflowRuntime.value = await runtimeResponse.json()
+      modelProfiles.value = await profilesResponse.json()
+      if (selectedModelProfile.value && !modelProfiles.value.some((profile) => profile.id === selectedModelProfile.value)) {
+        selectedModelProfile.value = ''
+      }
       if (!activeProjectId.value) {
         activeProjectId.value = projectsStore.projects[0]?.id ?? ''
       }
@@ -397,6 +407,18 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activeStepNumber.value = stepNumber
   }
 
+  function modelExecutionOptions(): ModelExecutionOptions {
+    return {
+      model_profile: selectedModelProfile.value,
+      allow_fallback: true,
+      allow_repair: true,
+    }
+  }
+
+  watch(selectedModelProfile, (profileId) => {
+    localStorage.setItem('ai-writing:model-profile', profileId)
+  })
+
   return {
     reloadActiveProject,
     isLoadingProject,
@@ -405,12 +427,15 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activeStepNumber,
     apiStatus,
     workflowRuntime,
+    modelProfiles,
+    selectedModelProfile,
     runtimeLabel,
     runtimeTitle,
     activeProject,
     activeStep,
     isActiveProject,
     selectStep,
+    modelExecutionOptions,
     loadInitialData,
     flushAllDirtyDrafts,
   }

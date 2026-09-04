@@ -383,6 +383,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
           target_record_ids: targetRecordIds,
           generation_mode: generationMode.value,
           previous_artifacts_context_chars: contextChars,
+          ...ws().modelExecutionOptions(),
         }),
       })
       if (!response.ok) {

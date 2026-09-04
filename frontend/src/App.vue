@@ -14,7 +14,7 @@ import GraphWorkspace from './components/GraphWorkspace.vue'
 import ManuscriptWorkspace from './components/ManuscriptWorkspace.vue'
 
 const workspace = useWorkspaceStore()
-const { activeSection, activeProject, apiStatus, workflowRuntime, runtimeLabel, runtimeTitle, isLoadingProject } = storeToRefs(workspace)
+const { activeSection, activeProject, apiStatus, workflowRuntime, runtimeLabel, runtimeTitle, isLoadingProject, modelProfiles, selectedModelProfile } = storeToRefs(workspace)
 const { createStatus } = storeToRefs(useProjectsStore())
 const { loadInitialData } = workspace
 
@@ -38,12 +38,21 @@ onBeforeUnmount(() => useAnalysisJobsStore().stop())
         </div>
         <div class="status-stack">
           <ProjectDialog />
+          <label class="model-picker">
+            <span>Model</span>
+            <select v-model="selectedModelProfile" aria-label="Generation model">
+              <option value="">Auto / local fallback</option>
+              <option v-for="profile in modelProfiles" :key="profile.id" :value="profile.id">
+                {{ profile.label }}{{ profile.configured ? '' : ' (not configured)' }}
+              </option>
+            </select>
+          </label>
           <span class="status" :class="{ offline: apiStatus !== 'ok' }">
             API {{ apiStatus }}
           </span>
           <span
             class="status runtime"
-            :class="{ local: workflowRuntime?.runtime !== 'provider_deepseek' }"
+            :class="{ local: workflowRuntime?.runtime_kind === 'local_deterministic' || !workflowRuntime?.provider_configured }"
             :title="runtimeTitle"
           >
             {{ runtimeLabel }}
@@ -65,4 +74,6 @@ onBeforeUnmount(() => useAnalysisJobsStore().stop())
 
 <style scoped>
 .workspace-content { border: 0; margin: 0; padding: 0; min-width: 0; }
+.model-picker { display: flex; align-items: center; gap: .45rem; font-size: .75rem; color: var(--muted); }
+.model-picker select { max-width: 18rem; padding: .38rem .55rem; border: 1px solid var(--line); border-radius: .45rem; background: var(--panel); color: var(--text); }
 </style>

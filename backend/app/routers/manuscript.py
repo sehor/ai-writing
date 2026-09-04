@@ -21,6 +21,7 @@ from app.models import (
     ManuscriptRevision,
     ManuscriptScene,
     ManuscriptSceneUpdate,
+    ProviderGenerationRequest,
 )
 from app.analysis.models import ConsistencyReport
 from app.services.manuscript_service import ManuscriptService
@@ -240,11 +241,14 @@ def create_manuscript_proposal_from_scene(
 def create_provider_manuscript_proposal_from_scene(
     project_id: str,
     scene_id: str,
+    request: ProviderGenerationRequest | None = None,
     data_store: WritingDataStore = Depends(get_data_store),
     service: ManuscriptService = Depends(),
 ) -> ManuscriptProposal:
     require_project(project_id, data_store)
-    return service.generate_provider_proposal(project_id, scene_id)
+    return service.generate_provider_proposal(
+        project_id, scene_id, request or ProviderGenerationRequest()
+    )
 
 
 @router.post(

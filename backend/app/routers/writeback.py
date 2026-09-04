@@ -8,14 +8,10 @@ from pydantic import ValidationError
 from app.analysis.http import apply_analysis_headers
 from app.data import WritingDataStore, get_data_store
 from app.dependencies import require_project
-from app.integrations.provider_registry import (
-    ProviderConfigurationError,
-    ProviderExecutionError,
-    ProviderNotConfiguredError,
-    ProviderUnavailableError,
-)
+from app.llm import ModelGatewayError
 from app.models import (
     HermesRevisionProcessResponse,
+    ProviderGenerationRequest,
     WritebackProposal,
     WritebackProposalCreate,
     WritebackProposalStatusUpdate,
@@ -123,37 +119,33 @@ def create_provider_writeback_proposals_from_revision(
     project_id: str,
     revision_id: str,
     response: Response,
+    request: ProviderGenerationRequest | None = None,
     force: bool = False,
     service: WritebackService = Depends(get_writeback_service),
 ) -> list[WritebackProposal]:
     require_project(project_id, service.data_store)
     try:
-        outcome = service.generate_provider_from_revision(project_id, revision_id, force=force)
+        outcome = service.generate_provider_from_revision(
+            project_id,
+            revision_id,
+            force=force,
+            options=request or ProviderGenerationRequest(),
+        )
     except RevisionNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Manuscript revision not found.",
         ) from exc
-    except ProviderConfigurationError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail=f"DeepSeek env invalid: {exc}",
-        ) from exc
-    except (ProviderNotConfiguredError, ProviderUnavailableError) as exc:
-        raise HTTPException(
-            status_code=status.HTTP_501_NOT_IMPLEMENTED,
-            detail=(
-                "DeepSeek provider is not configured."
-                if isinstance(exc, ProviderNotConfiguredError)
-                else str(exc)
-            ),
-        ) from exc
     except WritebackPreValidationError as exc:
         raise unprocessable_from(exc) from exc
-    except ProviderExecutionError as exc:
+    except ModelGatewayError as exc:
         raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=str(exc),
+            status_code=(
+                status.HTTP_501_NOT_IMPLEMENTED
+                if exc.is_configuration_error
+                else status.HTTP_502_BAD_GATEWAY
+            ),
+            detail=exc.safe_message,
         ) from exc
     apply_analysis_headers(response, outcome)
     return outcome.proposals

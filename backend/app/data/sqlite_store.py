@@ -46,6 +46,11 @@ from app.models import (
     CanonEntityUpdate,
     CharacterKnowledge,
     CharacterKnowledgeCreate,
+    GenerationAttempt,
+    GenerationAttemptCreate,
+    GenerationRun,
+    GenerationRunCreate,
+    GenerationRunUpdate,
     KnowledgeState,
     KnowledgeStateCreate,
     MemoryRecord,
@@ -113,6 +118,32 @@ class SQLiteWritingDataStore:
                 initialize_schema(connection)
         finally:
             connection.close()
+
+    # ------------------------------------------------------------------
+    # Generation runs
+    # ------------------------------------------------------------------
+
+    def create_generation_run(self, create: GenerationRunCreate) -> GenerationRun:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.generation_runs.create(create)
+
+    def add_generation_attempt(
+        self, run_id: str, create: GenerationAttemptCreate
+    ) -> GenerationAttempt:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.generation_runs.add_attempt(run_id, create)
+
+    def finish_generation_run(self, run_id: str, update: GenerationRunUpdate) -> None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            uow.generation_runs.finish(run_id, update)
+
+    def get_generation_run(self, project_id: str, run_id: str) -> GenerationRun | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.generation_runs.get(project_id, run_id)
+
+    def list_generation_runs(self, project_id: str, limit: int = 100) -> list[GenerationRun]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.generation_runs.list(project_id, limit)
 
     @contextmanager
     def connect(self) -> Iterator[sqlite3.Connection]:

@@ -709,7 +709,13 @@ export const useManuscriptStore = defineStore('manuscript', () => {
       const providerPath = provider ? '/provider' : ''
       const response = await fetchApi(
         `/projects/${projectId}/manuscript/proposals/from-scene/${sceneId}${providerPath}`,
-        { method: 'POST' }
+        provider
+          ? {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(ws().modelExecutionOptions()),
+            }
+          : { method: 'POST' }
       )
       if (!response.ok) {
         const detail = await readErrorDetail(response)

@@ -598,6 +598,68 @@ def _add_snowflake_record_revisions(connection: sqlite3.Connection) -> None:
     )
 
 
+def _add_generation_runs(connection: sqlite3.Connection) -> None:
+    """Persist safe model-call metadata without storing prompts or generated prose."""
+    _run_script(
+        connection,
+        """
+        CREATE TABLE IF NOT EXISTS generation_runs (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            use_case TEXT NOT NULL,
+            prompt_id TEXT NOT NULL,
+            prompt_version TEXT NOT NULL,
+            schema_name TEXT NOT NULL,
+            schema_version TEXT NOT NULL,
+            requested_profile_id TEXT NOT NULL DEFAULT '',
+            final_profile_id TEXT NOT NULL DEFAULT '',
+            provider TEXT NOT NULL DEFAULT '',
+            model TEXT NOT NULL DEFAULT '',
+            status TEXT NOT NULL CHECK(status IN ('running', 'succeeded', 'failed')),
+            error_code TEXT NOT NULL DEFAULT '',
+            safe_error TEXT NOT NULL DEFAULT '',
+            allow_fallback INTEGER NOT NULL DEFAULT 1,
+            allow_repair INTEGER NOT NULL DEFAULT 1,
+            attempt_count INTEGER NOT NULL DEFAULT 0,
+            repair_count INTEGER NOT NULL DEFAULT 0,
+            fallback_count INTEGER NOT NULL DEFAULT 0,
+            input_tokens INTEGER NOT NULL DEFAULT 0,
+            output_tokens INTEGER NOT NULL DEFAULT 0,
+            duration_ms REAL NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            completed_at TEXT NOT NULL DEFAULT '',
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_generation_runs_project_created
+            ON generation_runs(project_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS generation_attempts (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            run_id TEXT NOT NULL,
+            attempt_index INTEGER NOT NULL,
+            attempt_kind TEXT NOT NULL CHECK(attempt_kind IN ('primary', 'repair', 'fallback')),
+            profile_id TEXT NOT NULL,
+            provider TEXT NOT NULL,
+            model TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('succeeded', 'failed')),
+            error_code TEXT NOT NULL DEFAULT '',
+            retryable INTEGER NOT NULL DEFAULT 0,
+            duration_ms REAL NOT NULL DEFAULT 0,
+            finish_reason TEXT NOT NULL DEFAULT '',
+            input_tokens INTEGER,
+            output_tokens INTEGER,
+            created_at TEXT NOT NULL,
+            UNIQUE (run_id, attempt_index),
+            FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+            FOREIGN KEY (run_id) REFERENCES generation_runs(id) ON DELETE CASCADE
+        );
+        CREATE INDEX IF NOT EXISTS idx_generation_attempts_run
+            ON generation_attempts(run_id, attempt_index);
+        """,
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(version=1, name="baseline_schema", apply=_apply_baseline_schema),
     Migration(version=2, name="scene_contracts_chapter_id", apply=_add_scene_contracts_chapter_id),
@@ -630,6 +692,7 @@ MIGRATIONS: list[Migration] = [
         name="snowflake_record_revisions",
         apply=_add_snowflake_record_revisions,
     ),
+    Migration(version=12, name="generation_runs", apply=_add_generation_runs),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1].version

@@ -3,7 +3,7 @@
 AI Writing Studio is a local-first long-form fiction workspace. It is not meant to be a generic AI chat box. The product goal is to help an author grow a novel from Snowflake-method planning into manuscript drafts while preserving canon, memory, style, structure, and reviewable AI changes.
 
 The current implementation is a local MVP: Vite + Vue 3 frontend, FastAPI backend, SQLite persistence behind focused repositories coordinated by an explicit unit of work, domain-split frontend stores behind a slim workspace shell, project creation, Snowflake steps, per-step artifact saving, Canon DB, Memory / Style records, Scene Contracts, Chapter Compiler v0, Graph / Structure v0, Manuscript review, write-back review, project-scoped cognition modules, and a deterministic local workflow runtime.
-When `DEEPSEEK_API_KEY` is available in `.env`, Snowflake draft generation, provider manuscript proposal generation, and provider write-back suggestion generation use the DeepSeek OpenAI-compatible API runtime. The active workflow runtime is exposed in the author workspace.
+When `DEEPSEEK_API_KEY` or `OPENROUTER_API_KEY` is available in `.env`, provider-backed Snowflake, manuscript, reference, and write-back generation can use the selected allowlisted model. Invalid structured output receives one controlled repair attempt before compatible-provider fallback; safe attempt metadata is persisted without prompts or author text.
 
 ## Product Thesis
 
@@ -200,6 +200,13 @@ AI runtime configuration lives in the repository `.env` file:
 DEEPSEEK_API_KEY=...
 DEEPSEEK_BASE_URL_FOR_OPENAI=https://api.deepseek.com
 DEEPSEEK_MODEL=deepseek-v4-pro
+
+# Optional second provider
+OPENROUTER_API_KEY=...
+OPENROUTER_MODEL=google/gemini-3.8-flash
+OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+OPENROUTER_SITE_URL=http://127.0.0.1:5173
+OPENROUTER_APP_NAME=AI Writing Studio
 ```
 
 The DeepSeek workflow keeps stable project, Canon, Memory / Style, and prior Snowflake context at the front of the message list, with the current author instruction last. This preserves a repeatable prefix so DeepSeek prompt caching can be reused across nearby generation calls.

@@ -16,6 +16,8 @@ from app.models import (
     SnowflakeValidationReport,
     WorkflowAgentTrace,
 )
+from app.prompts.snowflake import select_relevant_upstream_records
+from app.prompts.models import PromptPlan
 from app.text_utils import truncate as summarize
 from app.snowflake.validators import (
     validate_snowflake_payload,
@@ -25,12 +27,6 @@ from app.snowflake.validators import (
 
 
 class WorkflowNotConfiguredError(RuntimeError):
-    def __init__(self, message: str, trace: list[WorkflowAgentTrace] | None = None):
-        super().__init__(message)
-        self.trace = trace or []
-
-
-class WorkflowProviderError(RuntimeError):
     def __init__(self, message: str, trace: list[WorkflowAgentTrace] | None = None):
         super().__init__(message)
         self.trace = trace or []
@@ -50,6 +46,7 @@ class WritingWorkflowState:
     content: str = ""
     trace: list[WorkflowAgentTrace] = field(default_factory=list)
     validation_report: SnowflakeValidationReport | None = None
+    prompt_plan: PromptPlan | None = None
 
     def record(
         self,
@@ -59,6 +56,19 @@ class WritingWorkflowState:
         *,
         finding_count: int = 0,
         details: str = "",
+        prompt_id: str = "",
+        prompt_version: str = "",
+        schema_name: str = "",
+        schema_version: str = "",
+        provider_id: str = "",
+        model_id: str = "",
+        finish_reason: str = "",
+        input_tokens: int | None = None,
+        output_tokens: int | None = None,
+        generation_run_id: str = "",
+        attempt_count: int = 0,
+        repair_count: int = 0,
+        fallback_count: int = 0,
     ) -> None:
         self.trace.append(
             WorkflowAgentTrace(
@@ -67,6 +77,19 @@ class WritingWorkflowState:
                 status=status,
                 finding_count=finding_count,
                 details=details,
+                prompt_id=prompt_id,
+                prompt_version=prompt_version,
+                schema_name=schema_name,
+                schema_version=schema_version,
+                provider_id=provider_id,
+                model_id=model_id,
+                finish_reason=finish_reason,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                generation_run_id=generation_run_id,
+                attempt_count=attempt_count,
+                repair_count=repair_count,
+                fallback_count=fallback_count,
             )
         )
 
@@ -552,46 +575,6 @@ def draft_record_for_step(
         "emotional_change": "Define the scene's emotional transition.",
         "chapter_plan": "Place the scene in the appropriate chapter after review.",
     }
-
-
-def _search_tokens(value: str) -> set[str]:
-    normalized = "".join(character.lower() if character.isalnum() else " " for character in value)
-    return {token for token in normalized.split() if len(token) >= 3}
-
-
-def _scalar_references(value) -> set[str]:
-    if isinstance(value, dict):
-        return {item for child in value.values() for item in _scalar_references(child)}
-    if isinstance(value, list):
-        return {item for child in value for item in _scalar_references(child)}
-    return {str(value).strip().lower()} if value not in {None, ""} else set()
-
-
-def select_relevant_upstream_records(
-    state: WritingWorkflowState,
-) -> list[SnowflakeRecordRevision]:
-    """Rank accepted upstream records against the instruction and selected records."""
-    query_source = "\n".join(
-        [
-            state.request.user_input,
-            json.dumps(state.request.target_records, ensure_ascii=False),
-        ]
-    )
-    query_tokens = _search_tokens(query_source)
-    explicit_refs = _scalar_references(state.request.target_records)
-    ranked: list[tuple[int, int, int, str, SnowflakeRecordRevision]] = []
-    for step_number, records in state.previous_records.items():
-        for record in records:
-            searchable = f"{record.record_id} {json.dumps(record.payload, ensure_ascii=False)}"
-            overlap = len(query_tokens & _search_tokens(searchable))
-            explicit = 1 if record.record_id.lower() in explicit_refs else 0
-            ranked.append(
-                (explicit, overlap, step_number, record.record_id, record)
-            )
-    ranked.sort(
-        key=lambda item: (-item[0], -item[1], -item[2], item[3])
-    )
-    return [item[-1] for item in ranked]
 
 
 def single_line(value: str) -> str:

@@ -1,4 +1,4 @@
-import type { ProjectSummary, SnowflakeStep } from '../types'
+import type { ModelExecutionOptions, ProjectSummary, SnowflakeStep } from '../types'
 
 /**
  * The slice of the workspace shell that domain stores are allowed to read.
@@ -12,4 +12,5 @@ export interface WorkspaceShell {
   activeProject: ProjectSummary | undefined
   activeStepNumber: number
   activeStep: SnowflakeStep | undefined
+  modelExecutionOptions(): ModelExecutionOptions
 }

@@ -181,6 +181,7 @@ export const useReviewsStore = defineStore('reviews', () => {
             scope_ref: referenceDraft.value.scope_ref.trim(),
             author_problem: authorProblem,
             desired_output: referenceDraft.value.desired_output.trim(),
+            ...(provider ? ws().modelExecutionOptions() : {}),
           }),
         }
       )
@@ -277,7 +278,13 @@ export const useReviewsStore = defineStore('reviews', () => {
       const providerPath = provider ? '/provider' : ''
       const response = await fetchApi(
         `/projects/${projectId}/writeback/proposals/from-revision/${revisionId}${providerPath}`,
-        { method: 'POST' }
+        provider
+          ? {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify(ws().modelExecutionOptions()),
+            }
+          : { method: 'POST' }
       )
       if (!response.ok) {
         const detail = await readErrorDetail(response)

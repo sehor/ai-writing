@@ -15,6 +15,7 @@ from app.routers import (
     health,
     manuscript,
     memory,
+    models,
     narrative,
     outbox,
     projects,
@@ -109,6 +110,7 @@ app.include_router(snowflake.router, prefix="/api")
 app.include_router(canon.router, prefix="/api")
 app.include_router(scenes.router, prefix="/api")
 app.include_router(memory.router, prefix="/api")
+app.include_router(models.router, prefix="/api")
 app.include_router(narrative.router, prefix="/api")
 app.include_router(graph.router, prefix="/api")
 app.include_router(manuscript.router, prefix="/api")

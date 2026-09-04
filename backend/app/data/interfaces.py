@@ -6,6 +6,11 @@ from app.models import (
     CanonEntityUpdate,
     CharacterKnowledge,
     CharacterKnowledgeCreate,
+    GenerationAttempt,
+    GenerationAttemptCreate,
+    GenerationRun,
+    GenerationRunCreate,
+    GenerationRunUpdate,
     KnowledgeState,
     KnowledgeStateCreate,
     MemoryRecord,
@@ -57,6 +62,23 @@ from app.outbox.models import OutboxJob, OutboxJobStatus
 
 class WritingDataStore(Protocol):
     def init(self) -> None:
+        pass
+
+    def create_generation_run(self, create: GenerationRunCreate) -> GenerationRun:
+        pass
+
+    def add_generation_attempt(
+        self, run_id: str, create: GenerationAttemptCreate
+    ) -> GenerationAttempt:
+        pass
+
+    def finish_generation_run(self, run_id: str, update: GenerationRunUpdate) -> None:
+        pass
+
+    def get_generation_run(self, project_id: str, run_id: str) -> GenerationRun | None:
+        pass
+
+    def list_generation_runs(self, project_id: str, limit: int = 100) -> list[GenerationRun]:
         pass
 
     def list_outbox_jobs(

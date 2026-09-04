@@ -9,6 +9,7 @@ as properties bound to its shared connection.
 
 from app.data.repositories.analysis import AnalysisRepository
 from app.data.repositories.canon import CanonRepository, ConcurrentCanonUpdateError
+from app.data.repositories.generation_runs import GenerationRunRepository
 from app.data.repositories.manuscript import ManuscriptRepository
 from app.data.repositories.memory import MemoryRepository
 from app.data.repositories.outbox import OutboxRepository
@@ -28,6 +29,7 @@ __all__ = [
     "AnalysisRepository",
     "CanonRepository",
     "ConcurrentCanonUpdateError",
+    "GenerationRunRepository",
     "ManuscriptRepository",
     "MemoryRepository",
     "OutboxRepository",

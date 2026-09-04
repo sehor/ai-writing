@@ -1,5 +1,9 @@
-from app.agents.deepseek_workflow import DeepSeekSettings
+from dataclasses import dataclass
+
 from app.cognition.interfaces import ContextPacket, ProjectCognitionSnapshot, WritingScope
+from app.llm.gateway import GenerationPolicy, ModelGateway, ModelRequest
+from app.llm.policy import generation_policy_for
+from app.llm.runtime import ModelExecution, ModelRuntime, as_model_runtime
 from app.models import (
     CanonEntity,
     MemoryRecord,
@@ -9,6 +13,7 @@ from app.models import (
     WorkflowAgentTrace,
 )
 from app.text_utils import truncate
+from app.prompts import compile_reference_prompt
 
 
 def build_reference_context(
@@ -99,61 +104,67 @@ def build_local_reference_suggestion(
     )
 
 
-def build_provider_reference_suggestion(
-    settings: DeepSeekSettings,
+@dataclass(frozen=True, slots=True)
+class GeneratedReferenceSuggestion:
+    suggestion: ReferenceSuggestionCreate
+    execution: ModelExecution
+
+    @property
+    def completion(self):
+        return self.execution.completion
+
+
+def generate_gateway_reference_suggestion(
+    runtime: ModelRuntime | ModelGateway,
     request: ReferenceGenerationRequest,
     context: str,
     snapshot: ProjectCognitionSnapshot,
     cognition_context: list[ContextPacket],
-) -> ReferenceSuggestionCreate:
-    from app.agents.client_factory import get_openai_client
-
-    client = get_openai_client(api_key=settings.api_key, base_url=settings.base_url)
-    response = client.chat.completions.create(
-        model=settings.model,
-        messages=[
-            {
-                "role": "system",
-                "content": (
-                    "You generate advisory reference material for AI Writing Studio. "
-                    "Help a fiction author get unstuck without committing project state. "
-                    "Respect Canon as confirmed fact. Treat Memory / Style as prose continuity guidance. "
-                    "If facts are missing, mark assumptions as options or TBD. Return Markdown only."
-                ),
-            },
-            {
-                "role": "user",
-                "content": "\n".join(
-                    [
-                        "Generate a concise, reviewable reference suggestion for this blocked writing task.",
-                        "",
-                        context,
-                    ]
-                ),
-            },
-        ],
-        temperature=settings.temperature,
-        max_tokens=settings.max_tokens,
+    policy: GenerationPolicy | None = None,
+    *,
+    project_id: str = "",
+) -> GeneratedReferenceSuggestion:
+    prompt = compile_reference_prompt(context)
+    model_request = ModelRequest(
+        prompt=prompt,
+        policy=policy or generation_policy_for(prompt),
+        metadata={"project_id": project_id},
     )
-    content = response.choices[0].message.content if response.choices else ""
-    if not content:
-        raise ValueError("empty provider response")
+    execution = as_model_runtime(runtime).execute(model_request, request)
+    result = execution.completion.result
 
     suggestion = build_local_reference_suggestion(request, context, snapshot, cognition_context)
-    return suggestion.model_copy(
+    generated = suggestion.model_copy(
         update={
             "title": f"{suggestion.title} provider draft",
-            "content": content.strip(),
+            "content": result.content,
             "workflow_trace": [
                 *suggestion.workflow_trace[:1],
                 WorkflowAgentTrace(
                     stage="generation",
-                    agent_name="deepseek_reference_generator",
-                    status=f"called {settings.model}",
+                    agent_name="model_gateway",
+                    status=f"called {result.model_id}",
+                    prompt_id=model_request.prompt.prompt_id,
+                    prompt_version=model_request.prompt.prompt_version,
+                    schema_name=model_request.prompt.response_contract.schema_name,
+                    schema_version=model_request.prompt.response_contract.schema_version,
+                    provider_id=result.provider_id,
+                    model_id=result.model_id,
+                    finish_reason=result.finish_reason or "",
+                    input_tokens=result.usage.input_tokens,
+                    output_tokens=result.usage.output_tokens,
+                    generation_run_id=execution.generation_run_id,
+                    attempt_count=execution.attempt_count,
+                    repair_count=execution.repair_count,
+                    fallback_count=execution.fallback_count,
                 ),
                 suggestion.workflow_trace[-1],
             ],
         }
+    )
+    return GeneratedReferenceSuggestion(
+        suggestion=generated,
+        execution=execution,
     )
 
 
