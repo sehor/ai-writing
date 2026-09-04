@@ -704,5 +704,6 @@ docs/snowflake-business-loop-improvement-plan.md 关注业务闭环、产物状�
 - 业务改进计划定义“系统应该产出和确认什么”；
 - 本文定义“这些生成任务如何在不绑定供应商的前提下执行”；
 - docs/snowflake-ten-step-prompt-spec.md 定义“每一步具体怎样提示和验收”。
+- docs/prompt-management.md 定义“版本化 Prompt 资产怎样脱离 Python 源码加载、渲染和变更”。
 
 三份文档应共同实施。只做 Prompt 文案而不建立 Provider 边界，会继续累积耦合；只做 Provider 抽象而不修正十步语义，则只是更方便地调用多个模型去生成同样不准确的产物。

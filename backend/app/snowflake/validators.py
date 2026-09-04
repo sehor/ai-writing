@@ -126,17 +126,16 @@ def validate_snowflake_payload(
 
     findings: list[SnowflakeValidationFinding] = []
     if step_number == 2:
-        beats = validated.model_dump()
-        if not beats["disaster_2"]["escalation"] or not beats["disaster_3"]["escalation"]:
+        if not validated.disaster_2.protagonist_choice_or_action or not validated.disaster_3.protagonist_choice_or_action:
             findings.append(
                 SnowflakeValidationFinding(
-                    code="disaster_escalation_missing",
+                    code="disaster_protagonist_causality_missing",
                     severity="critical",
-                    message="Disasters 2 and 3 must explain how they escalate the prior disaster.",
+                    message="Disasters 2 and 3 must identify the protagonist choice or action that helps cause them.",
                 )
             )
     if step_number == 4:
-        beat_ids = {paragraph.beat_id for paragraph in validated.paragraphs}
+        beat_ids = {paragraph.source_beat for paragraph in validated.paragraphs}
         missing = {"setup", "disaster_1", "disaster_2", "disaster_3", "ending"} - beat_ids
         if missing:
             findings.append(
@@ -156,9 +155,9 @@ def validate_snowflake_payload(
 def record_contract_for(step_number: int, payload: dict[str, Any]):
     if step_number == 7:
         return (
-            CharacterBibleRecord
-            if payload.get("record_type") == "character"
-            else WorldBibleRecord
+            WorldBibleRecord
+            if payload.get("record_type") in {"world", "location", "item", "faction"}
+            else CharacterBibleRecord
         )
     return RECORD_CONTRACTS.get(step_number)
 
@@ -206,7 +205,11 @@ def validate_scene_record_set_context(
 ) -> SnowflakeValidationReport:
     """Validate Step 8 references and sequence invariants at the accepted-head boundary."""
     canon_ids = {entity.id for entity in canon_entities}
-    thread_titles = {thread.title.strip().lower() for thread in story_threads}
+    known_threads = {
+        value
+        for thread in story_threads
+        for value in (thread.id, thread.title.strip().lower())
+    }
     seen_positions: set[int] = set()
     findings: list[SnowflakeValidationFinding] = []
     for record in records:
@@ -243,24 +246,24 @@ def validate_scene_record_set_context(
                 )
             )
         seen_positions.add(record.position)
-        for canon_id in payload.required_canon_ids:
+        for canon_id in payload.required_canon_refs:
             if canon_id not in canon_ids:
                 findings.append(
                     SnowflakeValidationFinding(
                         code="unknown_required_canon",
                         severity="critical",
                         message=f"Required Canon entity '{canon_id}' does not exist.",
-                        path=f"records.{record.record_id}.required_canon_ids",
+                        path=f"records.{record.record_id}.required_canon_refs",
                     )
                 )
         for action in payload.story_thread_actions:
-            if action.action != "plant" and action.thread_title.lower() not in thread_titles:
+            if action.action != "open" and action.thread_id.lower() not in known_threads:
                 findings.append(
                     SnowflakeValidationFinding(
                         code="unknown_story_thread",
                         severity="critical",
                         message=(
-                            f"StoryThread '{action.thread_title}' must exist before "
+                            f"StoryThread '{action.thread_id}' must exist before "
                             f"the '{action.action}' action is accepted."
                         ),
                         path=f"records.{record.record_id}.story_thread_actions",
@@ -353,7 +356,9 @@ _CONSISTENCY_EXCLUDED_FIELDS = {
     "constraints",
     "does_not_know",
     "forbidden_facts",
+    "forbidden_fact_refs",
     "required_canon_ids",
+    "required_canon_refs",
 }
 
 

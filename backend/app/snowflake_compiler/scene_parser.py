@@ -177,24 +177,31 @@ def parse_scene_records(
     canon_by_id = {entity.id: entity for entity in canon_entities}
     scenes: list[ParsedScene] = []
     seen_sequences: set[int] = set()
+    thread_action_map = {
+        "open": "plant",
+        "advance": "reinforce",
+        "complicate": "escalate",
+        "payoff": "payoff",
+        "close": "payoff",
+    }
     for record in records:
         payload = SceneListRecord.model_validate(record.payload)
         actions = "\n".join(
-            f"{action.action}: {action.thread_title}"
+            f"{thread_action_map[action.action]}: {action.description}"
             for action in payload.story_thread_actions
         )
         scene = ParsedScene(
             sequence=record.position,
-            title=payload.title,
-            pov=payload.pov,
+            title=payload.what_happens[:160],
+            pov=payload.pov_character_id,
             goal=payload.goal,
             conflict=payload.conflict,
             turning_point=payload.turning_point,
-            outcome=payload.outcome,
-            required_canon_names=list(payload.required_canon_ids),
-            forbidden_fact_refs="\n".join(payload.forbidden_facts),
-            information_delta=payload.information_delta,
-            character_state_delta=payload.character_state_delta,
+            outcome=f"{payload.outcome}: {payload.exit_condition}",
+            required_canon_names=list(payload.required_canon_refs),
+            forbidden_fact_refs="\n".join(payload.forbidden_fact_refs),
+            information_delta="\n".join(payload.information_delta),
+            character_state_delta="\n".join(payload.character_state_delta),
             story_thread_actions=actions,
             source_excerpt=truncate_text(
                 json.dumps(record.payload, ensure_ascii=False, sort_keys=True), 1200
@@ -202,7 +209,7 @@ def parse_scene_records(
         )
         missing_canon_ids = [
             canon_id
-            for canon_id in payload.required_canon_ids
+            for canon_id in payload.required_canon_refs
             if canon_id not in canon_by_id
         ]
         if missing_canon_ids:
@@ -212,7 +219,7 @@ def parse_scene_records(
                 + "."
             )
         scene.resolved_canon_ids = [
-            canon_id for canon_id in payload.required_canon_ids if canon_id in canon_by_id
+            canon_id for canon_id in payload.required_canon_refs if canon_id in canon_by_id
         ]
         if record.position in seen_sequences:
             scene.blocking_errors.append(

@@ -1,6 +1,6 @@
 # 十步雪花法 Prompt 规范
 
-> 状态：Partially implemented（领域契约、审核链与核心 Prompt/Provider 解耦已落地；逐步语义深化仍待完成）
+> 状态：Partially implemented（后台 Prompt Manager 与十步方法 Prompt 对齐已完成；长输出自动分批等其余完成标准仍待实现）
 > 日期：2026-09-04
 > 实现基线：`7d601b6`、`af47f26`、`c4aa732`
 > Prompt 语言：生产模板使用英文；说明与验收规则使用中文
@@ -12,7 +12,7 @@
 
 已完成的基础能力：Step 1–9 结构化领域契约与本地校验、Step 6–9 分页记录及定向生成、AI 结果待审核、Step 9 可选、Step 10 按场景进入 Manuscript proposal/revision，以及 legacy Step 10 草稿的人工选段导入。
 
-已完成的 Prompt 基础设施：公共 Prompt 独立版本化、十步 Prompt 注册表、Provider 中立的 `PromptPlan`/`ModelGateway`、Prompt 快照与统一 Provider 契约测试，以及基于 finish reason 的截断检测。尚未完成的是本文所列全部逐步方法指导、Step 10 fact/deviation proposals 和长输出自动分批协议；本文因此保持“部分实施”，不能作为当前运行时 Prompt 已完全符合本规范的声明。
+已完成的 Prompt 基础设施：文件化 `PromptManager`、公共 Prompt 独立版本化、十步 Prompt 注册表、Provider 中立的 `PromptPlan`/`ModelGateway`、逐步方法 Prompt 与本文的自动一致性测试、Prompt 快照与统一 Provider 契约测试，以及基于 finish reason 的截断检测。Step 10 已使用结构化响应契约返回正文、fact candidates、design deviations 与 continuity questions；长输出的自动续批调度仍是后续工作。
 
 ## 1. 文档目的
 
@@ -1402,12 +1402,12 @@ Step 7 不应再映射为 canon_entities。若系统需要 Canon 提案，建立
 
 - [x] 公共 system/context Prompt 独立版本化。
 - [x] 十个 Step Prompt 均注册且无供应商名称。
-- [ ] 十个 response schema 可由本地验证器执行。
-- [ ] 每一步都有原始方法核心与产品增强的明确区分。
+- [x] 十个 response schema 可由本地验证器执行。
+- [x] 每一步都有原始方法核心与产品增强的明确区分。
 - [x] Step 7 与 Canon writeback 解耦。
 - [x] Step 8 使用结构化 scene 数组，不依赖 Markdown 正则解析。
 - [x] Step 9 可配置跳过。
-- [ ] Step 10 以 scene 为调用单位，并输出 fact/deviation proposals。
+- [x] Step 10 以 scene 为调用单位，并输出 fact/deviation proposals。
 - [ ] 长输出步骤具有分批协议和截断检测。
 - [x] Prompt、UI、服务保存语义一致：AI 结果只进入待审核修订，接受后才更新权威状态。
 - [ ] Prompt 快照、领域契约、Provider 契约和集成测试齐全。

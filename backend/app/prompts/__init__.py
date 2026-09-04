@@ -1,5 +1,12 @@
 """Versioned prompt assets owned by the application."""
 
+from app.prompts.manager import (
+    PromptAsset,
+    PromptAssetError,
+    PromptManager,
+    PromptRenderError,
+    default_prompt_manager,
+)
 from app.prompts.models import PromptMessage, PromptPlan, ResponseContract
 from app.prompts.registry import PromptDefinition, PromptRegistry, default_prompt_registry
 from app.prompts.snowflake import compile_snowflake_prompt, register_snowflake_prompts
@@ -18,9 +25,13 @@ register_creative_prompts(default_prompt_registry)
 
 __all__ = [
     "PromptDefinition",
+    "PromptAsset",
+    "PromptAssetError",
+    "PromptManager",
     "PromptMessage",
     "PromptPlan",
     "PromptRegistry",
+    "PromptRenderError",
     "ResponseContract",
     "compile_manuscript_prompt",
     "compile_repair_prompt",
@@ -28,4 +39,5 @@ __all__ = [
     "compile_snowflake_prompt",
     "compile_writeback_prompt",
     "default_prompt_registry",
+    "default_prompt_manager",
 ]

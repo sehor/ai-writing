@@ -206,7 +206,7 @@ def extract_canon_record_proposals(
     """Compile accepted Character Bible records into Canon proposals.
 
     Profile fields remain in the Step 7 record. Only facts explicitly placed
-    in ``confirmed_facts`` cross the Canon boundary.
+    in ``canon_fact_candidates`` cross into the human-reviewed writeback flow.
     """
     if not records:
         raise ArtifactNotParseableError(
@@ -227,36 +227,46 @@ def extract_canon_record_proposals(
         "faction": "faction",
     }
     for record in records:
-        contract = (
-            CharacterBibleRecord
-            if record.payload.get("record_type") == "character"
-            else WorldBibleRecord
-        )
+        is_legacy_world = record.payload.get("record_type") in {
+            "world", "location", "item", "faction"
+        }
+        contract = WorldBibleRecord if is_legacy_world else CharacterBibleRecord
         validated = contract.model_validate(record.payload)
-        facts = [fact.strip() for fact in validated.confirmed_facts if fact.strip()]
+        if isinstance(validated, CharacterBibleRecord):
+            facts = [
+                candidate.claim.strip()
+                for candidate in validated.canon_fact_candidates
+                if candidate.claim.strip()
+            ]
+            name = validated.identity.name
+            record_type = "character"
+        else:
+            facts = [fact.strip() for fact in validated.confirmed_facts if fact.strip()]
+            name = validated.name
+            record_type = validated.record_type
         if not facts:
             warnings.append(
-                f"Skipped '{validated.name}': accepted record has no explicit confirmed_facts."
+                f"Skipped '{name}': accepted record has no explicit Canon fact candidates."
             )
             continue
-        entity_type = type_map[validated.record_type]
-        key = (entity_type, validated.name.strip().lower())
+        entity_type = type_map[record_type]
+        key = (entity_type, name.strip().lower())
         if key in seen_keys:
             warnings.append(
-                f"Skipped duplicate accepted record '{validated.name}' ({entity_type})."
+                f"Skipped duplicate accepted record '{name}' ({entity_type})."
             )
             continue
         seen_keys.add(key)
         create = CanonEntityCreate(
             entity_type=entity_type,  # type: ignore[arg-type]
-            name=validated.name,
+            name=name,
             summary=truncate_text(facts[0], FIELD_LIMITS["summary"]),
             constraints=truncate_text("\n".join(facts), FIELD_LIMITS["constraints"]),
         )
         excerpt = truncate_text(
             json.dumps(record.payload, ensure_ascii=False, sort_keys=True), 1200
         )
-        matches = by_name.get(validated.name.strip().lower(), [])
+        matches = by_name.get(name.strip().lower(), [])
         target = next(
             (entity for entity in matches if entity.entity_type == entity_type),
             matches[0] if matches else None,

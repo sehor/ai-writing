@@ -4,6 +4,7 @@ import json
 import unittest
 
 from app.agents.reference_workflow import generate_gateway_reference_suggestion
+from app.agents.manuscript_workflow import generate_manuscript_scene
 from app.agents.snowflake_workflow import SnowflakeWorkflow
 from app.agents.writeback_workflow import generate_gateway_writeback_proposals
 from app.cognition.snapshots import build_project_snapshot
@@ -20,6 +21,44 @@ from app.services.snowflake_service import SNOWFLAKE_STEPS
 
 
 class ModelGatewayWorkflowTests(unittest.TestCase):
+    def test_manuscript_workflow_preserves_structured_step_ten_proposals(self) -> None:
+        gateway = FakeModelGateway(
+            [
+                json.dumps(
+                    {
+                        "scene_id": "scene-1",
+                        "manuscript_prose": "Mira opens the sealed archive.",
+                        "entry_state_observed": ["The archive is sealed."],
+                        "exit_state_produced": ["The archive is open."],
+                        "scene_contract_coverage": {
+                            "goal": "Open the archive.",
+                            "conflict": "The lock resists her key.",
+                            "turning_point": "The key breaks the ward.",
+                            "outcome": "The archive opens.",
+                            "missing_elements": [],
+                        },
+                        "new_fact_candidates": [
+                            {
+                                "claim": "The key can break archive wards.",
+                                "entity_refs": ["key", "archive"],
+                                "reason_introduced": "Required by the scene turning point.",
+                                "status": "proposal",
+                            }
+                        ],
+                        "design_deviation_proposals": [],
+                        "continuity_questions": [],
+                        "source_refs": ["scene_contract:scene-1"],
+                    }
+                )
+            ]
+        )
+
+        result = generate_manuscript_scene(gateway, "Approved scene context.")
+
+        self.assertEqual(result.validated_value.scene_id, "scene-1")
+        self.assertEqual(len(result.validated_value.new_fact_candidates), 1)
+        self.assertEqual(result.completion.request.prompt.prompt_version, "2.0.0")
+
     def test_snowflake_workflow_compiles_calls_validates_and_traces(self) -> None:
         with TemporaryDirectory() as temp_dir:
             store = SQLiteWritingDataStore(Path(temp_dir) / "app.db")
@@ -56,7 +95,7 @@ class ModelGatewayWorkflowTests(unittest.TestCase):
         self.assertEqual(result.validation_report.status, "passed")
         model_trace = next(item for item in result.workflow_trace if item.agent_name == "model_gateway")
         self.assertEqual(model_trace.provider_id, "fake")
-        self.assertEqual(model_trace.prompt_version, "1.0.0")
+        self.assertEqual(model_trace.prompt_version, "2.0.0")
 
     def test_reference_gateway_result_remains_a_pending_advisory_record(self) -> None:
         with TemporaryDirectory() as temp_dir:

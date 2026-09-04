@@ -194,12 +194,19 @@ class ManuscriptService:
                 detail=exc.safe_message,
             ) from exc
 
+        draft = execution.validated_value
         proposal = ManuscriptProposalCreate(
             scene_id=scene.id,
             title=f"{scene.sequence}. {scene.title} provider draft",
-            content=execution.completion.result.content,
+            content=draft.manuscript_prose,
             context=context,
-            checklist=[*build_compile_checklist(), "Provider draft is reviewed before accepting."],
+            checklist=[
+                *build_compile_checklist(),
+                "Provider draft is reviewed before accepting.",
+                f"Review {len(draft.new_fact_candidates)} new fact candidate(s).",
+                f"Review {len(draft.design_deviation_proposals)} design deviation proposal(s).",
+                f"Resolve {len(draft.continuity_questions)} continuity question(s).",
+            ],
         )
         return self.data_store.create_manuscript_proposal(project_id, proposal)
 
