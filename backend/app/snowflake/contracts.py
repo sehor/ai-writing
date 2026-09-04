@@ -1,9 +1,4 @@
-"""Version 2 structured output contracts for the ten Snowflake steps.
-
-Canonical field names follow ``docs/snowflake-ten-step-prompt-spec.md``.
-Before-validation adapters keep version 1 payloads readable while new model
-schemas and generated responses use the version 2 vocabulary.
-"""
+"""Version 2 Snowflake output contracts with version 1 input compatibility."""
 
 from typing import Any, Literal
 

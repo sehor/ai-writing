@@ -27,7 +27,7 @@ Prompt text belongs in the catalog. Response schemas, authorization, persistence
 5. Restart the backend so the default manager and registry reload the catalog.
 6. Run the Prompt Manager, Prompt registry, Snowflake validator, workflow, and integration tests.
 
-The ten `snowflake.stepNN.method` assets must remain byte-for-byte equal, after surrounding whitespace is stripped, to the ten `Step Prompt` blocks in `docs/snowflake-ten-step-prompt-spec.md`. `tests/test_prompt_manager.py` enforces this rule.
+The ten `snowflake.stepNN.method` assets are authoritative runtime configuration. `tests/test_prompt_manager.py` verifies that the complete Step 1-10 asset set exists, is versioned, and renders successfully. Planning and design documents may describe intended changes, but runtime code and tests do not read them as configuration.
 
 ## Runtime Composition
 

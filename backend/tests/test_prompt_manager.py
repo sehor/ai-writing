@@ -1,4 +1,3 @@
-import re
 import tempfile
 import unittest
 from pathlib import Path
@@ -31,23 +30,21 @@ template = \"Hello, ${name}!\"
             with self.assertRaises(PromptAssetError):
                 PromptManager(catalog)
 
-    def test_ten_step_method_assets_match_the_guidance_document_exactly(self) -> None:
-        project_root = Path(__file__).resolve().parents[2]
-        document = (project_root / "docs" / "snowflake-ten-step-prompt-spec.md").read_text(
-            encoding="utf-8"
-        )
-        documented_prompts = re.findall(
-            r"### \d+\.4 Step Prompt\s+~~~text\s*(.*?)\s*~~~",
-            document,
-            re.DOTALL,
-        )
-        self.assertEqual(len(documented_prompts), 10)
-
+    def test_ten_step_method_assets_are_complete_and_versioned(self) -> None:
         manager = PromptManager()
-        for step_number, documented in enumerate(documented_prompts, start=1):
+        expected_ids = {
+            f"snowflake.step{step_number:02d}.method" for step_number in range(1, 11)
+        }
+        configured_ids = {
+            asset.asset_id for asset in manager.assets() if asset.asset_id.endswith(".method")
+        }
+        self.assertEqual(configured_ids, expected_ids)
+
+        for step_number in range(1, 11):
             with self.subTest(step_number=step_number):
                 asset = manager.get(f"snowflake.step{step_number:02d}.method")
-                self.assertEqual(asset.template, documented.strip())
+                self.assertEqual(asset.version, "2.0.0")
+                self.assertEqual(manager.render(asset.asset_id), asset.template)
 
 
 if __name__ == "__main__":
