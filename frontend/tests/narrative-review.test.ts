@@ -28,7 +28,7 @@ beforeEach(() => {
 
 test('StoryThread acceptance uses lifecycle state, not a nonexistent Canon version', async () => {
   const wrapper = mount(WritebackReview)
-  const accept = wrapper.findAll('button').find((button) => button.text() === 'Accept')!
+  const accept = wrapper.findAll('button').find((button) => button.text() === '接受')!
   expect(accept.attributes('disabled')).toBeUndefined()
   expect(wrapper.get('[data-testid="thread-status-proposal"]').text()).toContain('developing')
   expect(wrapper.text()).toContain('Mira opened the door.')
@@ -47,7 +47,7 @@ test('StoryThread acceptance uses lifecycle state, not a nonexistent Canon versi
 test('changed StoryThread state disables accepting the stale proposal', () => {
   useNarrativeStore().threads[0].status = 'paid_off'
   const wrapper = mount(WritebackReview)
-  expect(wrapper.findAll('button').find((button) => button.text() === 'Accept')!.attributes('disabled')).toBeDefined()
+  expect(wrapper.findAll('button').find((button) => button.text() === '接受')!.attributes('disabled')).toBeDefined()
   expect(wrapper.text()).toContain('状态已变化')
   wrapper.unmount()
 })
@@ -55,7 +55,7 @@ test('changed StoryThread state disables accepting the stale proposal', () => {
 test('unsupported targets cannot be accepted through UI or store actions', async () => {
   useReviewsStore().writebackProposals[0].target = 'future_target' as WritebackProposal['target']
   const wrapper = mount(WritebackReview)
-  expect(wrapper.findAll('button').find((button) => button.text() === 'Accept')!.attributes('disabled')).toBeDefined()
+  expect(wrapper.findAll('button').find((button) => button.text() === '接受')!.attributes('disabled')).toBeDefined()
   await useReviewsStore().updateWritebackStatus('proposal', 'accepted')
   expect(fetchApi).not.toHaveBeenCalled()
   wrapper.unmount()

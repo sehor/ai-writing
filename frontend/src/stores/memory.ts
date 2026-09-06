@@ -96,6 +96,7 @@ export const useMemoryStore = defineStore('memory', () => {
           source_ref: selected.source_ref,
         }
       : createEmptyMemoryDraft()
+    memoryDraft.value = baselineDraft
     restoreEntryDraft<MemoryDraft>(memoryScopeKey(), baselineDraft, (cached) => {
       memoryDraft.value = cached
     }, (message) => {
@@ -118,12 +119,12 @@ export const useMemoryStore = defineStore('memory', () => {
     const content = memoryDraft.value.content.trim()
 
     if (!projectId) {
-      memoryError.value = 'Create or select a project first.'
+      memoryError.value = '请先创建或选择项目。'
       return
     }
 
     if (!title || !content) {
-      memoryError.value = 'Title and content are required.'
+      memoryError.value = '请填写标题和内容。'
       return
     }
 

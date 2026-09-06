@@ -1,7 +1,7 @@
 import type { CanonEntity, StoryThread, WritebackProposal, WritebackTarget } from '../types'
 
 const targetLabels: Record<WritebackTarget, string> = {
-  canon_entity: 'Canon', memory_record: 'Memory', narrative_relation: 'Narrative relation',
+  canon_entity: '故事设定', memory_record: 'Memory', narrative_relation: '叙事关系',
   story_thread: 'StoryThread', story_thread_event: 'StoryThread event',
   story_thread_status: 'StoryThread status',
 }

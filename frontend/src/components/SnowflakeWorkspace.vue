@@ -181,8 +181,7 @@ function openManuscript() {
       <section v-if="!isStepWorkspaceOpen" class="pipeline">
         <div class="panel-header">
           <div>
-            <p class="eyebrow">Compiler Pipeline</p>
-            <h3>Snowflake Method</h3>
+            <h3>雪花法</h3>
           </div>
           <span class="step-chip">
             {{ stepStates.filter((item) => item.state === 'approved').length }} approved
@@ -225,12 +224,10 @@ function openManuscript() {
 
       <template v-else>
       <section class="step-workspace-header" aria-labelledby="step-workspace-title">
-        <button class="secondary back-to-steps" type="button" @click="isStepWorkspaceOpen = false">
-          &larr; All Snowflake steps
-        </button>
+        <button class="secondary back-to-steps" type="button" @click="isStepWorkspaceOpen = false">返回规划总览</button>
         <div class="step-workspace-title">
-          <p class="eyebrow">Snowflake Method &middot; Step {{ activeStepNumber }} of {{ steps.length }}</p>
-          <h3 id="step-workspace-title">{{ activeStep?.title ?? 'Snowflake Step' }}</h3>
+          <p class="eyebrow">雪花法 · 第 {{ activeStepNumber }} / {{ steps.length }} 步</p>
+          <h3 id="step-workspace-title">{{ activeStep?.title ?? '雪花步骤' }}</h3>
           <p>{{ activeStep?.description }}</p>
         </div>
         <div class="step-navigation" aria-label="Step navigation">
@@ -239,17 +236,13 @@ function openManuscript() {
             type="button"
             :disabled="activeStepNumber <= 1"
             @click="moveStep(-1)"
-          >
-            Previous
-          </button>
+          >上一步</button>
           <button
             class="secondary"
             type="button"
             :disabled="activeStepNumber >= steps.length"
             @click="moveStep(1)"
-          >
-            Next
-          </button>
+          >下一步</button>
         </div>
       </section>
 
@@ -259,25 +252,18 @@ function openManuscript() {
         aria-labelledby="manuscript-milestone-title"
       >
         <div>
-          <p class="eyebrow">Virtual milestone</p>
-          <h3 id="manuscript-milestone-title">Draft through the Manuscript workflow</h3>
-          <p>
-            Step 10 no longer creates a second full-manuscript artifact. Draft each accepted
-            Scene Contract as a proposal, review it, and commit it as a Manuscript revision.
-          </p>
+          <h3 id="manuscript-milestone-title">进入正文写作流程</h3>
+          <p>正文统一在写作工作台中管理。根据场景契约生成草稿，审核接受后保存为正文版本。</p>
           <dl v-if="manuscriptProgress" class="milestone-stats">
-            <div><dt>Scene Contracts</dt><dd>{{ manuscriptProgress.total_scene_contracts }}</dd></div>
-            <div><dt>Pending proposals</dt><dd>{{ manuscriptProgress.pending_manuscript_proposals }}</dd></div>
-            <div><dt>Accepted revisions</dt><dd>{{ manuscriptProgress.accepted_latest_revisions }}</dd></div>
-            <div><dt>Stale scenes</dt><dd>{{ manuscriptProgress.stale_scene_count }}</dd></div>
-            <div><dt>Completion</dt><dd>{{ manuscriptProgress.completion_percent }}%</dd></div>
+            <div><dt>场景契约</dt><dd>{{ manuscriptProgress.total_scene_contracts }}</dd></div>
+            <div><dt>待审核建议</dt><dd>{{ manuscriptProgress.pending_manuscript_proposals }}</dd></div>
+            <div><dt>已接受版本</dt><dd>{{ manuscriptProgress.accepted_latest_revisions }}</dd></div>
+            <div><dt>需更新场景</dt><dd>{{ manuscriptProgress.stale_scene_count }}</dd></div>
+            <div><dt>完成情况</dt><dd>{{ manuscriptProgress.completion_percent }}%</dd></div>
           </dl>
           <details v-if="legacyStep10Revision" class="legacy-manuscript">
-            <summary>Legacy Step 10 draft · read-only</summary>
-            <p>
-              This historical draft is preserved but is not approved. Select text below, then
-              import it into a Scene Contract as a pending Manuscript proposal.
-            </p>
+            <summary>旧版第十步草稿 · 只读</summary>
+            <p>旧版草稿已保留，但尚未接受。选择下方正文片段，导入目标场景后再审核。</p>
             <textarea
               ref="legacySource"
               :value="legacyStep10Revision.content"
@@ -288,20 +274,20 @@ function openManuscript() {
             />
             <div class="legacy-import-form">
               <label>
-                <span>Target Scene Contract</span>
+                <span>目标场景</span>
                 <select v-model="legacyImportSceneId" @change="updateLegacyImportTitle">
-                  <option value="">Choose a scene</option>
+                  <option value="">选择场景</option>
                   <option v-for="scene in sceneContracts" :key="scene.id" :value="scene.id">
                     {{ scene.sequence }}. {{ scene.title }}
                   </option>
                 </select>
               </label>
               <label>
-                <span>Proposal title</span>
+                <span>草稿标题</span>
                 <input v-model="legacyImportTitle" maxlength="160" />
               </label>
               <label>
-                <span>Selected legacy text</span>
+                <span>选中的旧版正文</span>
                 <textarea v-model="legacyImportContent" rows="6" readonly />
               </label>
               <p v-if="legacyImportError" class="error">{{ legacyImportError }}</p>
@@ -317,12 +303,12 @@ function openManuscript() {
                 "
                 @click="importLegacySelection"
               >
-                {{ isImportingLegacy ? 'Importing...' : 'Import selection for review' }}
+                {{ isImportingLegacy ? 'Importing...' : '导入选文并审核' }}
               </button>
             </div>
           </details>
         </div>
-        <button class="primary" type="button" @click="openManuscript">Open Manuscript workspace</button>
+        <button class="primary" type="button" @click="openManuscript">进入正文写作</button>
       </section>
 
       <section
@@ -332,9 +318,9 @@ function openManuscript() {
       >
         <div class="panel-header">
           <div>
-            <p class="eyebrow">{{ isRecordStep ? 'Authoritative records' : 'Active Artifact' }}</p>
+            <p class="eyebrow">{{ isRecordStep ? '已确认记录' : '当前产物' }}</p>
             <h3 id="artifact-editor-title">
-              Step {{ activeStep?.number ?? 1 }}: {{ activeStep?.title ?? 'Snowflake Step' }}
+              Step {{ activeStep?.number ?? 1 }}: {{ activeStep?.title ?? '雪花步骤' }}
             </h3>
           </div>
           <span class="step-chip">{{ activeStep?.artifact ?? 'artifact' }}</span>
@@ -356,7 +342,7 @@ function openManuscript() {
           "
           class="legacy-manuscript"
         >
-          <summary>Preserved legacy Artifact — reference only</summary>
+          <summary>保留的旧版产物 · 仅供参考</summary>
           <p>
             This historical blob is not an authoritative Step {{ activeStepNumber }} head.
             Convert the useful material into records below and accept those records before compiling.
@@ -371,7 +357,7 @@ function openManuscript() {
 
         <div class="generation-controls">
           <label class="generation-instruction">
-            <span>AI instruction</span>
+            <span>写作指令</span>
             <textarea
               v-model="generationInstruction"
               rows="3"
@@ -379,14 +365,14 @@ function openManuscript() {
               :disabled="!activeProject"
               :placeholder="
                 isRecordStep
-                  ? 'Describe which record proposals to generate or revise.'
-                  : 'Describe what to generate or revise. The current artifact is kept separate.'
+                  ? '描述需要生成或修改的记录。'
+                  : '描述希望生成或修改的内容。当前已确认产物会单独保留。'
               "
             />
           </label>
 
-          <label class="context-budget">
-            <span>Upstream context budget</span>
+          <details class="advanced-generation"><summary>高级生成设置</summary><label class="context-budget">
+            <span>上游参考字数上限</span>
             <input
               v-model.number="previousArtifactsContextChars"
               type="number"
@@ -398,30 +384,28 @@ function openManuscript() {
               aria-describedby="snowflake-context-budget-help"
             />
             <small id="snowflake-context-budget-help">
-              Relevant accepted upstream records are ranked first; early-step artifacts use the remaining budget.
+              优先使用相关的上游已确认记录，剩余字数用于较早步骤的产物。
             </small>
-          </label>
+          </label></details>
 
           <label class="generation-mode">
-            <span>Generation mode</span>
+            <span>生成方式</span>
             <select v-model="generationMode" :disabled="!activeProject">
               <template v-if="isRecordStep">
-                <option value="record_set">Generate record drafts</option>
-                <option value="selection">Revise selected accepted records</option>
-                <option value="continue">Continue selected accepted records</option>
+                <option value="record_set">生成记录草稿</option>
+                <option value="selection">修改所选已确认记录</option>
+                <option value="continue">续写所选已确认记录</option>
               </template>
-              <option v-else value="replace">Generate artifact revision</option>
+              <option v-else value="replace">生成修订草稿</option>
             </select>
-            <small v-if="isRecordStep">
-              New and targeted results always become pending record revisions. Blob Artifact revisions are not created.
-            </small>
+            <small v-if="isRecordStep">生成结果会作为待审核的记录修订，接受后才会更新正式规划。</small>
           </label>
         </div>
 
         <div class="form-actions artifact-actions">
           <p v-if="artifactError" class="error">{{ artifactError }}</p>
           <p v-else class="save-state">
-            {{ isRecordStep ? 'Accept record revisions below to update the derived step projection.' : artifactStateLabel }}
+            {{ isRecordStep ? '接受下方记录修订后，步骤汇总将同步更新。' : artifactStateLabel }}
           </p>
           <p
             v-if="!isRecordStep && activeRevision && ['draft', 'pending_review'].includes(activeRevision.status) && acceptanceImpact.length"
@@ -436,7 +420,7 @@ function openManuscript() {
               :disabled="isGeneratingArtifact || !activeProject"
               @click="generateArtifact"
             >
-              {{ isGeneratingArtifact ? 'Generating...' : isRecordStep ? 'Generate record proposals' : 'Generate Proposal' }}
+              {{ isGeneratingArtifact ? '生成中…' : isRecordStep ? '生成记录建议' : '生成草稿' }}
             </button>
             <button
               v-if="!isRecordStep"
@@ -445,7 +429,7 @@ function openManuscript() {
               :disabled="isSavingArtifact || !hasUnsavedArtifactChanges"
               @click="saveArtifact"
             >
-              {{ isSavingArtifact ? 'Saving...' : 'Save Draft Revision' }}
+              {{ isSavingArtifact ? '保存中…' : '保存草稿版本' }}
             </button>
             <button
               v-if="!isRecordStep && activeRevision && ['draft', 'pending_review'].includes(activeRevision.status)"
@@ -453,9 +437,7 @@ function openManuscript() {
               type="button"
               :disabled="isSavingArtifact || hasUnsavedArtifactChanges"
               @click="decideRevision(activeRevision.id, 'accepted')"
-            >
-              Accept revision
-            </button>
+            >接受修订</button>
             <button
               v-if="!isRecordStep && activeRevision && ['draft', 'pending_review'].includes(activeRevision.status)"
               class="secondary"
@@ -463,7 +445,7 @@ function openManuscript() {
               :disabled="isSavingArtifact"
               @click="decideRevision(activeRevision.id, 'rejected')"
             >
-              Reject
+              拒绝
             </button>
             <button
               v-if="activeStep?.optional && activeStepState?.state !== 'skipped'"
@@ -471,9 +453,7 @@ function openManuscript() {
               type="button"
               :disabled="isSavingArtifact"
               @click="skipActiveStep"
-            >
-              Skip optional step
-            </button>
+            >跳过可选步骤</button>
           </div>
         </div>
 
@@ -499,12 +479,11 @@ function openManuscript() {
       >
         <div class="panel-header">
           <div>
-            <p class="eyebrow">Structured Compiler</p>
             <h3 id="compile-panel-title">
               {{
                 compilerStep === 'canon'
-                  ? 'Step 7: Compile into Canon Proposals'
-                  : 'Step 8: Parse into Scene Proposals'
+                  ? '第七步：生成设定建议'
+                  : '第八步：解析场景建议'
               }}
             </h3>
           </div>
@@ -519,8 +498,8 @@ function openManuscript() {
         <p class="compile-hint">
           {{
             compilerStep === 'canon'
-              ? 'Compiles accepted Character Bible records into Canon create / update proposals. Draft and rejected records are ignored; nothing is written to Canon until you accept each proposal.'
-              : 'Compiles accepted Scene List records into structured Scene Contract proposals. Draft and rejected records are ignored; blocking contract findings stop compilation.'
+              ? '将已接受的人物档案编译为设定建议。草稿和已拒绝记录不参与，逐项接受后才写入故事设定。'
+              : '将已接受的场景清单解析为场景契约建议。草稿和已拒绝记录不参与；存在阻断问题时暂停编译。'
           }}
         </p>
 
@@ -540,10 +519,10 @@ function openManuscript() {
             >
               {{
                 isCompilingArtifact
-                  ? 'Compiling...'
+                  ? '编译中…'
                   : compilerStep === 'canon'
-                    ? 'Extract Canon Proposals'
-                    : 'Parse Scene Proposals'
+                    ? '提取设定建议'
+                    : '解析场景建议'
               }}
             </button>
           </div>
@@ -555,9 +534,7 @@ function openManuscript() {
             {{ canonCreateCount }} create, {{ canonUpdateCount }} update.
             Review and accept them under Manuscript &gt; Write-backs.
           </p>
-          <p v-else class="save-state">
-            No new Canon proposals from the accepted records (Canon may already match).
-          </p>
+          <p v-else class="save-state">没有新的设定建议，现有设定可能已与记录一致。</p>
           <ul v-if="canonExtractionReport.warnings.length" class="warning-list">
             <li v-for="(warning, index) in canonExtractionReport.warnings" :key="index">
               {{ warning }}
@@ -571,11 +548,11 @@ function openManuscript() {
               <tr>
                 <th scope="col"></th>
                 <th scope="col">#</th>
-                <th scope="col">Title</th>
-                <th scope="col">POV</th>
-                <th scope="col">Goal</th>
-                <th scope="col">Warnings</th>
-                <th scope="col">Status</th>
+                <th scope="col">标题</th>
+                <th scope="col">叙述视角</th>
+                <th scope="col">目标</th>
+                <th scope="col">提醒</th>
+                <th scope="col">状态</th>
                 <th scope="col"></th>
               </tr>
             </thead>
@@ -624,7 +601,7 @@ function openManuscript() {
                     type="button"
                     @click="rejectSceneProposal(proposal.id)"
                   >
-                    Reject
+                    拒绝
                   </button>
                 </td>
               </tr>
@@ -660,25 +637,21 @@ function openManuscript() {
                 )
               "
               @click="acceptSceneProposalBatch(true)"
-            >
-              Accept All Pending
-            </button>
+            >接受全部待审场景</button>
           </div>
         </template>
         <p
           v-else-if="compilerStep === 'scene'"
           class="save-state"
-        >
-          No scene proposals yet. Accept Step 8 records, then compile them.
-        </p>
+        >暂无场景建议。先接受第八步的记录，再进行解析。</p>
       </section>
       </template>
 </template>
 
 <style scoped>
 .steps li.stale {
-  border-color: #b45309;
-  box-shadow: inset 3px 0 0 #b45309;
+  border-color: var(--warning);
+  box-shadow: inset 3px 0 0 var(--warning);
 }
 
 .steps li.pending {
@@ -704,7 +677,7 @@ function openManuscript() {
 }
 
 .context-budget small {
-  color: var(--text-muted, #6b7280);
+  color: var(--text-muted, var(--muted));
   font-weight: 400;
   line-height: 1.4;
 }
@@ -733,7 +706,7 @@ function openManuscript() {
 }
 
 .milestone-stats dt {
-  color: var(--text-muted, #6b7280);
+  color: var(--text-muted, var(--muted));
   font-size: 0.8rem;
 }
 
@@ -750,7 +723,7 @@ function openManuscript() {
 
 .compile-hint {
   margin: 0;
-  color: var(--text-muted, #6b7280);
+  color: var(--text-muted, var(--muted));
 }
 
 .legacy-import-form {
@@ -766,7 +739,7 @@ function openManuscript() {
 .warning-list {
   margin: 0;
   padding-left: 1.25rem;
-  color: #b45309;
+  color: var(--warning);
   font-size: 0.85rem;
 }
 
@@ -784,7 +757,7 @@ function openManuscript() {
 .scene-proposal-table td {
   text-align: left;
   vertical-align: top;
-  border-bottom: 1px solid var(--border-muted, #e5e7eb);
+  border-bottom: 1px solid var(--border-muted, var(--line));
   padding: 0.4rem 0.5rem;
 }
 
@@ -798,12 +771,12 @@ function openManuscript() {
 }
 
 .muted {
-  color: var(--text-muted, #6b7280);
+  color: var(--text-muted, var(--muted));
 }
 
 .warning-count {
-  background: #fef3c7;
-  color: #92400e;
+  background: var(--warning-soft);
+  color: var(--warning);
   border-radius: 999px;
   padding: 0.05rem 0.5rem;
   font-weight: 600;
@@ -814,8 +787,8 @@ function openManuscript() {
   display: inline-block;
   margin-right: 0.25rem;
   padding: 0.05rem 0.5rem;
-  border: 1px solid #b91c1c;
-  color: #991b1b;
+  border: 1px solid var(--danger);
+  color: var(--danger);
   font-weight: 700;
 }
 

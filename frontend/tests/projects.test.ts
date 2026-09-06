@@ -45,6 +45,6 @@ test('a new submit clears stale success feedback before validation', async () =>
   await projects.createProject()
 
   expect(projects.createStatus).toBe('')
-  expect(projects.createError).toBe('Title and premise are required.')
+  expect(projects.createError).toBe('请填写项目标题和故事梗概。')
   expect(fetchApi).not.toHaveBeenCalled()
 })

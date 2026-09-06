@@ -65,15 +65,14 @@ const pendingAnalysisCount = computed(
   <section class="revision-history">
     <div class="panel-header">
       <div>
-        <p class="eyebrow">Version History</p>
-        <h3>Accepted Revisions</h3>
+        <h3>已保存版本</h3>
       </div>
-      <button class="secondary" type="button" @click="loadManuscriptRevisions()">Refresh</button>
+      <button class="secondary" type="button" @click="loadManuscriptRevisions()">刷新</button>
     </div>
 
     <div v-if="manuscriptRevisions.length" class="revision-tools">
       <label>
-        <span>Base Revision</span>
+        <span>基准版本</span>
         <select v-model="diffLeftRevisionId">
           <option
             v-for="revision in manuscriptRevisions"
@@ -85,7 +84,7 @@ const pendingAnalysisCount = computed(
         </select>
       </label>
       <label>
-        <span>Compare Revision</span>
+        <span>对比版本</span>
         <select v-model="diffRightRevisionId">
           <option
             v-for="revision in manuscriptRevisions"
@@ -102,14 +101,13 @@ const pendingAnalysisCount = computed(
         :disabled="isLoadingDiff"
         @click="loadRevisionDiff"
       >
-        {{ isLoadingDiff ? 'Loading...' : 'Compare' }}
+        {{ isLoadingDiff ? '加载中…' : '比较版本' }}
       </button>
     </div>
 
     <section v-if="revisionDiff" class="diff-output">
       <div class="panel-header compact">
         <div>
-          <p class="eyebrow">Revision Diff</p>
           <h4>{{ revisionDiff.left_title }} -> {{ revisionDiff.right_title }}</h4>
         </div>
         <span class="step-chip">{{ revisionDiff.diff_lines.length }} lines</span>
@@ -121,21 +119,20 @@ const pendingAnalysisCount = computed(
     <section class="post-accept-analysis">
       <div class="panel-header compact">
         <div>
-          <p class="eyebrow">Post-Acceptance Analysis</p>
-          <h4>Scheduled automatically on acceptance</h4>
+          <h4>接受后自动安排分析</h4>
         </div>
         <div class="button-row">
           <span v-if="pendingAnalysisCount" class="step-chip">
             {{ pendingAnalysisCount }} running
           </span>
           <button class="secondary" type="button" @click="loadPostAcceptAnalysisJobs()">
-            Refresh
+            刷新
           </button>
         </div>
       </div>
 
       <p v-if="jobsError" class="error-text" role="alert">{{ jobsError }}</p>
-      <p v-if="!postAcceptJobs.length" class="empty-state">暂无正文分析任务。保存正文后会自动显示；也可以点击 Refresh 重新加载。</p>
+      <p v-if="!postAcceptJobs.length" class="empty-state">暂无正文分析任务。保存正文后会自动显示，也可以刷新重新加载。</p>
       <article v-for="job in postAcceptJobs" :key="job.id" class="analysis-job-item" :data-aggregate-id="job.aggregate_id">
         <div class="panel-header compact">
           <div>
@@ -148,20 +145,17 @@ const pendingAnalysisCount = computed(
         <p v-if="job.last_error" class="error-text">{{ job.last_error }}</p>
         <div v-if="job.status === 'failed'" class="button-row">
           <button class="secondary" type="button" :disabled="!!retryingId" @click="retryPostAcceptAnalysisJob(job.id)">
-            {{ retryingId === job.id ? 'Retrying...' : 'Retry' }}
+            {{ retryingId === job.id ? 'Retrying...' : '重试' }}
           </button>
         </div>
       </article>
       <button v-if="canLoadMore" type="button" class="secondary" @click="jobsStore.loadMore()">加载更多历史任务</button>
-      <p class="status-text">
-        Analysis runs automatically; its write-back suggestions stay pending for review.
-      </p>
+      <p class="status-text">分析自动运行；生成的回写建议需要你审核后才会应用。</p>
     </section>
 
     <section v-if="consistencyReport || consistencyError" class="consistency-report">
       <div class="panel-header compact">
         <div>
-          <p class="eyebrow">Consistency Report</p>
           <h4 v-if="checkedRevisionLabel">{{ checkedRevisionLabel }}</h4>
         </div>
         <span v-if="consistencyReport" class="step-chip">
@@ -174,7 +168,7 @@ const pendingAnalysisCount = computed(
 
       <div v-if="consistencyReport" class="finding-summary">
         <span :class="['severity-chip', severityClass('critical')]">
-          {{ consistencyReport.summary.critical_count }} critical
+          {{ consistencyReport.summary.critical_count }} 严重
         </span>
         <span :class="['severity-chip', severityClass('warning')]">
           {{ consistencyReport.summary.warning_count }} warnings
@@ -202,19 +196,19 @@ const pendingAnalysisCount = computed(
         <blockquote class="finding-evidence">{{ finding.manuscript_excerpt }}</blockquote>
         <dl class="finding-details">
           <div>
-            <dt>Expected</dt>
+            <dt>预期</dt>
             <dd>{{ finding.expected_value }}</dd>
           </div>
           <div>
-            <dt>Observed</dt>
+            <dt>实际</dt>
             <dd>{{ finding.observed_value }}</dd>
           </div>
           <div v-if="finding.canon_field">
-            <dt>Canon</dt>
+            <dt>故事设定</dt>
             <dd>{{ finding.canon_entity_id ?? 'scene contract' }} · {{ finding.canon_field }}</dd>
           </div>
         </dl>
-        <p class="finding-action"><span>Suggested:</span> {{ finding.suggested_action }}</p>
+        <p class="finding-action"><span>建议：</span> {{ finding.suggested_action }}</p>
       </article>
     </section>
 
@@ -233,49 +227,41 @@ const pendingAnalysisCount = computed(
                 type="button"
                 :disabled="isRunningConsistencyCheck"
                 @click="runConsistencyCheck(revision.id)"
-              >
-                Consistency
-              </button>
+              >一致性检查</button>
               <button
                 class="secondary"
                 type="button"
                 :disabled="isProcessingHermesRevision"
                 @click="processRevisionWithHermes(revision.id)"
               >
-                {{ isProcessingHermesRevision ? 'Processing...' : 'Process with Hermes' }}
+                {{ isProcessingHermesRevision ? 'Processing...' : '提取正文信息' }}
               </button>
               <button
                 class="secondary"
                 type="button"
                 :disabled="isCreatingWriteback"
                 @click="createWritebackFromRevision(revision.id)"
-              >
-                Local Suggest
-              </button>
+              >生成本地建议</button>
               <button
                 class="secondary"
                 type="button"
                 :disabled="isCreatingProviderWriteback"
                 @click="createWritebackFromRevision(revision.id, true)"
-              >
-                Provider Suggest
-              </button>
+              >使用模型生成建议</button>
               <button
                 class="secondary danger"
                 type="button"
                 :disabled="isRestoringRevision"
                 @click="restoreRevision(revision.id)"
               >
-                Restore
+                恢复版本
               </button>
             </div>
           </div>
         </div>
         <pre>{{ revision.content }}</pre>
       </article>
-      <p v-if="manuscriptRevisions.length === 0" class="empty-state">
-        No accepted revisions yet.
-      </p>
+      <p v-if="manuscriptRevisions.length === 0" class="empty-state">保存正文后，版本会出现在这里。</p>
     </div>
   </section>
 </template>

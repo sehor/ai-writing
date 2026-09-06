@@ -12,6 +12,9 @@ function stableValue(value: unknown): string {
 }
 
 export function setBaseline(scopeKey: string, value: unknown): void {
+  const pending = autosaveTimers.get(scopeKey)
+  if (pending) clearTimeout(pending)
+  autosaveTimers.delete(scopeKey)
   draftBaselines.set(scopeKey, stableValue(value))
   useEditorSessionStore().markClean(scopeKey)
 }
@@ -33,6 +36,8 @@ export function persistDraft(scopeKey: string, value: unknown): void {
   const cached = saveDraft(scopeKey, value)
   if (cached) {
     useEditorSessionStore().markDirty(scopeKey, cached.savedAt)
+  } else {
+    useEditorSessionStore().markAutosaveFailed(scopeKey)
   }
 }
 

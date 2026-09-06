@@ -46,7 +46,7 @@ export const useBackupsStore = defineStore('backups', () => {
     exportError.value = ''
     const projectId = ws().activeProject?.id
     if (!projectId) {
-      exportError.value = 'Create or select a project first.'
+      exportError.value = '请先创建或选择项目。'
       return
     }
 

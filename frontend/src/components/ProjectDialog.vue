@@ -41,22 +41,21 @@ async function submitProject() {
 
 <template>
   <button class="secondary project-dialog-trigger" type="button" @click="showDialog">
-    Open project
+    {{ workspace.activeProject?.title ?? '打开项目' }}
   </button>
 
   <dialog ref="dialog" class="project-dialog" aria-labelledby="project-dialog-title">
     <header class="project-dialog-header">
       <div>
-        <p class="eyebrow">Workspace</p>
-        <h2 id="project-dialog-title">Open project</h2>
+        <h2 id="project-dialog-title">打开项目</h2>
       </div>
-      <button class="dialog-close" type="button" aria-label="Close project dialog" @click="closeDialog">
+      <button class="dialog-close" type="button" aria-label="关闭项目选择" @click="closeDialog">
         &times;
       </button>
     </header>
 
     <div class="project-dialog-body">
-      <ul v-if="projects.length" class="project-picker-list" aria-label="Available projects">
+      <ul v-if="projects.length" class="project-picker-list" aria-label="可用项目">
         <li v-for="project in projects" :key="project.id">
           <button
             type="button"
@@ -68,32 +67,32 @@ async function submitProject() {
               <strong>{{ project.title }}</strong>
               <small>{{ project.premise }}</small>
             </span>
-            <span class="project-picker-step">Step {{ project.current_step }}</span>
+            <span class="project-picker-step">第 {{ project.current_step }} 步</span>
           </button>
         </li>
       </ul>
-      <p v-else class="empty-projects">No projects yet. Create one below.</p>
+      <p v-else class="empty-projects">还没有项目。在下方创建你的第一个故事。</p>
 
       <details class="project-create-disclosure">
-        <summary>Create new project</summary>
+        <summary>创建新项目</summary>
         <form class="project-dialog-form" @submit.prevent="submitProject">
           <label>
-            <span>Title</span>
-            <input v-model="newProject.title" autocomplete="off" placeholder="The Glass City" />
+            <span>标题</span>
+            <input v-model="newProject.title" autocomplete="off" placeholder="玻璃之城" />
           </label>
           <label>
-            <span>Premise</span>
+            <span>故事梗概</span>
             <textarea
               v-model="newProject.premise"
               rows="3"
-              placeholder="A disgraced cartographer discovers the city map is rewriting its people."
+              placeholder="用一两句话描述故事的主角、困境和核心变化。"
             />
           </label>
           <div class="form-actions">
             <p v-if="createError" class="error" role="alert">{{ createError }}</p>
             <p v-else-if="createStatus" class="success" role="status">{{ createStatus }}</p>
             <button class="primary" type="submit" :disabled="isCreating">
-              {{ isCreating ? 'Creating...' : 'Create Project' }}
+              {{ isCreating ? '创建中…' : '创建项目' }}
             </button>
           </div>
         </form>

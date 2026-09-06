@@ -282,7 +282,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     const content = artifactDraft.value.trim()
 
     if (!projectId || !ws().activeStep) {
-      artifactError.value = 'Create or select a project first.'
+      artifactError.value = '请先创建或选择项目。'
       return
     }
 
@@ -352,7 +352,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
         : []
 
     if (!projectId || !ws().activeStep || !instruction) {
-      artifactError.value = 'Create or select a project first.'
+      artifactError.value = '请先创建或选择项目。'
       return
     }
     if (!Number.isInteger(contextChars) || contextChars < 1000 || contextChars > 400000) {
@@ -540,7 +540,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     const step = ws().activeStepNumber
 
     if (!projectId || !ws().activeStep) {
-      sceneProposalError.value = 'Create or select a project first.'
+      sceneProposalError.value = '请先创建或选择项目。'
       return
     }
     if (step !== 7 && step !== 8) {
@@ -618,7 +618,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     sceneProposalStatus.value = ''
     const projectId = ws().activeProject?.id
     if (!projectId) {
-      sceneProposalError.value = 'Create or select a project first.'
+      sceneProposalError.value = '请先创建或选择项目。'
       return
     }
 
@@ -680,7 +680,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     sceneProposalStatus.value = ''
     const projectId = ws().activeProject?.id
     if (!projectId) {
-      sceneProposalError.value = 'Create or select a project first.'
+      sceneProposalError.value = '请先创建或选择项目。'
       return
     }
 

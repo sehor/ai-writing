@@ -12,9 +12,9 @@ const { threads, relations, director, error, isLoading } = storeToRefs(narrative
 <template>
   <section class="narrative-panel">
     <div class="panel-header">
-      <div><p class="eyebrow">Narrative Domain</p><h3>故事线与已确认关系</h3></div>
+      <div><h3>故事线与已确认关系</h3></div>
       <button type="button" class="secondary" :disabled="isLoading || !workspace.activeProjectId"
-        @click="narrative.load(workspace.activeProjectId, manuscript.activeSceneId)">刷新 Narrative</button>
+        @click="narrative.load(workspace.activeProjectId, manuscript.activeSceneId)">刷新叙事状态</button>
     </div>
     <p v-if="error" class="error" role="alert">{{ error }}</p>
     <p v-if="!threads.length && !relations.length" class="empty-state">尚无故事线或已确认关系。CLP 提案经人工接受后会出现在这里。</p>

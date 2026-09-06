@@ -49,7 +49,8 @@ test('successful save sends the editing version and clears the cache without del
   request.mockImplementation(async (url, init) => json(init?.method === 'PUT' ? updated : String(url).endsWith('/scenes') ? [updated] : []))
   await store.saveManuscriptSceneEdit('scene')
   expect(JSON.parse(request.mock.calls[0]![1]!.body as string)).toEqual({ title: 'Opening', content: 'Author edit', expected_scene_version: 1 })
-  expect(store.editingManuscriptSceneId).toBe('')
+  expect(store.editingManuscriptSceneId).toBe('scene')
+  expect(store.manuscriptEditVersion).toBe(2)
   await vi.runAllTimersAsync()
   expect(loadDraft(key)).toBeNull()
 })
@@ -101,7 +102,7 @@ test('409 shows current text, preserves edits and requires acknowledgment before
     request.mockImplementation(async (url, init) => json(init?.method === 'PUT' ? updated : String(url).endsWith('/scenes') ? [updated] : []))
     await store.saveManuscriptSceneEdit('scene')
     expect(JSON.parse(request.mock.calls[2]![1]!.body as string).expected_scene_version).toBe(2)
-    expect(store.editingManuscriptSceneId).toBe('')
+    expect(store.editingManuscriptSceneId).toBe('scene')
   } finally { wrapper.unmount() }
 })
 

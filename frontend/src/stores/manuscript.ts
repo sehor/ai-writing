@@ -135,14 +135,14 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     if (chapterStatus.value) {
       return chapterStatus.value
     }
-    return activeChapter.value ? 'Editing Chapter' : 'New Chapter'
+    return activeChapter.value ? '编辑章节' : '新建章节'
   })
 
   const sceneStateLabel = computed(() => {
     if (sceneStatus.value) {
       return sceneStatus.value
     }
-    return activeSceneContract.value ? 'Editing Scene contract' : 'New Scene contract'
+    return activeSceneContract.value ? '编辑场景' : '新建场景'
   })
 
   const acceptedSceneCount = computed(() => manuscriptScenes.value.length)
@@ -254,6 +254,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
           summary: selected.summary,
         }
       : createEmptyChapterDraft()
+    chapterDraft.value = baselineDraft
     restoreEntryDraft<ManuscriptChapterDraft>(chapterScopeKey(), baselineDraft, (cached) => {
       chapterDraft.value = cached
     }, (message) => {
@@ -288,12 +289,17 @@ export const useManuscriptStore = defineStore('manuscript', () => {
           goal: selected.goal,
           conflict: selected.conflict,
           turning_point: selected.turning_point,
+          outcome: selected.outcome,
           required_canon: selected.required_canon,
           forbidden_facts: selected.forbidden_facts,
+          information_delta: selected.information_delta,
+          character_state_delta: selected.character_state_delta,
+          story_thread_actions: selected.story_thread_actions,
           open_threads: selected.open_threads,
           source_artifact_step: selected.source_artifact_step,
         }
       : createEmptySceneDraft()
+    sceneDraft.value = baselineDraft
     restoreEntryDraft<SceneDraft>(sceneScopeKey(), baselineDraft, (cached) => {
       sceneDraft.value = cached
     }, (message) => {
@@ -325,7 +331,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
         activeProposalId.value = manuscriptProposals.value[0]?.id ?? ''
       }
     } catch {
-      manuscriptError.value = 'Manuscript proposals could not be loaded.'
+      manuscriptError.value = '草稿列表加载失败，请刷新重试。'
     }
   }
 
@@ -438,7 +444,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     const title = chapterDraft.value.title.trim()
 
     if (!projectId) {
-      chapterError.value = 'Create or select a project first.'
+      chapterError.value = '请先创建或选择项目。'
       return
     }
 
@@ -541,7 +547,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     const title = sceneDraft.value.title.trim()
 
     if (!projectId) {
-      sceneError.value = 'Create or select a project first.'
+      sceneError.value = '请先创建或选择项目。'
       return
     }
 
@@ -606,7 +612,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     const sceneId = activeSceneId.value
 
     if (!projectId || !sceneId) {
-      sceneError.value = 'Select a Scene contract first.'
+      sceneError.value = '请先选择场景。'
       return
     }
 
@@ -640,7 +646,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     const sceneId = activeSceneId.value
 
     if (!projectId || !sceneId) {
-      sceneError.value = 'Select a Scene contract first.'
+      sceneError.value = '请先选择场景。'
       return
     }
 
@@ -687,7 +693,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   function chapterTitleForScene(sceneId: string) {
     const scene = sceneContracts.value.find((item) => item.id === sceneId)
     const chapter = manuscriptChapters.value.find((item) => item.id === scene?.chapter_id)
-    return chapter ? `Chapter ${chapter.sequence}: ${chapter.title}` : 'Unassigned'
+    return chapter ? `Chapter ${chapter.sequence}: ${chapter.title}` : '未分章'
   }
 
   // ---- Review proposals ----
@@ -699,7 +705,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     const sceneId = activeSceneId.value
 
     if (!projectId || !sceneId) {
-      manuscriptError.value = 'Select a Scene contract first.'
+      manuscriptError.value = '请先选择场景。'
       return
     }
 
@@ -764,7 +770,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     const projectId = ws().activeProject?.id
 
     if (!projectId) {
-      manuscriptError.value = 'Create or select a project first.'
+      manuscriptError.value = '请先创建或选择项目。'
       return
     }
 
@@ -805,8 +811,8 @@ export const useManuscriptStore = defineStore('manuscript', () => {
       activeProposalId.value = updated.id
       manuscriptStatus.value =
         status === 'accepted'
-          ? 'Proposal accepted. Automatic analysis has been scheduled.'
-          : 'Proposal rejected.'
+          ? '草稿已接受，后台分析已安排。'
+          : '草稿已拒绝。'
     } catch (error) {
       manuscriptError.value = error instanceof Error ? error.message : 'Proposal update failed. Check that the API is running.'
     } finally {
@@ -886,7 +892,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     const projectId = ws().activeProject?.id
 
     if (!projectId) {
-      manuscriptError.value = 'Create or select a project first.'
+      manuscriptError.value = '请先创建或选择项目。'
       return
     }
 
@@ -922,7 +928,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     const projectId = ws().activeProject?.id
 
     if (!projectId) {
-      manuscriptError.value = 'Create or select a project first.'
+      manuscriptError.value = '请先创建或选择项目。'
       return
     }
 
@@ -1048,11 +1054,11 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     const content = manuscriptEditContent.value.trim()
 
     if (!projectId) {
-      manuscriptError.value = 'Create or select a project first.'
+      manuscriptError.value = '请先创建或选择项目。'
       return
     }
     if (!title || !content) {
-      manuscriptError.value = 'Title and content are required before saving.'
+      manuscriptError.value = '请填写标题和正文后再保存。'
       return
     }
     if (manuscriptEditNeedsReview.value || manuscriptEditVersion.value === null) {
@@ -1088,13 +1094,16 @@ export const useManuscriptStore = defineStore('manuscript', () => {
         scene.scene_id === updated.scene_id ? updated : scene
       )
       const unchanged = JSON.stringify(snapshot) === JSON.stringify(currentManuscriptEdits())
-      setBaseline(manuscriptEditScopeKey(projectId, sceneId), snapshot)
+      // Advance the editor baseline without unmounting the textarea or losing
+      // keystrokes made while this version was saving.
+      hydratingManuscriptEdit = true
+      manuscriptEditVersion.value = updated.version
+      hydratingManuscriptEdit = false
+      setBaseline(manuscriptEditScopeKey(projectId, sceneId), { ...snapshot, expected_scene_version: updated.version })
       if (unchanged) {
         clearDraft(manuscriptEditScopeKey(projectId, sceneId))
-        cancelEditingManuscriptScene()
       } else {
         // Keep any input made while the request was in flight.
-        manuscriptEditVersion.value = updated.version
         persistDraft(manuscriptEditScopeKey(projectId, sceneId), currentManuscriptEdits())
       }
       manuscriptExport.value = null

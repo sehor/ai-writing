@@ -45,7 +45,7 @@ export const useGraphStore = defineStore('graph', () => {
       if (error instanceof DOMException && error.name === 'AbortError') {
         return
       }
-      graphError.value = 'Graph analysis could not be loaded.'
+      graphError.value = '结构分析加载失败，请刷新重试。'
     } finally {
       if (!signal?.aborted) {
         isLoadingGraph.value = false

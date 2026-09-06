@@ -1,5 +1,11 @@
 # e2e — P1-08 真实后端浏览器测试
 
+当前中文工作台使用 `pnpm test:e2e`：运行 `workspace-review.e2e.mjs` 和 `workspace-wiki-failure.e2e.mjs`。前者覆盖真实后端的草稿审核、持续编辑、分析、导出、冲突、恢复与设定回写；后者覆盖文件存储故障和界面重试。前者使用临时端口，后者沿用下文的 8132 / 5176，所有数据均隔离。
+
+`pnpm test:browser` 使用随机端口与本地模拟数据，检查浅深主题、桌面及窄屏交互，并生成 `.tmp/ui-review/` 截图。
+
+以下是重构前完整场景的历史说明。旧版入口保留为 `pnpm test:e2e:legacy`，其页面选择器对应旧界面，不作为当前工作台的验收命令。
+
 Real-browser E2E suite from the archived `docs/older/ai-writing-improvement-plan.md`, section 九 / P1-08:
 a **real FastAPI backend** over a **temp SQLite data root**, a **real Vite dev server**,
 **Playwright Chromium**, and the **local deterministic provider** (no API keys, no

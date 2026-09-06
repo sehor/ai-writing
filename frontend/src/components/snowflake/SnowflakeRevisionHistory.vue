@@ -10,8 +10,7 @@ const { revisions, activeRevisionId } = storeToRefs(snowflake)
   <aside class="revision-history" aria-labelledby="revision-history-title">
     <div class="panel-header">
       <div>
-        <p class="eyebrow">Audit trail</p>
-        <h3 id="revision-history-title">Revision history</h3>
+        <h3 id="revision-history-title">版本历史</h3>
       </div>
       <span class="step-chip">{{ revisions.length }}</span>
     </div>
@@ -32,7 +31,7 @@ const { revisions, activeRevisionId } = storeToRefs(snowflake)
         </button>
       </li>
     </ol>
-    <p v-else class="save-state">No revisions for this step yet.</p>
+    <p v-else class="save-state">这一步还没有修订记录。</p>
   </aside>
 </template>
 
@@ -58,15 +57,15 @@ const { revisions, activeRevisionId } = storeToRefs(snowflake)
   justify-content: space-between;
   gap: 0.75rem;
   padding: 0.75rem;
-  border: 1px solid var(--border-muted, #d6d3d1);
+  border: 1px solid var(--border-muted, var(--line));
   background: transparent;
   color: inherit;
   text-align: left;
 }
 
 .revision-button.active {
-  border-color: var(--accent, #9a3412);
-  background: var(--surface-muted, #fafaf9);
+  border-color: var(--accent, var(--warning));
+  background: var(--surface-muted, var(--canvas));
 }
 
 .revision-button span:first-child {
@@ -75,6 +74,6 @@ const { revisions, activeRevisionId } = storeToRefs(snowflake)
 }
 
 .revision-button small {
-  color: var(--text-muted, #6b7280);
+  color: var(--text-muted, var(--muted));
 }
 </style>

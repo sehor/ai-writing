@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { useWorkspaceStore } from '../../stores/workspace'
 import { storeToRefs } from 'pinia'
 import { useManuscriptStore } from '../../stores/manuscript'
 
+const workspace = useWorkspaceStore()
 const store = useManuscriptStore()
 const {
   sceneContracts,
@@ -38,14 +40,14 @@ const {
 </script>
 
 <template>
+<label class="generation-model-picker">生成模型<select v-model="workspace.selectedModelProfile" aria-label="生成模型"><option value="">自动选择 / 本地模式</option><option v-for="profile in workspace.modelProfiles" :key="profile.id" :value="profile.id">{{ profile.label }}{{ profile.configured ? '' : '（未配置）' }}</option></select></label>
   <div class="panel-header">
     <div>
-      <p class="eyebrow">Chapters / Scene Contracts</p>
-      <h3>Manuscript Inputs</h3>
+      <h3>章节与场景</h3>
     </div>
     <div class="button-row">
-      <button class="secondary" type="button" @click="startNewChapter">New Chapter</button>
-      <button class="primary" type="button" @click="startNewSceneContract">New Scene</button>
+      <button class="secondary" type="button" @click="startNewChapter">新建章节</button>
+      <button class="primary" type="button" @click="startNewSceneContract">新建场景</button>
     </div>
   </div>
 
@@ -58,29 +60,29 @@ const {
         type="button"
         @click="activeChapterId = chapter.id"
       >
-        <span>Chapter {{ chapter.sequence }}: {{ chapter.title }}</span>
-        <small>{{ scenesForChapter(chapter.id).length }} scenes</small>
+        <span>第 {{ chapter.sequence }} 章： {{ chapter.title }}</span>
+        <small>{{ scenesForChapter(chapter.id).length }} 个场景</small>
       </button>
-      <p v-if="manuscriptChapters.length === 0" class="empty-state">No chapters yet.</p>
+      <p v-if="manuscriptChapters.length === 0" class="empty-state">还没有章节。先建立故事目录。</p>
     </aside>
 
     <form class="chapter-editor" @submit.prevent="saveChapter">
       <div class="scene-fields">
         <label>
-          <span>Chapter No.</span>
+          <span>章节序号</span>
           <input v-model.number="chapterDraft.sequence" type="number" min="1" max="999" />
         </label>
         <label>
-          <span>Title</span>
-          <input v-model="chapterDraft.title" autocomplete="off" placeholder="The locked map" />
+          <span>标题</span>
+          <input v-model="chapterDraft.title" autocomplete="off" placeholder="被锁住的地图" />
         </label>
       </div>
       <label>
-        <span>Summary</span>
+        <span>摘要</span>
         <textarea
           v-model="chapterDraft.summary"
           rows="3"
-          placeholder="What this chapter changes in the manuscript."
+          placeholder="这一章推动了怎样的变化？"
         />
       </label>
       <div class="form-actions artifact-actions">
@@ -94,10 +96,10 @@ const {
             :disabled="isDeletingChapter"
             @click="deleteChapter"
           >
-            {{ isDeletingChapter ? 'Deleting...' : 'Delete Chapter' }}
+            {{ isDeletingChapter ? '删除中…' : '删除章节' }}
           </button>
           <button class="primary" type="submit" :disabled="isSavingChapter">
-            {{ isSavingChapter ? 'Saving...' : activeChapterId ? 'Save Chapter' : 'Create Chapter' }}
+            {{ isSavingChapter ? '保存中…' : activeChapterId ? '保存章节' : '创建章节' }}
           </button>
         </div>
       </div>
@@ -116,11 +118,11 @@ const {
           @click="activeSceneId = scene.id"
         >
           <span>{{ scene.sequence }}. {{ scene.title }}</span>
-          <small>{{ scene.pov || 'No POV' }}</small>
+          <small>{{ scene.pov || '未指定视角' }}</small>
         </button>
       </template>
       <template v-if="unassignedSceneContracts.length">
-        <p class="list-heading">Unassigned</p>
+        <p class="list-heading">未分章</p>
         <button
           v-for="scene in unassignedSceneContracts"
           :key="scene.id"
@@ -129,41 +131,41 @@ const {
           @click="activeSceneId = scene.id"
         >
           <span>{{ scene.sequence }}. {{ scene.title }}</span>
-          <small>{{ scene.pov || 'No POV' }}</small>
+          <small>{{ scene.pov || '未指定视角' }}</small>
         </button>
       </template>
-      <p v-if="sceneContracts.length === 0" class="empty-state">No Scene contracts yet.</p>
+      <p v-if="sceneContracts.length === 0" class="empty-state">还没有场景。先创建一个场景契约。</p>
     </aside>
 
     <form class="scene-editor" @submit.prevent="saveSceneContract">
       <div class="scene-fields">
         <label>
-          <span>Chapter</span>
+          <span>章节</span>
           <select v-model="sceneDraft.chapter_id">
-            <option value="">Unassigned</option>
+            <option value="">未分章</option>
             <option
               v-for="chapter in manuscriptChapters"
               :key="chapter.id"
               :value="chapter.id"
             >
-              Chapter {{ chapter.sequence }}: {{ chapter.title }}
+              第 {{ chapter.sequence }} 章： {{ chapter.title }}
             </option>
           </select>
         </label>
         <label>
-          <span>Sequence</span>
+          <span>顺序</span>
           <input v-model.number="sceneDraft.sequence" type="number" min="1" max="999" />
         </label>
         <label>
-          <span>Title</span>
-          <input v-model="sceneDraft.title" autocomplete="off" placeholder="The map changes" />
+          <span>标题</span>
+          <input v-model="sceneDraft.title" autocomplete="off" placeholder="地图发生变化" />
         </label>
         <label>
-          <span>POV</span>
-          <input v-model="sceneDraft.pov" autocomplete="off" placeholder="Lin Ye" />
+          <span>叙述视角</span>
+          <input v-model="sceneDraft.pov" autocomplete="off" placeholder="林野" />
         </label>
         <label>
-          <span>Source Step</span>
+          <span>来源步骤</span>
           <input
             v-model.number="sceneDraft.source_artifact_step"
             type="number"
@@ -174,79 +176,79 @@ const {
       </div>
 
       <label>
-        <span>Goal</span>
-        <textarea v-model="sceneDraft.goal" rows="3" placeholder="What the POV wants." />
+        <span>目标</span>
+        <textarea v-model="sceneDraft.goal" rows="3" placeholder="视角人物想实现什么？" />
       </label>
       <label>
-        <span>Conflict</span>
+        <span>冲突</span>
         <textarea
           v-model="sceneDraft.conflict"
           rows="3"
-          placeholder="What blocks the goal."
+          placeholder="什么阻碍了目标？"
         />
       </label>
       <label>
-        <span>Turning Point</span>
+        <span>转折点</span>
         <textarea
           v-model="sceneDraft.turning_point"
           rows="3"
-          placeholder="What changes by the end."
+          placeholder="场景结束时发生怎样的转折？"
         />
       </label>
       <label>
-        <span>Outcome / Disaster</span>
+        <span>结果与转折</span>
         <textarea
           v-model="sceneDraft.outcome"
           rows="3"
-          placeholder="What concrete result leaves the scene changed."
+          placeholder="这个场景带来什么明确结果？"
         />
       </label>
       <label>
-        <span>Required Canon</span>
+        <span>必需的设定</span>
         <textarea
           v-model="sceneDraft.required_canon"
           rows="4"
-          placeholder="Facts this scene must respect."
+          placeholder="这个场景必须遵守的设定。"
         />
       </label>
       <label>
-        <span>Forbidden Facts</span>
+        <span>禁止出现的事实</span>
         <textarea
           v-model="sceneDraft.forbidden_facts"
           rows="4"
-          placeholder="Facts this scene cannot reveal or contradict."
+          placeholder="不应揭露或违背的事实。"
         />
       </label>
       <label>
-        <span>Information Delta</span>
+        <span>信息变化</span>
         <textarea
           v-model="sceneDraft.information_delta"
           rows="3"
-          placeholder="What the reader or characters learn, lose, or misunderstand."
+          placeholder="读者或人物获知、失去或误解了什么？"
         />
       </label>
       <label>
-        <span>Character State Delta</span>
+        <span>人物状态变化</span>
         <textarea
           v-model="sceneDraft.character_state_delta"
           rows="3"
-          placeholder="How goals, relationships, resources, or emotions change."
+          placeholder="目标、关系、资源或情绪发生怎样的变化？"
         />
       </label>
       <label>
-        <span>StoryThread Actions</span>
+        <span>故事线操作</span>
         <textarea
           v-model="sceneDraft.story_thread_actions"
           rows="3"
-          placeholder="Thread ID and action, one per line."
+          placeholder="每行填写一个故事线标识与操作。"
         />
       </label>
       <label>
-        <span>Legacy open-thread notes</span>
+        <span>旧版未完结线索</span>
         <textarea
           v-model="sceneDraft.open_threads"
           rows="4"
-          placeholder="Compatibility only; use structured StoryThread actions for generation."
+          placeholder="旧版兼容备注；生成时请使用结构化故事线操作。"
         />
       </label>
 
@@ -261,7 +263,7 @@ const {
             :disabled="isDeletingScene"
             @click="deleteSceneContract"
           >
-            {{ isDeletingScene ? 'Deleting...' : 'Delete' }}
+            {{ isDeletingScene ? '删除中…' : '删除' }}
           </button>
           <button
             v-if="activeSceneId"
@@ -270,7 +272,7 @@ const {
             :disabled="isCompilingScene"
             @click="compileSceneContract"
           >
-            {{ isCompilingScene ? 'Compiling...' : 'Compile' }}
+            {{ isCompilingScene ? '编译中…' : '编译场景' }}
           </button>
           <button
             v-if="activeSceneId"
@@ -279,7 +281,7 @@ const {
             :disabled="isCreatingProposal"
             @click="createProposalFromScene()"
           >
-            {{ isCreatingProposal ? 'Creating...' : 'Create Proposal' }}
+            {{ isCreatingProposal ? '创建中…' : '创建草稿' }}
           </button>
           <button
             v-if="activeSceneId"
@@ -288,10 +290,10 @@ const {
             :disabled="isCreatingProviderProposal"
             @click="createProposalFromScene(true)"
           >
-            {{ isCreatingProviderProposal ? 'Creating...' : 'Provider Proposal' }}
+            {{ isCreatingProviderProposal ? '创建中…' : '使用模型生成草稿' }}
           </button>
           <button class="primary" type="submit" :disabled="isSavingScene">
-            {{ isSavingScene ? 'Saving...' : activeSceneId ? 'Save Scene' : 'Create Scene' }}
+            {{ isSavingScene ? '保存中…' : activeSceneId ? '保存场景' : '创建场景' }}
           </button>
         </div>
       </div>
@@ -300,15 +302,15 @@ const {
 
   <div v-if="compileResult" class="compile-output">
     <section>
-      <p class="eyebrow">Context Package</p>
+      <p class="eyebrow">上下文资料</p>
       <pre>{{ compileResult.context }}</pre>
     </section>
     <section>
-      <p class="eyebrow">Draft Placeholder</p>
+      <p class="eyebrow">本地示例草稿</p>
       <pre>{{ compileResult.draft }}</pre>
     </section>
     <section>
-      <p class="eyebrow">Checklist</p>
+      <p class="eyebrow">检查清单</p>
       <ul>
         <li v-for="item in compileResult.checklist" :key="item">{{ item }}</li>
       </ul>

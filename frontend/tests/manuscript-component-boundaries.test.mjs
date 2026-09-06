@@ -22,7 +22,7 @@ test('manuscript workspace delegates each major review region to a focused compo
       manuscriptWorkspace,
       new RegExp(`import ${component} from './manuscript/${component}\\.vue'`),
     )
-    assert.match(manuscriptWorkspace, new RegExp(`<${component} />`))
+    assert.match(manuscriptWorkspace, new RegExp(`<${component}(?:\\s[^>]*)? />`))
   }
 
   assert.doesNotMatch(manuscriptWorkspace, /class="chapter-editor"/)

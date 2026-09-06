@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
 const backupsStore = readFileSync(new URL('../src/stores/backups.ts', import.meta.url), 'utf8')
-const sidebar = readFileSync(new URL('../src/components/AppSidebar.vue', import.meta.url), 'utf8')
+const sidebar = readFileSync(new URL('../src/components/BackupWorkspace.vue', import.meta.url), 'utf8')
 const types = readFileSync(new URL('../src/types/index.ts', import.meta.url), 'utf8')
 
 test('backup entry downloads the active project ZIP package', () => {
@@ -38,8 +38,8 @@ test('overwrite requires an explicit confirmation when the target exists', () =>
   assert.match(sidebar, /覆盖并导入/)
   // The confirm button stays disabled until the checkbox flips.
   assert.match(
-    sidebar,
-    /:disabled="isImporting \|\| \(backupPreview\.target_exists && \(!backupPreview\.can_overwrite \|\| !overwriteConfirmed\)\)"/,
+    sidebar.replace(/\s+/g, ''),
+    /:disabled="isImporting\|\|\(backupPreview\.target_exists&&\(!backupPreview\.can_overwrite\|\|!overwriteConfirmed\)\)"/,
   )
 })
 
@@ -48,7 +48,7 @@ test('a finished import refreshes the project list and selects the restored proj
   assert.match(backupsStore, /ws\(\)\.activeProjectId = result\.project\.id/)
   assert.match(sidebar, /data-testid="confirm-import"/)
 })
-test('backup UI remains available in the sidebar', () => {
+test('backup preview preserves its safeguards inside the project dialog', () => {
   assert.match(sidebar, /class="backup-panel" aria-label="Backup and restore"/)
   assert.match(sidebar, /useBackupsStore/)
 })

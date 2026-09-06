@@ -24,7 +24,7 @@ test('initial loading cannot overwrite a project selected or created in flight',
 })
 
 test('shared label formatting humanizes enum values without unsafe parsing', () => {
-  assert.match(formatUtils, /return value\.split\('_'\)\.join\(' '\)/)
+  assert.match(formatUtils, /value\.split\('_'\)\.join\(' '\)/)
 })
 
 test('proposal acceptance refreshes dependent collections in one batch', () => {
@@ -37,7 +37,7 @@ test('proposal acceptance refreshes dependent collections in one batch', () => {
 test('projects live in a dialog instead of occupying the sidebar', () => {
   assert.doesNotMatch(appSidebar, /class="project-list"/)
   assert.match(projectDialog, /<dialog/)
-  assert.match(projectDialog, /Open project/)
+  assert.match(projectDialog, /打开项目/)
   assert.doesNotMatch(snowflakeWorkspace, /class="create-project"/)
 })
 
@@ -51,7 +51,7 @@ test('the entire Snowflake step card is the selector target', () => {
   assert.match(selectorMarkup, /step\.description/)
   assert.match(snowflakeWorkspace, /v-if="!isStepWorkspaceOpen" class="pipeline"/)
   assert.match(snowflakeWorkspace, /<template v-else>/)
-  assert.match(snowflakeWorkspace, /All Snowflake steps/)
+  assert.match(snowflakeWorkspace, /返回规划总览/)
 })
 
 test('Snowflake generation exposes and sends a bounded upstream context budget', () => {
@@ -69,7 +69,7 @@ test('Snowflake generation exposes and sends a bounded upstream context budget',
 })
 
 test('Steps 6-9 expose records as the only editable and compilable authority', () => {
-  assert.match(snowflakeWorkspace, /<option value="record_set">Generate record drafts<\/option>/)
+  assert.match(snowflakeWorkspace, /<option value="record_set">生成记录草稿<\/option>/)
   assert.doesNotMatch(snowflakeWorkspace, /Replace \/ full step/)
   assert.match(snowflakeWorkspace, /v-if="!isRecordStep"[\s\S]*v-model="artifactDraft"/)
   assert.match(snowflakeWorkspace, /SnowflakeRevisionHistory v-if="!activeStep\?\.virtual && !isRecordStep"/)

@@ -24,8 +24,8 @@ test('structured references UI uses reviewable suggestion endpoints', () => {
     reviewsStore,
     /\/projects\/\$\{projectId\}\/references\/suggestions\/\$\{suggestionId\}\/status/,
   )
-  assert.match(referenceWorkspace, /Reference Suggestions/)
-  assert.match(referenceWorkspace, /Generate Reference/)
-  assert.match(referenceWorkspace, /Accept Reference/)
+  assert.match(referenceWorkspace, /参考建议/)
+  assert.match(referenceWorkspace, /生成参考建议/)
+  assert.match(referenceWorkspace, /接受参考建议/)
   assert.doesNotMatch(referenceWorkspace, /chat\s*box/i)
 })

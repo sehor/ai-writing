@@ -33,13 +33,13 @@ const { manuscriptRevisions } = storeToRefs(useManuscriptStore())
 const { loadWritebackProposals, updateWritebackStatus } = store
 
 const FIELD_LABELS: Record<string, string> = {
-  entity_type: 'Entity type',
-  name: 'Name',
-  summary: 'Summary',
-  current_state: 'Current state',
-  constraints: 'Constraints',
-  last_seen: 'Last seen',
-  timeline_notes: 'Timeline notes',
+  entity_type: '设定类型',
+  name: '名称',
+  summary: '摘要',
+  current_state: '当前状态',
+  constraints: '约束条件',
+  last_seen: '最后出现位置',
+  timeline_notes: '时间线备注',
 }
 
 function fieldLabel(field: string) {
@@ -106,12 +106,11 @@ function formatJson(value: Record<string, unknown> | undefined) {
   <section class="writeback-review">
     <div class="panel-header">
       <div>
-        <p class="eyebrow">State Write-back</p>
-        <h3>Canon / Memory / Narrative Proposals</h3>
+        <h3>设定、记忆与叙事变更</h3>
       </div>
       <div class="button-row">
-        <span class="step-chip">{{ pendingWritebackCount }} pending</span>
-        <button class="secondary" type="button" @click="loadWritebackProposals()">Refresh</button>
+        <span class="step-chip">{{ pendingWritebackCount }} 待审</span>
+        <button class="secondary" type="button" @click="loadWritebackProposals()">刷新</button>
       </div>
     </div>
 
@@ -160,7 +159,7 @@ function formatJson(value: Record<string, unknown> | undefined) {
           <small>{{ statusText(proposal.action) }} / {{ statusText(proposal.status) }}</small>
         </button>
         <p v-if="writebackProposals.length === 0" class="empty-state">
-          No write-back proposals yet.
+          没有待审核的回写建议。
         </p>
       </aside>
 
@@ -178,7 +177,7 @@ function formatJson(value: Record<string, unknown> | undefined) {
               :disabled="isUpdatingWriteback"
               @click="updateWritebackStatus(activeWritebackProposal.id, 'rejected')"
             >
-              Reject
+              拒绝
             </button>
             <button
               v-if="activeWritebackProposal.status === 'pending_review'"
@@ -187,12 +186,12 @@ function formatJson(value: Record<string, unknown> | undefined) {
               :disabled="isUpdatingWriteback || versionConflict"
               :title="
                 versionConflict
-                  ? 'The target record changed since this proposal was created.'
+                  ? '建议创建后，目标记录已更新。请核对当前内容。'
                   : ''
               "
               @click="updateWritebackStatus(activeWritebackProposal.id, 'accepted')"
             >
-              Accept
+              接受
             </button>
           </div>
         </div>
@@ -204,28 +203,28 @@ function formatJson(value: Record<string, unknown> | undefined) {
 
         <dl class="proposal-meta">
           <div>
-            <dt>Action</dt>
+            <dt>操作</dt>
             <dd>{{ statusText(activeWritebackProposal.action) }}</dd>
           </div>
           <div>
-            <dt>Target</dt>
+            <dt>目标</dt>
             <dd>{{ statusText(activeWritebackProposal.target) }}</dd>
           </div>
           <div>
-            <dt>Source</dt>
+            <dt>来源</dt>
             <dd>{{ activeWritebackProposal.source_ref || 'none' }}</dd>
           </div>
           <div>
-            <dt>Applied Record</dt>
+            <dt>已应用记录</dt>
             <dd>{{ activeWritebackProposal.applied_record_id || 'not applied' }}</dd>
           </div>
         </dl>
 
         <section v-if="isUpdateProposal && !isThreadUpdate">
-          <p class="eyebrow">Target Record</p>
+          <p class="eyebrow">目标记录</p>
           <dl class="proposal-meta">
             <div>
-              <dt>Record</dt>
+              <dt>记录</dt>
               <dd>
                 <template v-if="targetRecord">
                   {{ targetRecord.entity_type }} / {{ targetRecord.name }}
@@ -236,11 +235,11 @@ function formatJson(value: Record<string, unknown> | undefined) {
               </dd>
             </div>
             <div>
-              <dt>Current version</dt>
+              <dt>当前版本</dt>
               <dd>{{ targetRecord ? `v${targetRecord.version}` : 'unknown' }}</dd>
             </div>
             <div>
-              <dt>Expected version</dt>
+              <dt>预期版本</dt>
               <dd>
                 {{
                   activeWritebackProposal.expected_version
@@ -253,13 +252,12 @@ function formatJson(value: Record<string, unknown> | undefined) {
         </section>
 
         <section v-if="isThreadUpdate" class="thread-status-proposal" data-testid="thread-status-proposal">
-          <p class="eyebrow">StoryThread 生命周期</p>
           <h4>{{ targetThread?.title || activeWritebackProposal.target_record_id }}</h4>
           <p>当前：{{ targetThread?.status ?? '未加载' }} · 提案基于：{{ activeWritebackProposal.payload.from_state }}</p>
           <p>建议：{{ activeWritebackProposal.payload.proposed_state }} · 置信度：{{ activeWritebackProposal.payload.confidence }}</p>
         </section>
         <section v-if="activeWritebackProposal.target === 'narrative_relation'" class="relation-proposal">
-          <p class="eyebrow">Narrative relation</p>
+          <p class="eyebrow">叙事关系</p>
           <p>{{ activeWritebackProposal.payload.source }} → {{ activeWritebackProposal.payload.relation }} → {{ activeWritebackProposal.payload.target }}</p>
           <p>场景区间 {{ activeWritebackProposal.payload.valid_from }}–{{ activeWritebackProposal.payload.valid_to ?? '持续' }} · 置信度 {{ activeWritebackProposal.payload.confidence }}</p>
         </section>
@@ -267,32 +265,32 @@ function formatJson(value: Record<string, unknown> | undefined) {
           v-if="['story_thread', 'story_thread_event'].includes(activeWritebackProposal.target)"
           class="thread-status-proposal"
         >
-          <p class="eyebrow">Narrative thread proposal</p>
+          <p class="eyebrow">故事线建议</p>
           <p>
             {{ activeWritebackProposal.target === 'story_thread'
-              ? 'Creates a StoryThread only after acceptance.'
-              : 'Adds a scene-linked StoryThread event only after both the scene and thread exist.' }}
+              ? '接受后才会创建故事线。'
+              : '场景与故事线均存在后，才会添加关联事件。' }}
           </p>
         </section>
         <section v-if="clpEvidence.length" class="clp-evidence">
-          <p class="eyebrow">CLP Evidence</p>
+          <p class="eyebrow">提取依据</p>
           <blockquote v-for="(item, index) in clpEvidence" :key="index">{{ item.excerpt }} <small>{{ item.source_ref }}</small></blockquote>
         </section>
         <section>
-          <p class="eyebrow">Rationale</p>
+          <p class="eyebrow">依据说明</p>
           <p class="proposal-rationale">
-            {{ activeWritebackProposal.rationale || 'No rationale recorded.' }}
+            {{ activeWritebackProposal.rationale || '暂无依据说明。' }}
           </p>
         </section>
 
         <section v-if="isUpdateProposal && changeEntries.length">
-          <p class="eyebrow">Proposed Changes</p>
+          <p class="eyebrow">建议变更</p>
           <table class="writeback-changes">
             <thead>
               <tr>
-                <th scope="col">Field</th>
-                <th scope="col">Current value</th>
-                <th scope="col">Proposed value</th>
+                <th scope="col">字段</th>
+                <th scope="col">当前内容</th>
+                <th scope="col">建议内容</th>
               </tr>
             </thead>
             <tbody>
@@ -306,9 +304,7 @@ function formatJson(value: Record<string, unknown> | undefined) {
         </section>
 
         <section v-if="evidenceExcerpt">
-          <p class="eyebrow">
-            Evidence
-            <template v-if="evidenceRevision">
+          <p class="eyebrow">依据<template v-if="evidenceRevision">
               - {{ evidenceRevision.title }} v{{ evidenceRevision.version }}
             </template>
           </p>
@@ -316,7 +312,7 @@ function formatJson(value: Record<string, unknown> | undefined) {
         </section>
 
         <section v-if="!isUpdateProposal">
-          <p class="eyebrow">Structured Payload</p>
+          <p class="eyebrow">结构化数据</p>
           <pre>{{ formatJson(activeWritebackProposal.payload) }}</pre>
         </section>
       </section>

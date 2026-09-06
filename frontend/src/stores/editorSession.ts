@@ -6,6 +6,7 @@ export interface EditorDraftState {
   dirty: boolean
   lastSavedAt?: string
   lastAutosavedAt?: string
+  autosaveFailed?: boolean
 }
 
 /**
@@ -28,7 +29,8 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
       scopeKey,
       dirty: true,
       lastSavedAt: current?.lastSavedAt,
-      lastAutosavedAt: autosavedAt ?? current?.lastAutosavedAt,
+      lastAutosavedAt: autosavedAt,
+      autosaveFailed: false,
     }
   }
 
@@ -44,6 +46,11 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
 
   function dropEditor(scopeKey: string): void {
     delete editors.value[scopeKey]
+  }
+
+  function markAutosaveFailed(scopeKey: string) {
+    markDirty(scopeKey)
+    editors.value[scopeKey]!.autosaveFailed = true
   }
 
   function draftState(scopeKey: string): EditorDraftState | null {
@@ -65,6 +72,7 @@ export const useEditorSessionStore = defineStore('editorSession', () => {
     registerEditor,
     markDirty,
     markClean,
+    markAutosaveFailed,
     dropEditor,
     draftState,
     isDirty,

@@ -27,7 +27,7 @@ export const useProjectsStore = defineStore('projects', () => {
     const title = newProject.value.title.trim()
     const premise = newProject.value.premise.trim()
     if (!title || !premise) {
-      createError.value = 'Title and premise are required.'
+      createError.value = '请填写项目标题和故事梗概。'
       return null
     }
 
@@ -49,7 +49,7 @@ export const useProjectsStore = defineStore('projects', () => {
       createStatus.value = `Project "${created.title}" created successfully.`
       return created as ProjectSummary
     } catch {
-      createError.value = 'Project creation failed. Check that the API is running.'
+      createError.value = '项目创建失败，请检查本地服务后重试。'
       return null
     } finally {
       isCreating.value = false

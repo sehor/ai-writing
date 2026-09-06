@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { fetchApi } from '../api/client'
+import { readLocation, readPreference, writePreference } from '../services/preferences'
 import { useDirtyGuard } from '../composables/useDirtyGuard'
 import {
   formatSavedAt,
@@ -67,13 +68,13 @@ export const useWorkspaceStore = defineStore('workspace', () => {
 
   const runtimeLabel = computed(() => {
     if (!workflowRuntime.value) {
-      return 'Runtime checking'
+      return '正在检查运行环境'
     }
     if (workflowRuntime.value.runtime_kind === 'model_gateway' || workflowRuntime.value.provider_configured) {
       const provider = workflowRuntime.value.provider || 'Model'
       return `Runtime ${provider} ${workflowRuntime.value.model}`.trim()
     }
-    return 'Runtime Local'
+    return '本地模式'
   })
 
   const runtimeTitle = computed(() => workflowRuntime.value?.details || 'Workflow runtime status')
@@ -112,7 +113,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         selectedModelProfile.value = ''
       }
       if (!activeProjectId.value) {
-        activeProjectId.value = projectsStore.projects[0]?.id ?? ''
+        const previousProject = readPreference<string>('project', '')
+        activeProjectId.value = projectsStore.projects.find(project => project.id === previousProject)?.id ?? projectsStore.projects[0]?.id ?? ''
       }
       activeStepNumber.value = activeProject.value?.current_step ?? 1
       apiStatus.value = health.status
@@ -164,6 +166,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     const controller = new AbortController()
     projectLoadController = controller
     isLoadingProject.value = !!projectId
+    const sectionAtLoadStart = activeSection.value
+    if (projectId) writePreference('project', projectId)
 
     // Tell every domain store to drop the outgoing project's state.
     snowflake.resetProjectState()
@@ -295,6 +299,14 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       reviews.writebackProposals = loadedWritebacks
       reviews.referenceSuggestions = loadedReferences
       manuscript.activeProposalId = manuscript.manuscriptProposals[0]?.id ?? ''
+      const location = readLocation(projectId)
+      if (activeSection.value === sectionAtLoadStart) {
+        activeSection.value = location?.section ?? (loadedManuscriptScenes.length ? 'manuscript' : 'snowflake')
+      }
+      manuscript.activeChapterId = loadedChapters.some((chapter: { id: string }) => chapter.id === location?.chapter)
+        ? location!.chapter : loadedChapters[0]?.id ?? ''
+      manuscript.activeSceneId = loadedSceneContracts.some((scene: { id: string }) => scene.id === location?.scene)
+        ? location!.scene : loadedManuscriptScenes[0]?.scene_id ?? loadedSceneContracts[0]?.id ?? ''
       reviews.activeWritebackId = reviews.writebackProposals[0]?.id ?? ''
       reviews.activeReferenceId = reviews.referenceSuggestions[0]?.id ?? ''
       manuscript.syncRevisionCompareSelection()
@@ -344,11 +356,17 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       if (error instanceof DOMException && error.name === 'AbortError') {
         return
       }
-      snowflake.artifactError = 'Project data could not be loaded.'
+      snowflake.artifactError = '项目数据加载失败，请重试。'
     } finally {
       if (!controller.signal.aborted) isLoadingProject.value = false
     }
   })
+
+  watch([activeSection, () => manuscript.activeChapterId, () => manuscript.activeSceneId], () => {
+    if (activeProjectId.value && !isLoadingProject.value) writePreference(`location:${activeProjectId.value}`, {
+      section: activeSection.value, chapter: manuscript.activeChapterId, scene: manuscript.activeSceneId,
+    })
+  }, { flush: 'post' })
 
   watch(activeStepNumber, (next, prev) => {
     if (suppressNextSelectionGuard) {

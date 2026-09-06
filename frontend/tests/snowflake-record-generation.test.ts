@@ -9,6 +9,7 @@ const workspace = vi.hoisted(() => ({
   activeProject: { id: 'novel', premise: 'A premise.' },
   activeStepNumber: 6,
   activeStep: { number: 6, optional: false },
+  modelExecutionOptions: () => ({}),
 }))
 
 vi.mock('../src/api/client', () => ({ fetchApi: vi.fn() }))
@@ -47,6 +48,7 @@ beforeEach(() => {
 
 test('targeted generation sends record IDs and loads pending record revisions for review', async () => {
   vi.mocked(fetchApi).mockImplementation(async (path, options) => {
+    if (path.endsWith('/snowflake/steps')) return Response.json([])
     if (path.endsWith('/snowflake/generations')) {
       const body = JSON.parse(String(options?.body))
       expect(body.target_record_ids).toEqual(['block-101'])

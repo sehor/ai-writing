@@ -157,7 +157,7 @@ export const useReviewsStore = defineStore('reviews', () => {
     const authorProblem = referenceDraft.value.author_problem.trim()
 
     if (!projectId) {
-      referenceError.value = 'Create or select a project first.'
+      referenceError.value = '请先创建或选择项目。'
       return
     }
 
@@ -220,7 +220,7 @@ export const useReviewsStore = defineStore('reviews', () => {
     const projectId = ws().activeProject?.id
 
     if (!projectId) {
-      referenceError.value = 'Create or select a project first.'
+      referenceError.value = '请先创建或选择项目。'
       return
     }
 
@@ -246,7 +246,7 @@ export const useReviewsStore = defineStore('reviews', () => {
       )
       activeReferenceId.value = updated.id
       referenceStatus.value =
-        status === 'accepted' ? 'Reference accepted.' : 'Reference rejected.'
+        status === 'accepted' ? '参考建议已接受。' : '参考建议已拒绝。'
     } catch {
       referenceError.value = 'Reference update failed. Check that the API is running.'
     } finally {
@@ -268,7 +268,7 @@ export const useReviewsStore = defineStore('reviews', () => {
     const projectId = ws().activeProject?.id
 
     if (!projectId) {
-      writebackError.value = 'Create or select a project first.'
+      writebackError.value = '请先创建或选择项目。'
       return
     }
 
@@ -321,7 +321,7 @@ export const useReviewsStore = defineStore('reviews', () => {
     const projectId = ws().activeProject?.id
 
     if (!projectId) {
-      writebackError.value = 'Create or select a project first.'
+      writebackError.value = '请先创建或选择项目。'
       return
     }
 
@@ -367,7 +367,7 @@ export const useReviewsStore = defineStore('reviews', () => {
     const projectId = ws().activeProject?.id
 
     if (!projectId) {
-      consistencyError.value = 'Create or select a project first.'
+      consistencyError.value = '请先创建或选择项目。'
       return
     }
 
@@ -473,7 +473,7 @@ export const useReviewsStore = defineStore('reviews', () => {
     }
 
     if (!projectId) {
-      writebackError.value = 'Create or select a project first.'
+      writebackError.value = '请先创建或选择项目。'
       return
     }
 
@@ -520,10 +520,10 @@ export const useReviewsStore = defineStore('reviews', () => {
       }
       writebackStatus.value =
         status === 'accepted'
-          ? 'Write-back accepted and applied.'
+          ? '变更已接受并应用。'
           : status === 'superseded'
             ? 'Write-back marked as superseded.'
-            : 'Write-back rejected.'
+            : '变更已拒绝。'
     } catch (error) {
       writebackError.value =
         error instanceof Error

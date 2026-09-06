@@ -40,7 +40,7 @@ export const useCanonStore = defineStore('canon', () => {
     if (canonStatus.value) {
       return canonStatus.value
     }
-    return activeCanonEntity.value ? 'Editing Canon entity' : 'New Canon entity'
+    return activeCanonEntity.value ? '编辑设定' : '新建设定'
   })
 
   function createEmptyCanonDraft(): CanonDraft {
@@ -120,7 +120,7 @@ export const useCanonStore = defineStore('canon', () => {
     const name = canonDraft.value.name.trim()
 
     if (!projectId) {
-      canonError.value = 'Create or select a project first.'
+      canonError.value = '请先创建或选择项目。'
       return
     }
 

@@ -72,7 +72,6 @@ watch(
   <section class="record-workspace">
     <div class="panel-header">
       <div>
-        <p class="eyebrow">Structured records</p>
         <h3>Step {{ workspace.activeStepNumber }} record revisions</h3>
       </div>
       <div class="record-pagination" aria-label="Structured record pages">
@@ -82,23 +81,16 @@ watch(
           type="button"
           :disabled="recordPage <= 1"
           @click="changePage(recordPage - 1)"
-        >
-          Previous
-        </button>
+        >上一步</button>
         <button
           class="secondary"
           type="button"
           :disabled="recordPage >= recordTotalPages"
           @click="changePage(recordPage + 1)"
-        >
-          Next
-        </button>
+        >下一步</button>
       </div>
     </div>
-    <p class="compile-hint">
-      These pageable records are the authoritative plan. Each save creates a draft revision;
-      only accepted record heads feed later steps and compilers.
-    </p>
+    <p class="compile-hint">这些记录组成当前规划。保存会创建草稿版本，只有已接受的记录才用于后续步骤与编译。</p>
     <p class="save-state">
       {{ selectedRecordIds.length }} record(s) selected for AI generation. Selection is preserved across pages in this step.
     </p>
@@ -111,7 +103,7 @@ watch(
               :checked="selectedRecordIds.includes(record.record_id)"
               :disabled="record.status !== 'accepted' && !record.base_revision_id"
               :aria-label="`Select ${record.record_id} for AI generation`"
-              :title="record.status === 'accepted' || record.base_revision_id ? 'Select the accepted head; any newer draft or rejected revision is ignored' : 'Accept a revision before using this record as AI context'"
+              :title="record.status === 'accepted' || record.base_revision_id ? '选择已接受版本，忽略尚未接受的草稿' : '接受修订后，记录才能作为生成参考'"
               @change="snowflake.toggleRecordSelection(record.record_id)"
             />
           </label>
@@ -120,21 +112,19 @@ watch(
             <small>r{{ record.revision_no }} · {{ record.status }}</small>
           </button>
         </div>
-        <button type="button" class="secondary" @click="recordId = ''; position = records.length + 1; payloadText = '{}'">
-          + New record
-        </button>
+        <button type="button" class="secondary" @click="recordId = ''; position = records.length + 1; payloadText = '{}'">新建记录</button>
       </aside>
       <div>
-        <label><span>Record ID</span><input v-model="recordId" maxlength="160" /></label>
-        <label><span>Position</span><input v-model.number="position" type="number" min="1" max="100000" /></label>
-        <label><span>Structured JSON payload</span><textarea v-model="payloadText" rows="14" /></label>
+        <label><span>记录标识</span><input v-model="recordId" maxlength="160" /></label>
+        <label><span>位置</span><input v-model.number="position" type="number" min="1" max="100000" /></label>
+        <label><span>结构化数据</span><textarea v-model="payloadText" rows="14" /></label>
         <p v-if="error" class="error">{{ error }}</p>
         <p v-else class="save-state">{{ status }}</p>
         <div class="button-row">
-          <button class="primary" type="button" :disabled="!recordId.trim()" @click="saveRecord">Save record draft</button>
+          <button class="primary" type="button" :disabled="!recordId.trim()" @click="saveRecord">保存记录草稿</button>
           <template v-if="records.find((item) => item.record_id === recordId && ['draft', 'pending_review'].includes(item.status))">
-            <button class="primary" type="button" @click="decide(records.find((item) => item.record_id === recordId)!.id, 'accepted')">Accept</button>
-            <button class="secondary danger" type="button" @click="decide(records.find((item) => item.record_id === recordId)!.id, 'rejected')">Reject</button>
+            <button class="primary" type="button" @click="decide(records.find((item) => item.record_id === recordId)!.id, 'accepted')">接受</button>
+            <button class="secondary danger" type="button" @click="decide(records.find((item) => item.record_id === recordId)!.id, 'rejected')">拒绝</button>
           </template>
         </div>
       </div>

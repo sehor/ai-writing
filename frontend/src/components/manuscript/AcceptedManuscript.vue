@@ -1,7 +1,11 @@
 <script setup lang="ts">
+import { computed } from 'vue'
+import { vAutosize } from '../../directives/autosize'
+import SaveState from '../ui/SaveState.vue'
 import { storeToRefs } from 'pinia'
 import { useManuscriptStore } from '../../stores/manuscript'
 
+const props = defineProps<{ sceneId?: string }>()
 const store = useManuscriptStore()
 const {
   manuscriptScenes,
@@ -27,32 +31,32 @@ const {
   rebaseManuscriptSceneEdit,
   chapterTitleForScene,
 } = store
+const visibleScenes = computed(() => props.sceneId === undefined ? manuscriptScenes.value : manuscriptScenes.value.filter(scene => scene.scene_id === props.sceneId))
+const characterCount = computed(() => manuscriptEditContent.value.replace(/\s/g, '').length)
 </script>
 
 <template>
   <section class="accepted-manuscript">
-    <div class="panel-header">
-      <div>
-        <p class="eyebrow">Accepted Manuscript</p>
-        <h3>Current Scene Drafts</h3>
-      </div>
+    <div class="panel-header manuscript-document-actions">
+      <SaveState :scope="store.manuscriptEditScopeKey()" :saving="isSavingManuscriptScene" :conflict="manuscriptEditNeedsReview" :error="manuscriptError" :version="manuscriptEditVersion" />
       <div class="button-row">
+        <button v-if="sceneId" class="primary" type="button" :disabled="isSavingManuscriptScene || manuscriptEditNeedsReview" @click="saveManuscriptSceneEdit(sceneId)">{{ isSavingManuscriptScene ? '保存中…' : '保存版本' }}</button>
         <button
           class="secondary"
           type="button"
           :disabled="isExportingManuscript"
           @click="exportManuscript"
         >
-          {{ isExportingManuscript ? 'Exporting...' : 'Export Markdown' }}
+          {{ isExportingManuscript ? '导出中…' : '导出 Markdown' }}
         </button>
-        <button class="secondary" type="button" @click="loadManuscriptScenes()">Refresh</button>
+        <button class="secondary" type="button" @click="loadManuscriptScenes()">刷新</button>
       </div>
     </div>
 
     <section v-if="manuscriptExport" class="export-output">
       <div class="panel-header compact">
         <div>
-          <p class="eyebrow">{{ manuscriptExport.scene_count }} scenes</p>
+          <p class="eyebrow">{{ manuscriptExport.scene_count }} 个场景</p>
           <h4>{{ manuscriptExport.title }}</h4>
         </div>
         <small>{{ manuscriptExport.generated_at }}</small>
@@ -61,8 +65,8 @@ const {
     </section>
 
     <div class="accepted-list">
-      <article v-for="scene in manuscriptScenes" :key="scene.id" class="accepted-item">
-        <div class="panel-header compact">
+      <article v-for="scene in visibleScenes" :key="scene.id" class="accepted-item">
+        <div v-if="!sceneId" class="panel-header compact">
           <div>
             <p class="eyebrow">
               {{ chapterTitleForScene(scene.scene_id) }} / Version {{ scene.version }}
@@ -79,7 +83,7 @@ const {
                 :disabled="isSavingManuscriptScene"
                 @click="startEditingManuscriptScene(scene)"
               >
-                Edit
+                编辑
               </button>
             </div>
           </div>
@@ -90,12 +94,12 @@ const {
           @submit.prevent="saveManuscriptSceneEdit(scene.scene_id)"
         >
           <label>
-            <span>Title</span>
-            <input v-model="manuscriptEditTitle" autocomplete="off" :disabled="isSavingManuscriptScene" />
+            <span class="sr-only">正文标题</span>
+            <input v-model="manuscriptEditTitle" class="document-title-input" aria-label="正文标题" autocomplete="off" />
           </label>
           <label>
-            <span>Content</span>
-            <textarea v-model="manuscriptEditContent" rows="14" :disabled="isSavingManuscriptScene" />
+            <span class="sr-only">正文内容</span>
+            <textarea v-autosize v-model="manuscriptEditContent" class="prose-editor" aria-label="正文内容" rows="18" spellcheck="false" />
           </label>
           <p v-if="manuscriptError" class="error-text" role="alert">{{ manuscriptError }}</p>
           <section v-if="manuscriptEditNeedsReview" class="export-output" aria-label="正文版本冲突">
@@ -115,13 +119,13 @@ const {
             </button>
           </section>
           <div class="form-actions artifact-actions">
-            <p class="save-state">Saving creates a new manuscript revision.</p>
-            <div class="button-row">
+            <p class="save-state">{{ characterCount.toLocaleString() }} 字 · 每次保存创建一个版本</p>
+            <div v-if="!sceneId" class="button-row">
               <button class="secondary" type="button" :disabled="isSavingManuscriptScene" @click="cancelEditingManuscriptScene">
-                Cancel
+                取消
               </button>
               <button class="primary" type="submit" :disabled="isSavingManuscriptScene || manuscriptEditNeedsReview">
-                {{ isSavingManuscriptScene ? 'Saving...' : 'Save Version' }}
+                {{ isSavingManuscriptScene ? '保存中…' : '保存版本' }}
               </button>
             </div>
           </div>
@@ -129,7 +133,7 @@ const {
         <pre v-else>{{ scene.content }}</pre>
       </article>
       <p v-if="manuscriptScenes.length === 0" class="empty-state">
-        No accepted manuscript scenes yet.
+        暂无正式正文。接受草稿后即可继续编辑。
       </p>
     </div>
   </section>

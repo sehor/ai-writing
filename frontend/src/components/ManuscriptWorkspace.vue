@@ -1,50 +1,417 @@
 <script setup lang="ts">
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { useManuscriptStore } from '../stores/manuscript'
+import { useWorkspaceStore } from '../stores/workspace'
+import { useProposalDraftStore } from '../stores/proposalDraft'
+import { useAppearanceStore } from '../stores/appearance'
+import { confirmLeave } from '../composables/useDirtyGuard'
+import { isScopeDirty, persistDraft } from '../services/draftSessions'
+import AppIcon from './ui/AppIcon.vue'
+import EmptyState from './ui/EmptyState.vue'
 import AcceptedManuscript from './manuscript/AcceptedManuscript.vue'
 import ManuscriptInputs from './manuscript/ManuscriptInputs.vue'
 import ManuscriptProposalWorkspace from './manuscript/ManuscriptProposalWorkspace.vue'
 import ReferenceWorkspace from './manuscript/ReferenceWorkspace.vue'
 import RevisionHistory from './manuscript/RevisionHistory.vue'
 import WritebackReview from './manuscript/WritebackReview.vue'
+const store = useManuscriptStore()
+const workspace = useWorkspaceStore()
+const draft = useProposalDraftStore()
+const appearance = useAppearanceStore()
+const search = ref('')
+const directoryOpen = ref(false)
+const view = ref<'manuscript' | 'proposal'>('manuscript')
+const panel = ref<'reference' | 'settings' | 'history' | 'analysis' | null>(
+  null,
+)
+const panelButtons = ref<HTMLElement>()
+const panelEl = ref<HTMLElement>()
+const current = computed(() =>
+  store.manuscriptScenes.find(
+    (scene) => scene.scene_id === store.activeSceneId,
+  ),
+)
+const pending = computed(() =>
+  store.manuscriptProposals.filter(
+    (p) => p.scene_id === store.activeSceneId && p.status === 'pending_review',
+  ),
+)
+const groups = computed(() =>
+  [
+    ...store.manuscriptChapters.map((chapter) => ({
+      id: chapter.id,
+      title: chapter.title,
+      scenes: store.sceneContracts.filter(
+        (scene) => scene.chapter_id === chapter.id,
+      ),
+    })),
+    {
+      id: '',
+      title: '未分章场景',
+      scenes: store.sceneContracts.filter((scene) => !scene.chapter_id),
+    },
+  ]
+    .map((group) => ({
+      ...group,
+      scenes: group.scenes.filter((scene) =>
+        `${group.title} ${scene.title}`
+          .toLowerCase()
+          .includes(search.value.toLowerCase()),
+      ),
+    }))
+    .filter((group) => group.scenes.length || (!search.value && group.id)),
+)
+const currentTitle = computed(
+  () => store.activeSceneContract?.title ?? '正文写作',
+)
+let restoringSelection = false
+function allowDraftLeave() {
+  if (draft.dirty && !confirmLeave(draft.scopeKey, 'AI 草稿')) return false
+  draft.persist()
+  return true
+}
+async function selectScene(id: string) {
+  if (id === store.activeSceneId) {
+    directoryOpen.value = false
+    return
+  }
+  store.activeSceneId = id
+  await nextTick()
+  if (store.activeSceneId !== id) return
+  directoryOpen.value = false
+}
+watch(
+  () => [
+    workspace.activeProjectId,
+    store.activeSceneId,
+    current.value?.scene_id,
+  ],
+  (_, previous) => {
+    if (workspace.isLoadingProject) return
+    if (restoringSelection) {
+      restoringSelection = false
+      return
+    }
+    const changedScene =
+      previous?.[0] === workspace.activeProjectId &&
+      previous?.[1] &&
+      previous[1] !== store.activeSceneId
+    function rollback() {
+      restoringSelection = true
+      store.activeSceneId = previous?.[1] ?? ''
+    }
+    if (changedScene && !allowDraftLeave()) {
+      rollback()
+      return
+    }
+    const scene = current.value
+    if (scene && store.editingManuscriptSceneId !== scene.scene_id) {
+      store.startEditingManuscriptScene(scene)
+      if (store.editingManuscriptSceneId !== scene.scene_id) {
+        rollback()
+        return
+      }
+    } else if (!scene && changedScene && store.editingManuscriptSceneId) {
+      const key = store.manuscriptEditScopeKey()
+      const edits = store.currentManuscriptEdits()
+      if (isScopeDirty(key, edits)) {
+        if (!confirmLeave(key, '正文编辑')) {
+          rollback()
+          return
+        }
+        persistDraft(key, edits)
+      }
+      store.cancelEditingManuscriptScene()
+    }
+    view.value = scene
+      ? 'manuscript'
+      : pending.value.length
+        ? 'proposal'
+        : 'manuscript'
+    const proposal =
+      pending.value[0] ??
+      store.manuscriptProposals.find((p) => p.scene_id === store.activeSceneId)
+    if (proposal) store.activeProposalId = proposal.id
+  },
+  { immediate: true },
+)
+watch(
+  () => workspace.isLoadingProject,
+  (loading) => {
+    if (loading) return
+    if (
+      current.value &&
+      store.editingManuscriptSceneId !== current.value.scene_id
+    )
+      store.startEditingManuscriptScene(current.value)
+    view.value = current.value
+      ? 'manuscript'
+      : pending.value.length
+        ? 'proposal'
+        : 'manuscript'
+    if (pending.value[0]) store.activeProposalId = pending.value[0].id
+  },
+)
+watch(
+  () => store.isCreatingProposal || store.isCreatingProviderProposal,
+  (creating, before) => {
+    if (before && !creating && pending.value.length) {
+      view.value = 'proposal'
+      panel.value = null
+    }
+  },
+)
+watch(
+  () => store.activeProposal?.status,
+  (status, before) => {
+    if (status === 'accepted' && before === 'pending_review')
+      view.value = 'manuscript'
+  },
+)
+function switchView(next: typeof view.value) {
+  if (next === view.value || (view.value === 'proposal' && !allowDraftLeave()))
+    return
+  view.value = next
+}
+async function openPanel(next: typeof panel.value) {
+  panel.value = panel.value === next ? null : next
+  await nextTick()
+  if (panel.value) panelEl.value?.focus()
+  else panelButtons.value?.querySelector<HTMLButtonElement>('button')?.focus()
+}
+function keydown(event: KeyboardEvent) {
+  if (event.isComposing || document.querySelector('dialog[open]')) return
+  if (event.key === 'Escape') {
+    if (panel.value) void openPanel(panel.value)
+    else if (directoryOpen.value) directoryOpen.value = false
+    else appearance.focus = false
+  }
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+    event.preventDefault()
+    if (view.value === 'proposal') draft.persist()
+    else if (current.value)
+      void store.saveManuscriptSceneEdit(current.value.scene_id)
+  }
+}
+onMounted(() => window.addEventListener('keydown', keydown))
+onBeforeUnmount(() => {
+  window.removeEventListener('keydown', keydown)
+  appearance.focus = false
+})
 </script>
-
 <template>
-  <section class="manuscript-workspace">
-    <details class="manuscript-setup" open>
-      <summary>章节与场景设置 · 写作时可收起</summary>
-      <ManuscriptInputs />
-    </details>
-    <div class="writing-desk">
-      <section class="writing-desk-editor" aria-label="正文与作者草稿">
-        <ManuscriptProposalWorkspace />
-        <AcceptedManuscript />
-      </section>
-      <aside class="writing-desk-context" aria-label="写作参考">
-        <ReferenceWorkspace />
-      </aside>
-    </div>
-    <section class="writing-desk-review" aria-label="版本与待审核变更">
-      <RevisionHistory />
-      <WritebackReview />
+  <section
+    class="writing-workspace"
+    :class="{ 'has-inspector': panel, 'is-focused': appearance.focus }"
+  >
+    <aside
+      class="chapter-directory"
+      :class="{ 'directory-open': directoryOpen }"
+      aria-label="章节目录"
+    >
+      <header class="directory-heading">
+        <h2>章节目录</h2>
+        <button
+          class="icon-button"
+          aria-label="章节与场景设置"
+          @click="openPanel('settings')"
+        >
+          <AppIcon name="plus" />
+        </button>
+      </header>
+      <label class="directory-search"
+        ><AppIcon name="search" :size="16" /><input
+          v-model="search"
+          aria-label="搜索章节与场景"
+          placeholder="查找章节或场景"
+      /></label>
+      <div class="chapter-groups">
+        <details
+          v-for="group in groups"
+          :key="group.id"
+          class="chapter-group"
+          open
+        >
+          <summary>
+            {{ group.title }}<small>{{ group.scenes.length }}</small>
+          </summary>
+          <button
+            v-for="scene in group.scenes"
+            :key="scene.id"
+            class="scene-link"
+            :class="{ active: store.activeSceneId === scene.id }"
+            :aria-current="
+              store.activeSceneId === scene.id ? 'true' : undefined
+            "
+            @click="selectScene(scene.id)"
+          >
+            <span>{{ scene.title }}</span
+            ><small
+              v-if="
+                store.manuscriptProposals.some(
+                  (p) =>
+                    p.scene_id === scene.id && p.status === 'pending_review',
+                )
+              "
+              >待审</small
+            >
+          </button>
+        </details>
+        <p v-if="!groups.length" class="empty-state">
+          {{ search ? '没有找到匹配的章节或场景。' : '故事从第一个场景开始。' }}
+        </p>
+      </div>
+      <button
+        class="quiet-button directory-settings"
+        @click="openPanel('settings')"
+      >
+        <AppIcon name="settings" />管理章节与场景
+      </button>
+    </aside>
+    <button
+      v-if="directoryOpen"
+      class="directory-scrim"
+      aria-label="收起章节目录"
+      @click="directoryOpen = false"
+    ></button>
+    <section class="writing-main" aria-label="当前场景写作">
+      <header class="writing-toolbar">
+        <div class="writing-title">
+          <button
+            class="icon-button directory-toggle"
+            aria-label="展开章节目录"
+            @click="directoryOpen = !directoryOpen"
+          >
+            <AppIcon name="book" /></button
+          ><span>{{ currentTitle }}</span>
+        </div>
+        <div class="writing-tools">
+          <label class="font-picker"
+            ><span class="sr-only">正文字号</span
+            ><select v-model.number="appearance.fontSize" aria-label="正文字号">
+              <option
+                v-for="size in [16, 18, 20, 22]"
+                :key="size"
+                :value="size"
+              >
+                {{ size }} px
+              </option>
+            </select></label
+          ><button
+            class="icon-button"
+            :aria-label="appearance.focus ? '退出专注模式' : '进入专注模式'"
+            :aria-pressed="appearance.focus"
+            :title="appearance.focus ? '退出专注模式' : '进入专注模式'"
+            @click="appearance.focus = !appearance.focus"
+          >
+            <AppIcon name="focus" />
+          </button>
+        </div>
+      </header>
+      <div class="writing-subbar">
+        <nav class="segmented-control" aria-label="写作视图">
+          <button
+            :aria-pressed="view === 'manuscript'"
+            :class="{ active: view === 'manuscript' }"
+            @click="switchView('manuscript')"
+          >
+            正式正文</button
+          ><button
+            :aria-pressed="view === 'proposal'"
+            :class="{ active: view === 'proposal' }"
+            @click="switchView('proposal')"
+          >
+            待审核草稿<span v-if="pending.length" class="count">{{
+              pending.length
+            }}</span>
+          </button>
+        </nav>
+        <button class="quiet-button" @click="openPanel('settings')">
+          生成草稿
+        </button>
+      </div>
+      <div class="editor-scroll">
+        <AcceptedManuscript
+          v-if="view === 'manuscript' && current"
+          :scene-id="store.activeSceneId"
+        /><ManuscriptProposalWorkspace
+          v-else-if="view === 'proposal'"
+          :scene-id="store.activeSceneId"
+        /><EmptyState
+          v-else
+          :title="
+            store.activeSceneId
+              ? '这一幕，等待落笔'
+              : '选择一个场景，继续你的故事'
+          "
+          :description="
+            store.activeSceneId
+              ? '根据场景设置生成草稿，审核接受后即可在这里持续写作。'
+              : '从左侧选择场景，或先建立章节与场景设置。'
+          "
+          icon="feather"
+          ><button class="primary" @click="openPanel('settings')">
+            {{ store.activeSceneId ? '打开场景设置' : '建立章节与场景' }}
+          </button></EmptyState
+        >
+      </div>
+      <footer ref="panelButtons" class="writing-footer">
+        <span class="keyboard-hint"
+          >Ctrl S · {{ view === 'proposal' ? '暂存草稿' : '保存版本' }}</span
+        >
+        <div class="context-actions">
+          <button
+            :class="{ active: panel === 'reference' }"
+            @click="openPanel('reference')"
+          >
+            参考资料</button
+          ><button
+            :class="{ active: panel === 'history' }"
+            @click="openPanel('history')"
+          >
+            版本历史</button
+          ><button
+            :class="{ active: panel === 'analysis' }"
+            @click="openPanel('analysis')"
+          >
+            分析与回写
+          </button>
+        </div>
+      </footer>
     </section>
+    <aside
+      v-if="panel"
+      ref="panelEl"
+      tabindex="-1"
+      class="writing-inspector"
+      aria-label="写作辅助面板"
+    >
+      <header class="inspector-heading">
+        <h2>
+          {{
+            {
+              reference: '参考资料',
+              settings: '章节与场景设置',
+              history: '版本历史',
+              analysis: '分析与回写',
+            }[panel]
+          }}
+        </h2>
+        <button
+          class="icon-button"
+          aria-label="关闭辅助面板"
+          @click="openPanel(panel)"
+        >
+          <AppIcon name="close" />
+        </button>
+      </header>
+      <div class="inspector-body">
+        <ReferenceWorkspace v-if="panel === 'reference'" /><ManuscriptInputs
+          v-if="panel === 'settings'"
+        /><RevisionHistory v-if="panel === 'history'" /><WritebackReview
+          v-if="panel === 'analysis'"
+        />
+      </div>
+    </aside>
   </section>
 </template>
-
-<style scoped>
-.manuscript-setup { border-bottom: 1px solid #d9dfe5; padding-bottom: 16px; }
-.manuscript-setup > summary { cursor: pointer; padding: 12px 0; font-weight: 600; }
-.writing-desk { display: grid; grid-template-columns: minmax(0, 2fr) minmax(300px, 1fr); gap: 24px; align-items: start; }
-.writing-desk-editor, .writing-desk-context, .writing-desk-review { min-width: 0; }
-.writing-desk-context { border-left: 1px solid #d9dfe5; padding-left: 20px; }
-.writing-desk-context :deep(.proposal-grid), .writing-desk-context :deep(.scene-fields) { grid-template-columns: minmax(0, 1fr); }
-.writing-desk-editor :deep(.proposal-grid) { grid-template-columns: minmax(130px, 1fr) minmax(0, 3fr); }
-.writing-desk-editor :deep(textarea) { width: 100%; box-sizing: border-box; line-height: 1.8; }
-.writing-desk-editor :deep(.draft-comparison) { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
-.writing-desk-review { border-top: 1px solid #d9dfe5; padding-top: 20px; }
-@media (max-width: 1250px) {
-  .writing-desk { grid-template-columns: minmax(0, 1fr); }
-  .writing-desk-context { border-left: 0; padding-left: 0; }
-}
-@media (max-width: 700px) {
-  .writing-desk-editor :deep(.proposal-grid), .writing-desk-editor :deep(.draft-comparison) { grid-template-columns: minmax(0, 1fr); }
-}
-</style>
