@@ -1,8 +1,8 @@
 # 顺序修复交接（2026-09-07）
 
-用户要求按索引逐项处理，并遵守各 issue 前置依赖。此前完成 AUD-18、14、15 后按要求停止；用户再次要求“那继续”，本轮完成 AUD-16。按此前“第二次自动上下文压缩前停下”的限制，在完整验收/提交节点交接；本对话已经历一次自动上下文压缩，未进入第二次。再次继续时先读本文件、README.md、TRACKING.md 和下一项及其未完成前置 issue。
+用户要求按索引逐项处理，并遵守各 issue 前置依赖。此前完成 AUD-18、14、15、16 后交接；再次继续后完成 AUD-17 与 AUD-19。按此前“第二次自动上下文压缩前停下”的限制，本次在 AUD-19 完整验收/提交节点再次交接，不继续启动下一项。再次继续时先读本文件、README.md、TRACKING.md 和下一项及其未完成前置 issue。
 
-## 已完成：17 / 23
+## 已完成：19 / 23
 
 | Issue | 本地提交 | 结果 |
 |---|---|---|
@@ -23,14 +23,16 @@
 | AUD-14 | 7f8fbe0 | 前后端按领域拆分 DTO，兼容导出与关键输出契约一致性检查 |
 | AUD-15 | 1775750 | 按聚合拆分事务、服务窄数据端口、统一写锁入口与并发/回滚验证 |
 | AUD-16 | 8becb11 | 两类正文草稿选区求助、版本/会话隔离、结构化来源与迁移 17 |
+| AUD-17 | 6bcd27c | 参考建议预览、替换/插入、重复保护和安全撤销只写现有本地草稿 |
+| AUD-19 | 本次提交 | 时态事实/读者知识/角色知识作者界面、统一草稿安全与 scene-safe 预览/生成隔离 |
 
 每项 issue 和 TRACKING.md 已更新。未推送远端，未创建 GitHub issues/PR。
 
 ## 下一步
 
-索引下一项为 **AUD-17**：建议文本的预览、插入/替换及撤销。AUD-16 已提供 editor_context 和临时 copilotContext；AUD-17 尚未实现。须让应用动作进入既有正文/proposalDraft 编辑状态，触发其 dirty/缓存机制，不能直接保存正式版本或恢复 reviews→manuscript 的循环依赖。再次核对当前目标、会话、版本及原文；参考“接受”状态与“应用到草稿”是独立动作。
+索引下一项为 **AUD-20**：明确保存后分析处理器的真实能力、Provider/CLP 降级状态与验收。开始前读取 AUD-20 原始 issue 并复核前置依赖；不要把“任务已排队/处理器存在”误当成“真实模型能力已验证”，要继续沿用现有 outbox、runtime/provider 状态和人工审核边界。
 
-剩余 AUD-17、19、20、21、22、23，共 6 项。对应原始 issue 文件及 README.md、manifest.json、publish.ps1 仍为未跟踪文件，已保留，不是遗漏的实现变更。已完成 issue 的记录均纳入各自提交。项目代码没有未提交修改。
+剩余 AUD-20、21、22、23，共 4 项。对应原始 issue 文件及 README.md、manifest.json、publish.ps1 仍为未跟踪文件，已保留，不是遗漏的实现变更。AUD-19 原始 issue 在本次完成后纳入提交。完成提交后项目代码应无未提交修改，只保留上述未跟踪审查/发布文件。
 
 ## 验证与实现要点
 
@@ -43,6 +45,8 @@
 - AUD-15 后后端 343 项测试、Ruff check、227 文件 format check、compileall 通过，日志 `.tmp/aud15-backend.log`。前端未在 AUD-14 后修改。事务函数位于 `app/data/transactions`，flows.py 仅兼容导出；故障注入测试须 patch 实际所属模块。写事务入口为 `SqliteUnitOfWork(write=True)`，包括恢复修订与接受回写。[事务/端口边界](../../data-transaction-boundaries.md)。
 - AUD-16 后后端 350 项测试、Ruff check、228 文件 format check、compileall 通过；前端 31 项 Node + 90 项 Vitest、lint/build 和 4 条 E2E 通过。新增浏览器门禁 copilot-selection，覆盖两类草稿选区→建议且不自动保存正文。截图 `.tmp/copilot-selection.png` 已检查，完整日志 `.tmp/aud16-backend.log`。旧迁移测试的固定待迁移数已改为按实际迁移列表计算。
 - AUD-16 的 `ReferenceEditorContext` 使用 UTF-16 码元偏移；来源随参考建议以可空 JSON 列保存，旧记录/备份为 null。后端检查项目、场景、提案状态和正文版本，允许本地未保存草稿；实际 prompt 使用有界上下文加完整选区。`CopilotEditor` 注册当前编辑会话，`copilotContext` 仅管理临时选区，不拥有保存或正文修改权。切换/修改后旧选区过期，旧异步结果不能激活到新编辑器。关键 schema fixture 已增至 6 类。[选区契约](../../copilot-selection-contract.md)。
+- AUD-17 后前端 31 项 Node + 94 项 Vitest、lint/build 和 4 条 E2E 通过。新增 `referenceApplication` 只协调 proposalDraft/正式正文已有本地草稿；预览不写正文，应用触发既有 dirty/cache，不直接保存版本；应用后旧快照失效阻止重复插入，撤销仅在同会话/目标/版本且文本仍等于应用结果时允许。[选区与应用契约](../../copilot-selection-contract.md)。
+- AUD-19 后前端 31 项 Node + 102 项 Vitest、lint/build 和 5 条 E2E 通过。Canon 现有导航复用 NarrativePanel 维护全部作者事实/知识；事实和知识 scope 接入统一 draftSessions。场景预览只读取 `/story-state`，新增浏览器 E2E 证明未来隐藏事实虽然在作者管理列表可见，但场景 4 预览和真实本地 Reference `used_context` 都不会泄漏该秘密；无外部/付费模型调用。截图 `.tmp/narrative-maintenance.png`。[作者界面契约](../../narrative-maintenance-ui.md)。
 - AUD-09 的 Linux GitHub Actions 尚未远端执行；本地门禁已通过。未进行真实付费模型、长篇负载或真实作者数据验收。
 - AUD-06 的逐项审核选择保存在本机草稿缓存，不包含在项目备份中；原始生成材料由后端持久化并包含在备份中。
 - AUD-08 以已接受 record revision 和目标 plan_version 检查更新；更新保留原 scene ID 与正文历史。人工接受、保存或恢复正文会记录当时的规划版本。旧场景来源不作猜测性匹配。

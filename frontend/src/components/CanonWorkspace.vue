@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { statusText } from '../utils/format'
 import { storeToRefs } from 'pinia'
 import { useCanonStore } from '../stores/canon'
+import NarrativePanel from './NarrativePanel.vue'
 
 const store = useCanonStore()
 const {
@@ -163,5 +164,10 @@ const filteredRecords = computed(() =>
         </div>
       </form>
     </div>
+
+    <details class="graph-detail-disclosure" open>
+      <summary>时态事实与知识</summary>
+      <NarrativePanel mode="maintenance" />
+    </details>
   </section>
 </template>

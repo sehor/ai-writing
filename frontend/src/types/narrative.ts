@@ -51,3 +51,19 @@ export type NarrativeRevision = {
   created_at: string
   record: StoryFact | KnowledgeState
 }
+
+export type StoryFactDraft = Pick<StoryFact,
+  'subject' | 'predicate' | 'value' | 'valid_from_scene' | 'valid_to_scene' |
+  'reader_visible_from' | 'source_ref' | 'status'> & { reason: string }
+
+export type KnowledgeStateDraft = Pick<KnowledgeState,
+  'scope' | 'character' | 'known_from_scene' | 'source_ref' | 'status'> & { reason: string }
+
+export type StoryStateResponse = {
+  project_id: string
+  scene_position: number
+  character: string
+  world_truth: StoryFact[]
+  reader_knowledge: StoryFact[]
+  character_knowledge: StoryFact[]
+}

@@ -59,6 +59,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const memory = useMemoryStore()
   const reviews = useReviewsStore()
   const graph = useGraphStore()
+  const narrative = useNarrativeStore()
   manuscript.configureReviewPort(reviews)
   reviews.configureRevisionSource(projectId => isActiveProject(projectId) ? manuscript.manuscriptRevisions : [])
 
@@ -145,6 +146,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         [memory.memoryScopeKey(prevProjectId, memory.activeMemoryId), 'Memory 表单', memory.memoryDraft],
         [manuscript.manuscriptEditScopeKey(prevProjectId, manuscript.editingManuscriptSceneId), '正文编辑', manuscript.currentManuscriptEdits()],
         [reviews.referenceScopeKey(prevProjectId), 'Reference 请求表单', reviews.referenceDraft],
+        [narrative.factScopeKey(prevProjectId, narrative.activeFactId), '时态事实表单', narrative.factDraft],
+        [narrative.knowledgeScopeKey(prevProjectId, narrative.activeFactId, narrative.activeKnowledgeId), '知识状态表单', narrative.knowledgeDraft],
       ]
       const dirtyScopes = leaving.filter(([key, , value]) => isScopeDirty(key, value))
       if (dirtyScopes.length > 0) {
@@ -172,7 +175,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     memory.resetProjectState()
     reviews.resetProjectState()
     graph.resetProjectState()
-    useNarrativeStore().reset()
+    narrative.reset()
     useProposalDraftStore().reset()
 
     const project = projectsStore.projects.find((item) => item.id === projectId)
@@ -346,7 +349,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         graph.loadGraphAnalysis(projectId, controller.signal),
         snowflake.loadManuscriptProgress(projectId),
         reviews.loadPostAcceptAnalysisJobs(projectId),
-        useNarrativeStore().load(projectId),
+        narrative.load(projectId),
       ])
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {
@@ -408,6 +411,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       ...manuscript.draftSnapshotEntries(),
       ...memory.draftSnapshotEntries(),
       ...reviews.draftSnapshotEntries(),
+      ...narrative.draftSnapshotEntries(),
     ]
     for (const [scopeKey, read] of snapshots) {
       const value = read()

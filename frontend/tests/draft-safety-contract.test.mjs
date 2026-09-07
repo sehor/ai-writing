@@ -9,6 +9,7 @@ const workspaceStore = read('../src/stores/workspace.ts')
 const snowflakeStore = read('../src/stores/snowflake.ts')
 const canonStore = read('../src/stores/canon.ts')
 const memoryStore = read('../src/stores/memory.ts')
+const narrativeStore = read('../src/stores/narrative.ts')
 const draftCache = read('../src/services/draftCache.ts')
 const draftSessions = read('../src/services/draftSessions.ts')
 const editorSession = read('../src/stores/editorSession.ts')
@@ -63,6 +64,10 @@ test('domain stores guard every editable scope before switching away', () => {
       watcher + ' can cancel the switch',
     )
   }
+  const narrativeGuard = narrativeStore.slice(narrativeStore.indexOf('function allowKnowledgeLeave'), narrativeStore.indexOf('async function loadFactDetails'))
+  assert.match(narrativeGuard, /isScopeDirty\(/)
+  assert.match(narrativeGuard, /confirmLeave\(/)
+  assert.match(narrativeGuard, /persistDraft\(/)
 })
 
 test('entering a scope restores cached drafts and saves clear the cache', () => {
@@ -92,6 +97,7 @@ test('page close flushes dirty drafts and warns before unload', () => {
     /useDirtyGuard\(\{\s*flushAll: flushAllDirtyDrafts,?\s*\}\)/,
   )
   assert.match(workspaceStore, /function flushAllDirtyDrafts\(\): void/)
+  assert.match(workspaceStore, /\.\.\.narrative\.draftSnapshotEntries\(\)/)
 })
 
 test('snowflake generation responses are bound to project and step scopes', () => {
