@@ -779,6 +779,10 @@ class SceneContractUpdate(SceneContractCreate):
 class SceneContract(SceneContractCreate):
     id: str
     project_id: str
+    plan_version: int = Field(default=1, ge=1)
+    source_record_step: Literal[0, 8] = 0
+    source_record_id: str = ""
+    source_record_revision_id: str = ""
 
 
 class ManuscriptChapterCreate(BaseModel):

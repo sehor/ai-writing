@@ -154,6 +154,10 @@ export type CanonDraft = Omit<
 export type SceneContract = {
   id: string
   project_id: string
+  plan_version?: number
+  source_record_step?: 0 | 8
+  source_record_id?: string
+  source_record_revision_id?: string
   chapter_id: string
   sequence: number
   title: string
@@ -171,7 +175,7 @@ export type SceneContract = {
   source_artifact_step: number
 }
 
-export type SceneDraft = Omit<SceneContract, 'id' | 'project_id'>
+export type SceneDraft = Omit<SceneContract, 'id' | 'project_id' | 'plan_version' | 'source_record_step' | 'source_record_id' | 'source_record_revision_id'>
 
 export type SceneProposalStatus = ReviewStatus
 

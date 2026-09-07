@@ -519,6 +519,10 @@ class SQLiteWritingDataStore:
         with SqliteUnitOfWork(self.database_path) as uow:
             return uow.scenes.list(project_id)
 
+    def get_scene_by_source(self, project_id: str, record_id: str) -> SceneContract | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.scenes.get_by_source(project_id, record_id)
+
     def get_scene_contract(
         self,
         project_id: str,

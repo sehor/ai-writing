@@ -666,6 +666,39 @@ def _add_manuscript_generation_review(connection: sqlite3.Connection) -> None:
     )
 
 
+def _add_scene_record_identity(connection: sqlite3.Connection) -> None:
+    for column, definition in (
+        ("plan_version", "INTEGER NOT NULL DEFAULT 1"),
+        ("source_record_step", "INTEGER NOT NULL DEFAULT 0"),
+        ("source_record_id", "TEXT NOT NULL DEFAULT ''"),
+        ("source_record_revision_id", "TEXT NOT NULL DEFAULT ''"),
+    ):
+        ensure_column(connection, "scene_contracts", column, definition)
+    connection.execute("""
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_scene_source_record
+        ON scene_contracts(project_id, source_record_step, source_record_id)
+        WHERE source_record_id <> ''
+    """)
+    for operation in (
+        "INSERT",
+        "UPDATE OF source_record_step, source_record_id, source_record_revision_id, project_id",
+    ):
+        suffix = "insert" if operation == "INSERT" else "update"
+        connection.execute(f"""
+            CREATE TRIGGER IF NOT EXISTS validate_scene_source_{suffix}
+            BEFORE {operation} ON scene_contracts
+            WHEN NOT (
+                (NEW.source_record_step = 0 AND NEW.source_record_id = '' AND NEW.source_record_revision_id = '')
+                OR (NEW.source_record_step = 8 AND EXISTS (
+                    SELECT 1 FROM snowflake_record_revisions r
+                    WHERE r.project_id = NEW.project_id AND r.step_number = 8
+                    AND r.record_id = NEW.source_record_id AND r.id = NEW.source_record_revision_id
+                ))
+            )
+            BEGIN SELECT RAISE(ABORT, 'Invalid scene record source'); END
+        """)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(version=1, name="baseline_schema", apply=_apply_baseline_schema),
     Migration(version=2, name="scene_contracts_chapter_id", apply=_add_scene_contracts_chapter_id),
@@ -702,6 +735,7 @@ MIGRATIONS: list[Migration] = [
     Migration(
         version=13, name="manuscript_generation_review", apply=_add_manuscript_generation_review
     ),
+    Migration(version=14, name="scene_record_identity", apply=_add_scene_record_identity),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1].version

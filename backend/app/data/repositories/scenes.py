@@ -27,6 +27,10 @@ def scene_contract_from_row(row: sqlite3.Row) -> SceneContract:
         story_thread_actions=row["story_thread_actions"],
         open_threads=row["open_threads"],
         source_artifact_step=row["source_artifact_step"],
+        plan_version=row["plan_version"],
+        source_record_step=row["source_record_step"],
+        source_record_id=row["source_record_id"],
+        source_record_revision_id=row["source_record_revision_id"],
     )
 
 
@@ -66,7 +70,7 @@ class SceneRepository:
             SELECT id, project_id, chapter_id, sequence, title, pov, goal, conflict,
                    turning_point, outcome, required_canon, forbidden_facts,
                    information_delta, character_state_delta, story_thread_actions, open_threads,
-                   source_artifact_step
+                   source_artifact_step, plan_version, source_record_step, source_record_id, source_record_revision_id
             FROM scene_contracts
             WHERE project_id = ?
             ORDER BY sequence
@@ -81,7 +85,7 @@ class SceneRepository:
             SELECT id, project_id, chapter_id, sequence, title, pov, goal, conflict,
                    turning_point, outcome, required_canon, forbidden_facts,
                    information_delta, character_state_delta, story_thread_actions, open_threads,
-                   source_artifact_step
+                   source_artifact_step, plan_version, source_record_step, source_record_id, source_record_revision_id
             FROM scene_contracts
             WHERE project_id = ? AND id = ?
             """,
@@ -146,7 +150,8 @@ class SceneRepository:
                 character_state_delta = ?,
                 story_thread_actions = ?,
                 open_threads = ?,
-                source_artifact_step = ?
+                source_artifact_step = ?,
+                plan_version = plan_version + 1
             WHERE project_id = ? AND id = ?
             """,
             (
@@ -169,7 +174,29 @@ class SceneRepository:
                 scene_id,
             ),
         )
-        return updated if cursor.rowcount else None
+        return self.get(project_id, scene_id) if cursor.rowcount else None
+
+    def get_by_source(self, project_id: str, record_id: str) -> SceneContract | None:
+        row = self.connection.execute(
+            "SELECT id FROM scene_contracts WHERE project_id = ? AND source_record_step = 8 AND source_record_id = ?",
+            (project_id, record_id),
+        ).fetchone()
+        return self.get(project_id, row["id"]) if row else None
+
+    def bind_source(self, project_id: str, scene_id: str, record_id: str, revision_id: str) -> None:
+        record = self.connection.execute(
+            "SELECT id FROM snowflake_record_revisions WHERE project_id = ? AND step_number = 8 AND record_id = ? AND id = ? AND status = 'accepted'",
+            (project_id, record_id, revision_id),
+        ).fetchone()
+        if record is None:
+            raise ValueError("Source must be an accepted Step 8 record in the same project.")
+        scene = self.get(project_id, scene_id)
+        if scene is None or (scene.source_record_id and scene.source_record_id != record_id):
+            raise ValueError("Scene is missing or already belongs to another record.")
+        self.connection.execute(
+            "UPDATE scene_contracts SET source_record_step = 8, source_record_id = ?, source_record_revision_id = ? WHERE project_id = ? AND id = ?",
+            (record_id, revision_id, project_id, scene_id),
+        )
 
     def delete(self, project_id: str, scene_id: str) -> bool:
         cursor = self.connection.execute(
@@ -183,7 +210,7 @@ class SceneRepository:
         self.connection.execute(
             """
             UPDATE scene_contracts
-            SET chapter_id = ''
+            SET chapter_id = '', plan_version = plan_version + 1
             WHERE project_id = ? AND chapter_id = ?
             """,
             (project_id, chapter_id),

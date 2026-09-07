@@ -61,6 +61,9 @@ from app.outbox.models import OutboxJob, OutboxJobStatus
 
 
 class WritingDataStore(Protocol):
+    def get_scene_by_source(self, project_id: str, record_id: str) -> SceneContract | None:
+        pass
+
     def init(self) -> None:
         pass
 

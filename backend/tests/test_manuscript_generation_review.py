@@ -129,7 +129,9 @@ class ManuscriptGenerationReviewTests(unittest.TestCase):
     def test_review_column_migration_rolls_back_and_can_retry(self):
         connection = open_connection(self.root / "legacy.db")
         try:
-            with patch.object(migrations, "MIGRATIONS", migrations.MIGRATIONS[:-1]):
+            with patch.object(
+                migrations, "MIGRATIONS", [m for m in migrations.MIGRATIONS if m.version < 13]
+            ):
                 migrations.run_migrations(connection)
             original = migrations.ensure_column
 
