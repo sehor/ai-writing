@@ -2,9 +2,9 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 
-from app.dependencies import require_project
+from app.dependencies import require_project, get_model_service
 from app.models import GenerationRun, ModelProfileView
-from app.services.model_service import ModelService, get_model_service
+from app.services.model_service import ModelService
 
 
 router = APIRouter(tags=["models"])

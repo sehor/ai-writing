@@ -1,12 +1,18 @@
 from difflib import unified_diff
-from fastapi import Depends, HTTPException, status
+
+from app.errors import (
+    ResourceNotFoundError,
+    InvalidOperationError,
+    ProviderConfigurationError,
+    ProviderExecutionError,
+)
 
 from app.agents.manuscript_workflow import generate_manuscript_scene
 from app.analysis.consistency import CONSISTENCY_PROCESSOR, check_revision
 from app.analysis.models import ConsistencyReport, ConsistencyReportSummary
-from app.cognition.registry import CognitionRegistry, get_cognition_registry
+from app.cognition.registry import CognitionRegistry
 from app.narrative import NarrativeSnapshot
-from app.data import WritingDataStore, get_data_store, utc_now
+from app.data import WritingDataStore, utc_now
 from app.llm import (
     ModelGatewayError,
     ModelGatewayRegistry,
@@ -34,13 +40,11 @@ from app.services.compile_service import build_compile_checklist, build_scene_dr
 class ManuscriptService:
     def __init__(
         self,
-        data_store: WritingDataStore = Depends(get_data_store),
-        cognition: CognitionRegistry = Depends(get_cognition_registry),
+        data_store: WritingDataStore,
+        cognition: CognitionRegistry,
     ):
         self.data_store = data_store
         self.cognition = cognition
-        # Constructor params double as FastAPI DI defaults, so provider
-        # resolution stays a plain attribute instead of an injected argument.
         self.gateway_registry: ModelGatewayRegistry = default_model_gateway_registry
 
     def update_scene(
@@ -51,9 +55,7 @@ class ManuscriptService:
         except ValueError as exc:
             raise conflict_from(exc) from exc
         if scene is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Accepted manuscript scene not found."
-            )
+            raise ResourceNotFoundError(detail="Accepted manuscript scene not found.")
         return scene
 
     def import_legacy_snowflake_draft(
@@ -64,23 +66,19 @@ class ManuscriptService:
     ) -> ManuscriptProposal:
         revision = self.data_store.get_snowflake_revision(project_id, revision_id)
         if revision is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
+            raise ResourceNotFoundError(
                 detail="Legacy Snowflake draft not found.",
             )
         if revision.step_number != 10 or revision.status != "legacy_draft":
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            raise InvalidOperationError(
                 detail="Only preserved Step 10 legacy drafts can be imported.",
             )
         if self.data_store.get_scene_contract(project_id, selection.scene_id) is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
+            raise ResourceNotFoundError(
                 detail="Scene contract not found.",
             )
         if selection.content not in revision.content:
-            raise HTTPException(
-                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            raise InvalidOperationError(
                 detail="Imported content must be an exact selection from the legacy draft.",
             )
         return self.data_store.create_manuscript_proposal(
@@ -129,9 +127,7 @@ class ManuscriptService:
         left = self.data_store.get_manuscript_revision(project_id, left_id)
         right = self.data_store.get_manuscript_revision(project_id, right_id)
         if not left or not right:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Manuscript revision not found."
-            )
+            raise ResourceNotFoundError(detail="Manuscript revision not found.")
         return ManuscriptRevisionDiff(
             project_id=project_id,
             left_revision_id=left.id,
@@ -152,9 +148,7 @@ class ManuscriptService:
     def restore_revision(self, project_id: str, revision_id: str) -> ManuscriptScene:
         scene = self.data_store.restore_manuscript_revision(project_id, revision_id)
         if not scene:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Manuscript revision not found."
-            )
+            raise ResourceNotFoundError(detail="Manuscript revision not found.")
         return scene
 
     def generate_local_proposal(self, project_id: str, scene_id: str) -> ManuscriptProposal:
@@ -186,14 +180,10 @@ class ManuscriptService:
                 options,
             )
         except ModelGatewayError as exc:
-            raise HTTPException(
-                status_code=(
-                    status.HTTP_501_NOT_IMPLEMENTED
-                    if exc.is_configuration_error
-                    else status.HTTP_502_BAD_GATEWAY
-                ),
-                detail=exc.safe_message,
-            ) from exc
+            error_type = (
+                ProviderConfigurationError if exc.is_configuration_error else ProviderExecutionError
+            )
+            raise error_type(exc.safe_message) from exc
 
         draft = execution.validated_value
         structured = draft.scene_id != "legacy-provider-output"
@@ -228,9 +218,7 @@ class ManuscriptService:
     ) -> ManuscriptProposal:
         current = self.data_store.get_manuscript_proposal(project_id, proposal_id)
         if not current:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Manuscript proposal not found."
-            )
+            raise ResourceNotFoundError(detail="Manuscript proposal not found.")
         if current.status == status_str:
             return current
         try:
@@ -247,8 +235,7 @@ class ManuscriptService:
                 )
             report = self.preview_proposal_consistency(project_id, proposal_id, draft)
             if report.summary.critical_count:
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                raise InvalidOperationError(
                     detail={
                         "message": "Critical consistency findings must be resolved before acceptance.",
                         "consistency_report": report.model_dump(),
@@ -262,9 +249,7 @@ class ManuscriptService:
                 raise conflict_from(exc) from exc
             proposal = self.data_store.get_manuscript_proposal(project_id, proposal_id)
             if not scene or not proposal:
-                raise HTTPException(
-                    status_code=status.HTTP_404_NOT_FOUND, detail="Manuscript proposal not found."
-                )
+                raise ResourceNotFoundError(detail="Manuscript proposal not found.")
             return proposal
         try:
             proposal = self.data_store.update_manuscript_proposal_status(
@@ -274,9 +259,7 @@ class ManuscriptService:
             # Lost a transition race between the read and the write.
             raise conflict_from(exc) from exc
         if not proposal:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Manuscript proposal not found."
-            )
+            raise ResourceNotFoundError(detail="Manuscript proposal not found.")
         return proposal
 
     def preview_proposal_consistency(
@@ -287,9 +270,7 @@ class ManuscriptService:
     ) -> ConsistencyReport:
         proposal = self.data_store.get_manuscript_proposal(project_id, proposal_id)
         if proposal is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Manuscript proposal not found."
-            )
+            raise ResourceNotFoundError(detail="Manuscript proposal not found.")
         snapshot = NarrativeSnapshot.for_scene(
             project_id=project_id,
             scene_id=proposal.scene_id,
@@ -327,9 +308,7 @@ class ManuscriptService:
     def _get_scene_and_project(self, project_id: str, scene_id: str):
         scene = self.data_store.get_scene_contract(project_id, scene_id)
         if not scene:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND, detail="Scene contract not found."
-            )
+            raise ResourceNotFoundError(detail="Scene contract not found.")
         project = self.data_store.get_project(project_id)
         return scene, project
 

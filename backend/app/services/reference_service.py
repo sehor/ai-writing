@@ -4,16 +4,14 @@ Local deterministic generation and provider-backed generation share the
 same context assembly; routers only parse requests and map errors.
 """
 
-from fastapi import Depends
-
 from app.agents.reference_workflow import (
     build_local_reference_suggestion,
     generate_gateway_reference_suggestion,
     scope_for_request,
 )
-from app.cognition.registry import CognitionRegistry, get_cognition_registry
+from app.cognition.registry import CognitionRegistry
 from app.cognition.snapshots import build_project_snapshot
-from app.data import WritingDataStore, get_data_store
+from app.data import WritingDataStore
 from app.narrative import NarrativeSnapshot
 from app.llm import (
     ModelGatewayRegistry,
@@ -109,10 +107,3 @@ class ReferenceService:
 __all__ = [
     "ReferenceService",
 ]
-
-
-def get_reference_service(
-    data_store: WritingDataStore = Depends(get_data_store),
-    cognition: CognitionRegistry = Depends(get_cognition_registry),
-) -> ReferenceService:
-    return ReferenceService(data_store, cognition)

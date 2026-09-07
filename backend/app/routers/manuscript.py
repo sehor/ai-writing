@@ -2,7 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException, Response, status
 import sqlite3
 
 from app.data import WritingDataStore, get_data_store
-from app.dependencies import require_project
+from app.dependencies import get_manuscript_service, require_project
+from app.errors import ApplicationError
+from app.http_errors import application_http_exception
 from app.outbox.dispatcher import (
     OutboxDispatcher,
     get_outbox_dispatcher,
@@ -139,7 +141,7 @@ def update_manuscript_scene(
     scene_id: str,
     update: ManuscriptSceneUpdate,
     data_store: WritingDataStore = Depends(get_data_store),
-    service: ManuscriptService = Depends(),
+    service: ManuscriptService = Depends(get_manuscript_service),
     dispatcher: OutboxDispatcher = Depends(get_outbox_dispatcher),
 ) -> ManuscriptScene:
     require_project(project_id, data_store)
@@ -162,7 +164,7 @@ def update_manuscript_scene(
 def export_manuscript(
     project_id: str,
     data_store: WritingDataStore = Depends(get_data_store),
-    service: ManuscriptService = Depends(),
+    service: ManuscriptService = Depends(get_manuscript_service),
 ) -> ManuscriptExportResponse:
     require_project(project_id, data_store)
     return service.export(project_id)
@@ -189,7 +191,7 @@ def diff_manuscript_revisions(
     left_revision_id: str,
     right_revision_id: str,
     data_store: WritingDataStore = Depends(get_data_store),
-    service: ManuscriptService = Depends(),
+    service: ManuscriptService = Depends(get_manuscript_service),
 ) -> ManuscriptRevisionDiff:
     require_project(project_id, data_store)
     return service.diff_revisions(project_id, left_revision_id, right_revision_id)
@@ -203,7 +205,7 @@ def restore_manuscript_revision(
     project_id: str,
     revision_id: str,
     data_store: WritingDataStore = Depends(get_data_store),
-    service: ManuscriptService = Depends(),
+    service: ManuscriptService = Depends(get_manuscript_service),
     dispatcher: OutboxDispatcher = Depends(get_outbox_dispatcher),
 ) -> ManuscriptScene:
     require_project(project_id, data_store)
@@ -227,7 +229,7 @@ def create_manuscript_proposal_from_scene(
     project_id: str,
     scene_id: str,
     data_store: WritingDataStore = Depends(get_data_store),
-    service: ManuscriptService = Depends(),
+    service: ManuscriptService = Depends(get_manuscript_service),
 ) -> ManuscriptProposal:
     require_project(project_id, data_store)
     return service.generate_local_proposal(project_id, scene_id)
@@ -243,7 +245,7 @@ def create_provider_manuscript_proposal_from_scene(
     scene_id: str,
     request: ProviderGenerationRequest | None = None,
     data_store: WritingDataStore = Depends(get_data_store),
-    service: ManuscriptService = Depends(),
+    service: ManuscriptService = Depends(get_manuscript_service),
 ) -> ManuscriptProposal:
     require_project(project_id, data_store)
     return service.generate_provider_proposal(
@@ -261,7 +263,7 @@ def create_manuscript_proposal_from_legacy_snowflake(
     revision_id: str,
     selection: LegacyManuscriptImportCreate,
     data_store: WritingDataStore = Depends(get_data_store),
-    service: ManuscriptService = Depends(),
+    service: ManuscriptService = Depends(get_manuscript_service),
 ) -> ManuscriptProposal:
     require_project(project_id, data_store)
     return service.import_legacy_snowflake_draft(project_id, revision_id, selection)
@@ -276,7 +278,7 @@ def accept_edited_manuscript_proposal(
     proposal_id: str,
     draft: ManuscriptProposalAcceptance,
     data_store: WritingDataStore = Depends(get_data_store),
-    service: ManuscriptService = Depends(),
+    service: ManuscriptService = Depends(get_manuscript_service),
     dispatcher: OutboxDispatcher = Depends(get_outbox_dispatcher),
 ) -> ManuscriptProposal:
     require_project(project_id, data_store)
@@ -294,7 +296,7 @@ def preview_manuscript_proposal_consistency(
     proposal_id: str,
     draft: ManuscriptProposalAcceptance,
     data_store: WritingDataStore = Depends(get_data_store),
-    service: ManuscriptService = Depends(),
+    service: ManuscriptService = Depends(get_manuscript_service),
 ) -> ConsistencyReport:
     require_project(project_id, data_store)
     return service.preview_proposal_consistency(project_id, proposal_id, draft)
@@ -310,7 +312,7 @@ def update_manuscript_proposal_status(
     update: ManuscriptProposalStatusUpdate,
     response: Response,
     data_store: WritingDataStore = Depends(get_data_store),
-    service: ManuscriptService = Depends(),
+    service: ManuscriptService = Depends(get_manuscript_service),
     dispatcher: OutboxDispatcher = Depends(get_outbox_dispatcher),
 ) -> ManuscriptProposal:
     require_project(project_id, data_store)
@@ -323,10 +325,10 @@ def update_manuscript_proposal_status(
     }
     try:
         proposal = service.update_proposal_status(project_id, proposal_id, update.status)
-    except HTTPException as exc:
-        if update.status == "accepted":
-            exc.headers = {**(exc.headers or {}), **deprecation_headers}
-        raise
+    except ApplicationError as exc:
+        raise application_http_exception(
+            exc, headers=deprecation_headers if update.status == "accepted" else None
+        ) from exc
     if update.status == "accepted":
         response.headers.update(deprecation_headers)
     # P1-07/P1-03: acceptance enqueued wiki + consistency + write-back jobs

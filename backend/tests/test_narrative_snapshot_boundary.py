@@ -4,7 +4,8 @@ import unittest
 from app.narrative import NarrativeSnapshot
 from app.services.compile_service import CompileService, build_compile_context
 from app.services.manuscript_service import ManuscriptService
-from app.services.reference_service import ReferenceService, get_reference_service
+from app.services.reference_service import ReferenceService
+from app.dependencies import get_reference_service
 
 
 class NarrativeSnapshotBoundaryTests(unittest.TestCase):

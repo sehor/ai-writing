@@ -3,14 +3,14 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.data import WritingDataStore, get_data_store
-from app.dependencies import require_project
+from app.dependencies import require_project, get_reference_service
 from app.llm import ModelGatewayError
 from app.models import (
     ReferenceGenerationRequest,
     ReferenceSuggestion,
     ReferenceSuggestionStatusUpdate,
 )
-from app.services.reference_service import ReferenceService, get_reference_service
+from app.services.reference_service import ReferenceService
 
 
 router = APIRouter(tags=["references"])

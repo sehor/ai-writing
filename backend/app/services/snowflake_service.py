@@ -10,11 +10,9 @@ job of the app-owned outbox dispatcher, which routes wake after enqueuing.
 from typing import Any
 from math import ceil
 
-from fastapi import Depends
 
-from app.agents.snowflake_workflow import SnowflakeWorkflow
-from app.agents.writing_workflow import LocalDraftWritingWorkflow, WritingWorkflow
-from app.data import WritingDataStore, get_data_store
+from app.agents.writing_workflow import WritingWorkflow
+from app.data import WritingDataStore
 from app.llm import (
     ModelGatewayError,
     ModelGatewayRegistry,
@@ -22,7 +20,6 @@ from app.llm import (
     default_model_gateway_registry,
     resolve_default_model_gateway,
 )
-from app.llm_wiki.dependencies import get_llm_wiki
 from app.llm_wiki.interfaces import LlmWiki, WikiSourceDocument
 from app.models import (
     SnowflakeArtifact,
@@ -47,7 +44,7 @@ from app.models import (
     SnowflakeValidationReport,
     WorkflowRuntimeStatus,
 )
-from app.outbox.handlers import snowflake_index_payload
+from app.outbox.events import snowflake_index_payload
 from app.snowflake.step_spec import SNOWFLAKE_STEP_SPECS, get_step_spec
 from app.snowflake.validators import (
     structured_payload_from_content,
@@ -618,28 +615,8 @@ class SnowflakeService:
 
 
 # ---------------------------------------------------------------------------
-# FastAPI wiring shared by routers and tests
+# Workflow selection shared by application callers
 # ---------------------------------------------------------------------------
-
-
-def get_snowflake_service(
-    data_store: WritingDataStore = Depends(get_data_store),
-    llm_wiki: LlmWiki = Depends(get_llm_wiki),
-) -> SnowflakeService:
-    return SnowflakeService(data_store, llm_wiki)
-
-
-def get_writing_workflow(
-    data_store: WritingDataStore = Depends(get_data_store),
-    llm_wiki: LlmWiki = Depends(get_llm_wiki),
-) -> WritingWorkflow:
-    """Route explicit model selections remotely and preserve default local fallback."""
-    runtime = ModelRuntime(recorder=data_store)
-    return SelectableWritingWorkflow(
-        local=LocalDraftWritingWorkflow(data_store, SNOWFLAKE_STEPS, llm_wiki),
-        remote=SnowflakeWorkflow(data_store, SNOWFLAKE_STEPS, runtime, llm_wiki),
-        runtime=runtime,
-    )
 
 
 class SelectableWritingWorkflow:
@@ -663,5 +640,5 @@ class SelectableWritingWorkflow:
 
 
 def snowflake_wiki_document(artifact: SnowflakeArtifact) -> WikiSourceDocument:
-    """Kept for compatibility; the mapping now lives in app.outbox.handlers."""
+    """Kept for compatibility; the mapping now lives in app.outbox.events."""
     return WikiSourceDocument.model_validate(snowflake_index_payload(artifact))

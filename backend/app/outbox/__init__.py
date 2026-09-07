@@ -1,7 +1,4 @@
-# Keep package-level exports limited to pure models: app.outbox.service
-# depends on app.data, while app.data.mixins.outbox depends on
-# app.outbox.handlers, so eagerly importing service here would create an
-# import cycle. Import from app.outbox.service directly instead.
+# Keep package exports limited to event models; execution wiring is imported explicitly.
 from app.outbox.models import OutboxJob, OutboxJobStatus, OutboxJobType
 
 __all__ = [

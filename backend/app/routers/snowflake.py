@@ -27,7 +27,7 @@ from app.data.mixins.scene_proposals import (
     SceneProposalReviewedError,
     SceneSequenceConflictError,
 )
-from app.dependencies import require_project
+from app.dependencies import require_project, get_snowflake_service, get_writing_workflow
 from app.models import (
     CanonExtractionReport,
     SceneParseReport,
@@ -72,8 +72,6 @@ from app.services.snowflake_service import (  # noqa: F401
     SnowflakeRecordValidationError as SnowflakeRecordValidationError,
     StepNotFoundError as StepNotFoundError,
     SnowflakeService as SnowflakeService,
-    get_snowflake_service as get_snowflake_service,
-    get_writing_workflow as get_writing_workflow,
     snowflake_wiki_document as snowflake_wiki_document,
 )
 from app.snowflake_compiler import CANON_EXTRACT_STEP, SCENE_PARSE_STEP, ArtifactNotParseableError

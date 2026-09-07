@@ -2,9 +2,8 @@
 
 from dataclasses import asdict
 
-from fastapi import Depends
 
-from app.data import WritingDataStore, get_data_store
+from app.data import WritingDataStore
 from app.llm import (
     ModelCatalog,
     ModelGatewayError,
@@ -57,10 +56,4 @@ class ModelService:
         return self.data_store.get_generation_run(project_id, run_id)
 
 
-def get_model_service(
-    data_store: WritingDataStore = Depends(get_data_store),
-) -> ModelService:
-    return ModelService(data_store)
-
-
-__all__ = ["ModelService", "get_model_service"]
+__all__ = ["ModelService"]

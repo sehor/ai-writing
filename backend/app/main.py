@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.data import get_data_store
+from app.http_errors import install_application_error_handlers
 from app.observability import bind_request_id, log_event, new_request_id
 from app.outbox.dispatcher import build_app_outbox_dispatcher
 from app.routers import (
@@ -55,6 +56,8 @@ app = FastAPI(
     description="Backend API for a Snowflake-method AI long-form writing studio.",
     lifespan=lifespan,
 )
+
+install_application_error_handlers(app)
 
 app.add_middleware(
     CORSMiddleware,

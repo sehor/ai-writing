@@ -6,16 +6,14 @@ provider-backed suggestions through the P2-02 registry. Routers stay
 pure HTTP and map domain errors onto status codes.
 """
 
-from fastapi import Depends
 from pydantic import ValidationError
 
 from app.agents.writeback_workflow import generate_gateway_writeback_proposals
-from app.analysis.http import get_analysis_service
 from app.analysis.service import AnalysisService, writeback_input_fingerprint
-from app.cognition.registry import CognitionRegistry, get_cognition_registry
+from app.cognition.registry import CognitionRegistry
 from app.cognition.snapshots import build_project_snapshot
 from app.cognition.interfaces import CommittedContentEvent
-from app.data import WritingDataStore, get_data_store
+from app.data import WritingDataStore
 from app.integrations.hermes import HermesAgentClient
 from app.llm import (
     ModelGatewayError,
@@ -239,11 +237,3 @@ class WritebackService:
         if revision is None:
             raise RevisionNotFoundError("Manuscript revision not found.")
         return revision
-
-
-def get_writeback_service(
-    data_store: WritingDataStore = Depends(get_data_store),
-    cognition: CognitionRegistry = Depends(get_cognition_registry),
-    analysis: AnalysisService = Depends(get_analysis_service),
-) -> WritebackService:
-    return WritebackService(data_store, cognition, analysis)

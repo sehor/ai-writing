@@ -1,16 +1,4 @@
-"""Payload builders and execution handlers for outbox jobs.
-
-Payload builders turn domain records into plain JSON-safe dicts so the data
-layer never depends on the LLM Wiki port directly. Handlers reconstruct the
-port objects at execution time from an OutboxJobContext.
-
-Import-cycle note: this module is imported by app.data.mixins.outbox while
-app.data is still initialising, so module-level imports here must never
-reach back into app.data (or anything that imports it, such as
-app.analysis.service or app.cognition.snapshots). The analysis handlers
-therefore import those lazily inside the function body; by the time a job
-executes, every package is fully initialised.
-"""
+"""Execution handlers for outbox jobs; payload contracts live in app.outbox.events."""
 
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Callable
@@ -22,7 +10,14 @@ from app.llm_wiki.interfaces import (
     WikiIngestionResult,
     WikiSourceDocument,
 )
-from app.models import ManuscriptRevision, SnowflakeArtifact
+from app.models import ManuscriptRevision
+
+# Compatibility exports point to the same pure factories used by transactions.
+from app.outbox.events import (
+    snowflake_index_payload as snowflake_index_payload,
+    manuscript_revision_index_payload as manuscript_revision_index_payload,
+    manuscript_revision_analysis_payload as manuscript_revision_analysis_payload,
+)
 
 if TYPE_CHECKING:
     from app.cognition.registry import CognitionRegistry
@@ -38,53 +33,6 @@ class OutboxJobContext:
     data_store: "WritingDataStore"
     cognition: "CognitionRegistry | None" = None
     compiler: "KnowledgeCompiler | None" = None
-
-
-def snowflake_index_payload(artifact: SnowflakeArtifact) -> dict:
-    is_manuscript_draft = artifact.step_number == 10
-    return {
-        "project_id": artifact.project_id,
-        "source_kind": "snowflake_artifact",
-        "source_ref": f"snowflake:{artifact.step_number}",
-        "title": f"Snowflake step {artifact.step_number}: {artifact.artifact}",
-        "content": artifact.content,
-        "snowflake_step": artifact.step_number,
-        "artifact_type": artifact.artifact,
-        "knowledge_class": "observed" if is_manuscript_draft else "planned",
-        "status": "draft" if is_manuscript_draft else "approved",
-    }
-
-
-def manuscript_revision_index_payload(
-    latest: ManuscriptRevision,
-    previous_revision_id: str | None,
-    story_position: int | None,
-) -> dict:
-    return {
-        "project_id": latest.project_id,
-        "source_kind": "manuscript_revision",
-        "source_ref": f"manuscript_revision:{latest.id}",
-        "title": latest.title,
-        "content": latest.content,
-        "snowflake_step": 10,
-        "artifact_type": "manuscript",
-        "knowledge_class": "observed",
-        "version": latest.version,
-        "supersedes": (
-            f"manuscript_revision:{previous_revision_id}" if previous_revision_id else ""
-        ),
-        "scope": latest.scene_id,
-        "story_position": story_position,
-    }
-
-
-def manuscript_revision_analysis_payload(revision: ManuscriptRevision) -> dict:
-    """Shared payload for the post-acceptance analysis jobs (P1-07)."""
-    return {
-        "project_id": revision.project_id,
-        "revision_id": revision.id,
-        "source_ref": f"manuscript_revision:{revision.id}",
-    }
 
 
 def run_llm_wiki_ingest(context: OutboxJobContext, payload: dict) -> WikiIngestionResult:

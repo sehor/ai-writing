@@ -7,7 +7,7 @@ from pydantic import ValidationError
 
 from app.analysis.http import apply_analysis_headers
 from app.data import WritingDataStore, get_data_store
-from app.dependencies import require_project
+from app.dependencies import require_project, get_writeback_service
 from app.llm import ModelGatewayError
 from app.models import (
     HermesRevisionProcessResponse,
@@ -24,7 +24,6 @@ from app.services.writeback_service import (
     RevisionNotFoundError,
     SceneForRevisionNotFoundError,
     WritebackService,
-    get_writeback_service,
 )
 
 

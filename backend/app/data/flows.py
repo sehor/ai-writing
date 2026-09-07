@@ -33,7 +33,7 @@ from app.data.repositories.scene_proposals import (
 from app.data.repositories.scenes import SceneRepository
 from app.data.repositories.snowflake import SnowflakeRepository
 from app.data.repositories.snowflake_records import SnowflakeRecordRepository
-from app.outbox.handlers import (
+from app.outbox.events import (
     manuscript_revision_analysis_payload,
     manuscript_revision_index_payload,
     snowflake_index_payload,

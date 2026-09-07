@@ -1,12 +1,12 @@
 """Review application service.
 
 One place that knows how a review decision moves through the unified
-state machine, how domain violations surface to the shared HTTP
-semantics (404 / 409 / 422), and how write-back proposals are gated
+state machine, how domain violations become application errors,
+and how write-back proposals are gated
 before they reach the database.
 """
 
-from fastapi import HTTPException, status
+from app.errors import StateConflictError, InvalidOperationError
 
 from app.agents.writeback_workflow import validate_writeback_payload
 from app.review.state_machine import (
@@ -26,14 +26,14 @@ def decide(current: str, target: str, subject: str = "Record") -> ReviewStatus:
     return target  # type: ignore[return-value]
 
 
-def conflict_from(exc: ValueError) -> HTTPException:
-    """Map a state-machine or apply violation to HTTP 409 semantics."""
-    return HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc))
+def conflict_from(exc: ValueError) -> StateConflictError:
+    """Preserve a state-machine or apply violation as an application conflict."""
+    return StateConflictError(str(exc))
 
 
-def unprocessable_from(exc: ValueError) -> HTTPException:
-    """Map a proposal validation failure to HTTP 422 semantics."""
-    return HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc))
+def unprocessable_from(exc: ValueError) -> InvalidOperationError:
+    """Preserve the reason a proposal cannot be processed."""
+    return InvalidOperationError(str(exc))
 
 
 def ensure_writeback_proposals_acceptable(data_store, project_id: str, proposals) -> None:

@@ -2,16 +2,10 @@
 
 from typing import Protocol
 
-from fastapi import Depends, Response
+from fastapi import Response
 
-from app.analysis.service import AnalysisService
-from app.data import WritingDataStore, get_data_store
-
-
-def get_analysis_service(
-    data_store: WritingDataStore = Depends(get_data_store),
-) -> AnalysisService:
-    return AnalysisService(data_store=data_store)
+# Compatibility import; dependency wiring is defined once in the HTTP composition layer.
+from app.dependencies import get_analysis_service as get_analysis_service
 
 
 class AnalysisOutcome(Protocol):

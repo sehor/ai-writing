@@ -3,7 +3,7 @@ import sqlite3
 from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.data import WritingDataStore, get_data_store
-from app.dependencies import require_project
+from app.dependencies import get_compile_service, require_project
 from app.models import (
     ChapterCompileResponse,
     SceneContract,
@@ -117,7 +117,7 @@ def compile_scene_contract(
     project_id: str,
     scene_id: str,
     data_store: WritingDataStore = Depends(get_data_store),
-    service: CompileService = Depends(),
+    service: CompileService = Depends(get_compile_service),
 ) -> ChapterCompileResponse:
     require_project(project_id, data_store)
     return service.compile_scene_contract(project_id, scene_id)

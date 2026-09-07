@@ -1,8 +1,8 @@
-from fastapi import Depends, HTTPException, status
+from app.errors import ResourceNotFoundError
 
 from app.cognition.interfaces import ContextPacket
-from app.cognition.registry import CognitionRegistry, get_cognition_registry
-from app.data import WritingDataStore, get_data_store
+from app.cognition.registry import CognitionRegistry
+from app.data import WritingDataStore
 from app.models import ChapterCompileResponse, SceneContract
 from app.narrative import NarrativeSnapshot
 from app.text_utils import truncate as truncate_context
@@ -11,8 +11,8 @@ from app.text_utils import truncate as truncate_context
 class CompileService:
     def __init__(
         self,
-        data_store: WritingDataStore = Depends(get_data_store),
-        cognition: CognitionRegistry = Depends(get_cognition_registry),
+        data_store: WritingDataStore,
+        cognition: CognitionRegistry,
     ):
         self.data_store = data_store
         self.cognition = cognition
@@ -20,8 +20,7 @@ class CompileService:
     def compile_scene_contract(self, project_id: str, scene_id: str) -> ChapterCompileResponse:
         scene = self.data_store.get_scene_contract(project_id, scene_id)
         if scene is None:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
+            raise ResourceNotFoundError(
                 detail="Scene contract not found.",
             )
 
