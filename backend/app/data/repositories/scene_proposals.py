@@ -16,6 +16,7 @@ from app.models import (
     SceneProposal,
     SceneProposalCreate,
     SceneProposalStatus,
+    SceneContractCreate,
 )
 from app.review.state_machine import validate_review_transition
 
@@ -47,7 +48,7 @@ SCENE_PROPOSAL_COLUMNS = """
            conflict, turning_point, outcome, required_canon_ids, required_canon_raw,
            forbidden_fact_refs, information_delta, character_state_delta,
            story_thread_actions, open_threads, source_ref, source_excerpt,
-           warnings_json, blocking_errors_json, status, applied_scene_id, created_at, reviewed_at
+           warnings_json, blocking_errors_json, status, applied_scene_id, created_at, reviewed_at, update_context_json
     FROM scene_proposals
 """
 
@@ -80,6 +81,7 @@ def scene_proposal_from_row(row: sqlite3.Row) -> SceneProposal:
         applied_scene_id=row["applied_scene_id"],
         created_at=row["created_at"],
         reviewed_at=row["reviewed_at"],
+        **json.loads(row["update_context_json"]),
     )
 
 
@@ -111,6 +113,43 @@ def scene_proposal_to_params(proposal: SceneProposal) -> tuple:
         proposal.applied_scene_id,
         proposal.created_at,
         proposal.reviewed_at,
+        update_context(proposal),
+    )
+
+
+def update_context(proposal: SceneProposalCreate) -> str:
+    return json.dumps(
+        proposal.model_dump(
+            include={
+                "operation",
+                "source_record_id",
+                "source_record_revision_id",
+                "target_scene_id",
+                "expected_plan_version",
+                "changes",
+            }
+        ),
+        ensure_ascii=False,
+    )
+
+
+def scene_contract_input(proposal: SceneProposalCreate) -> SceneContractCreate:
+    return SceneContractCreate(
+        chapter_id=proposal.chapter_id,
+        sequence=proposal.sequence,
+        title=proposal.title,
+        pov=proposal.pov,
+        goal=proposal.goal,
+        conflict=proposal.conflict,
+        turning_point=proposal.turning_point,
+        outcome=proposal.outcome,
+        required_canon=merge_required_canon(proposal),
+        forbidden_facts=proposal.forbidden_fact_refs,
+        information_delta=proposal.information_delta,
+        character_state_delta=proposal.character_state_delta,
+        story_thread_actions=proposal.story_thread_actions,
+        open_threads=proposal.open_threads,
+        source_artifact_step=step_from_source_ref(proposal.source_ref),
     )
 
 
@@ -136,6 +175,7 @@ def _insert_params(create: SceneProposalCreate) -> tuple:
         create.source_excerpt,
         json.dumps(create.warnings, ensure_ascii=False),
         json.dumps(create.blocking_errors, ensure_ascii=False),
+        update_context(create),
     )
 
 
@@ -145,9 +185,9 @@ INSERT_SQL = """
         conflict, turning_point, outcome, required_canon_ids, required_canon_raw,
         forbidden_fact_refs, information_delta, character_state_delta,
         story_thread_actions, open_threads, source_ref, source_excerpt,
-        warnings_json, blocking_errors_json, status, applied_scene_id, created_at, reviewed_at
+        warnings_json, blocking_errors_json, update_context_json, status, applied_scene_id, created_at, reviewed_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', '', ?, '')
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending_review', '', ?, '')
 """
 
 

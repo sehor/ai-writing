@@ -245,7 +245,7 @@ onBeforeUnmount(() => {
             "
             @click="selectScene(scene.id)"
           >
-            <span>{{ scene.title }}</span
+            <span>{{ scene.title }}<small v-if="store.manuscriptScenes.some(m => m.scene_id === scene.id) && (scene.manuscript_plan_version ?? 0) < (scene.plan_version ?? 1)">规划已更新，正文待核对</small></span
             ><small
               v-if="
                 store.manuscriptProposals.some(

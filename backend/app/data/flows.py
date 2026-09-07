@@ -28,8 +28,7 @@ from app.data.repositories.scene_proposals import (
     SceneProposalRepository,
     SceneProposalQualityError,
     SceneSequenceConflictError,
-    merge_required_canon,
-    step_from_source_ref,
+    scene_contract_input,
 )
 from app.data.repositories.scenes import SceneRepository
 from app.data.repositories.snowflake import SnowflakeRepository
@@ -54,7 +53,7 @@ from app.models import (
     MemoryRecordCreate,
     NarrativeRelationCreate,
     SceneContract,
-    SceneContractCreate,
+    SceneContractUpdate,
     SceneProposal,
     SnowflakeArtifact,
     SnowflakeArtifactHead,
@@ -620,7 +619,36 @@ def accept_scene_proposals(
                 f"'{proposal.chapter_id}', which does not belong to this project."
             )
 
-    existing_sequences = scenes_repo.list_sequences(project_id)
+    target_ids = set()
+    for proposal in ordered:
+        if proposal.source_record_id:
+            head = SnowflakeRecordRepository(connection).get_head(
+                project_id, 8, proposal.source_record_id
+            )
+            if head is None or head.accepted_revision_id != proposal.source_record_revision_id:
+                raise SceneProposalReviewedError(
+                    "Source record changed; recompile and review the latest proposal."
+                )
+            linked = scenes_repo.get_by_source(project_id, proposal.source_record_id)
+            if proposal.operation == "create" and linked is not None:
+                raise SceneProposalReviewedError(
+                    "Source record already has a scene; recompile before accepting."
+                )
+        if proposal.operation == "update":
+            target = scenes_repo.get(project_id, proposal.target_scene_id)
+            if (
+                target is None
+                or target.source_record_id != proposal.source_record_id
+                or target.plan_version != proposal.expected_plan_version
+                or target.id in target_ids
+            ):
+                raise SceneProposalReviewedError(
+                    "Target scene plan changed; recompile and review the latest differences."
+                )
+            target_ids.add(target.id)
+    existing_sequences = {
+        scene.sequence for scene in scenes_repo.list(project_id) if scene.id not in target_ids
+    }
     clashes = sorted(set(seen_sequences) & existing_sequences)
     if clashes:
         raise SceneSequenceConflictError(
@@ -631,27 +659,25 @@ def accept_scene_proposals(
 
     now = utc_now()
     created_scenes = []
-    for proposal in ordered:
-        scene = scenes_repo.insert(
-            project_id,
-            SceneContractCreate(
-                chapter_id=proposal.chapter_id,
-                sequence=proposal.sequence,
-                title=proposal.title,
-                pov=proposal.pov,
-                goal=proposal.goal,
-                conflict=proposal.conflict,
-                turning_point=proposal.turning_point,
-                outcome=proposal.outcome,
-                required_canon=merge_required_canon(proposal),
-                forbidden_facts=proposal.forbidden_fact_refs,
-                information_delta=proposal.information_delta,
-                character_state_delta=proposal.character_state_delta,
-                story_thread_actions=proposal.story_thread_actions,
-                open_threads=proposal.open_threads,
-                source_artifact_step=step_from_source_ref(proposal.source_ref),
-            ),
+    # Vacate target sequence slots to permit atomic swaps/reordering.
+    for index, scene_id in enumerate(sorted(target_ids)):
+        connection.execute(
+            "UPDATE scene_contracts SET sequence = ? WHERE project_id = ? AND id = ?",
+            (-100000 - index, project_id, scene_id),
         )
+    for proposal in ordered:
+        desired = scene_contract_input(proposal)
+        if proposal.operation == "update":
+            scene = scenes_repo.update(
+                project_id, proposal.target_scene_id, SceneContractUpdate(**desired.model_dump())
+            )
+        else:
+            scene = scenes_repo.insert(project_id, desired)
+        if proposal.source_record_id:
+            scenes_repo.bind_source(
+                project_id, scene.id, proposal.source_record_id, proposal.source_record_revision_id
+            )
+            scene = scenes_repo.get(project_id, scene.id)
         created_scenes.append(scene)
         updated = proposals_repo.mark_accepted(
             project_id=project_id,

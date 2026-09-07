@@ -471,6 +471,10 @@ class ManuscriptRepository:
             """,
             manuscript_revision_to_params(revision),
         )
+        self.connection.execute(
+            "UPDATE scene_contracts SET manuscript_plan_version = plan_version WHERE project_id = ? AND id = ?",
+            (revision.project_id, revision.scene_id),
+        )
 
     def list_revision_ids(self) -> set[str]:
         """Every revision id across projects (id allocation scope)."""

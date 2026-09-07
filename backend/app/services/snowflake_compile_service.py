@@ -17,6 +17,7 @@ import re
 
 from app.analysis.service import AnalysisService, compute_input_hash
 from app.data import WritingDataStore
+from app.data.repositories.scene_proposals import scene_contract_input
 from app.models import (
     CanonExtractionReport,
     SceneContract,
@@ -197,6 +198,12 @@ class SnowflakeCompileService:
             "canon": _canon_fingerprint(self.data_store.list_canon_entities(project_id)),
             "step": step_number,
         }
+        linked = {
+            scene.source_record_id: scene
+            for scene in self.data_store.list_scene_contracts(project_id)
+            if scene.source_record_id
+        }
+        fingerprint["targets"] = [scene.model_dump() for scene in linked.values()]
         input_hash = compute_input_hash(fingerprint)
 
         if not force:
@@ -245,6 +252,8 @@ class SnowflakeCompileService:
 
         creates = [
             SceneProposalCreate(
+                source_record_id=record.record_id,
+                source_record_revision_id=record.id,
                 sequence=scene.sequence,
                 chapter_id=getattr(scene, "resolved_chapter_id", ""),
                 chapter_hint=scene.chapter_hint,
@@ -266,8 +275,24 @@ class SnowflakeCompileService:
                 warnings=scene.warnings,
                 blocking_errors=scene.blocking_errors,
             )
-            for scene in outcome.scenes
+            for record, scene in zip(records, outcome.scenes)
+            if record.record_id not in linked
+            or linked[record.record_id].source_record_revision_id != record.id
         ]
+        for create in creates:
+            target = linked.get(create.source_record_id)
+            if target:
+                create.operation = "update"
+                create.target_scene_id = target.id
+                create.expected_plan_version = target.plan_version
+                create.chapter_id = target.chapter_id
+                desired = scene_contract_input(create).model_dump()
+                create.changes = {
+                    field: {"before": getattr(target, field), "after": value}
+                    for field, value in desired.items()
+                    if getattr(target, field) != value
+                }
+                create.warnings.append("更新已有场景；请逐项核对当前内容与上游规划差异。")
         known_thread_titles = {
             thread.title.strip().lower()
             for thread in self.data_store.list_story_threads(project_id)
@@ -286,16 +311,22 @@ class SnowflakeCompileService:
                     )
 
         with self.data_store.connect() as connection:
-            if force:
-                self.data_store.supersede_pending_scene_proposals(
-                    connection,
-                    project_id=project_id,
-                    source_ref=source_ref,
-                )
+            self.data_store.supersede_pending_scene_proposals(
+                connection,
+                project_id=project_id,
+                source_ref=source_ref,
+            )
             created = self.data_store.create_scene_proposals(
                 project_id, creates, connection=connection
             )
-            thread_creates = self._thread_proposal_creates(project_id, created)
+            thread_creates = self._thread_proposal_creates(
+                project_id,
+                [
+                    proposal
+                    for proposal in created
+                    if proposal.operation == "create" or "story_thread_actions" in proposal.changes
+                ],
+            )
             thread_proposals = self.data_store.create_writeback_proposals(
                 project_id, thread_creates, connection=connection
             )

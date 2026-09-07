@@ -155,6 +155,7 @@ export type SceneContract = {
   id: string
   project_id: string
   plan_version?: number
+  manuscript_plan_version?: number
   source_record_step?: 0 | 8
   source_record_id?: string
   source_record_revision_id?: string
@@ -175,12 +176,18 @@ export type SceneContract = {
   source_artifact_step: number
 }
 
-export type SceneDraft = Omit<SceneContract, 'id' | 'project_id' | 'plan_version' | 'source_record_step' | 'source_record_id' | 'source_record_revision_id'>
+export type SceneDraft = Omit<SceneContract, 'id' | 'project_id' | 'plan_version' | 'manuscript_plan_version' | 'source_record_step' | 'source_record_id' | 'source_record_revision_id'>
 
 export type SceneProposalStatus = ReviewStatus
 
 // P1-05: structured Snowflake compiler (Step 7 -> Canon proposals, Step 8 -> scene proposals)
 export type SceneProposal = {
+  operation?: 'create' | 'update'
+  source_record_id?: string
+  source_record_revision_id?: string
+  target_scene_id?: string
+  expected_plan_version?: number
+  changes?: Record<string, { before: string | number; after: string | number }>
   id: string
   project_id: string
   sequence: number

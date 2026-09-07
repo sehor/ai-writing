@@ -783,6 +783,7 @@ class SceneContract(SceneContractCreate):
     source_record_step: Literal[0, 8] = 0
     source_record_id: str = ""
     source_record_revision_id: str = ""
+    manuscript_plan_version: int = Field(default=0, ge=0)
 
 
 class ManuscriptChapterCreate(BaseModel):
@@ -1133,6 +1134,12 @@ SceneProposalStatus = ManuscriptProposalStatus
 
 
 class SceneProposalCreate(BaseModel):
+    operation: Literal["create", "update"] = "create"
+    source_record_id: str = ""
+    source_record_revision_id: str = ""
+    target_scene_id: str = ""
+    expected_plan_version: int = Field(default=0, ge=0)
+    changes: dict[str, dict[str, Any]] = Field(default_factory=dict)
     """A parsed Step 8 scene awaiting batch review."""
 
     sequence: int = Field(ge=1, le=999)

@@ -410,7 +410,16 @@ class SnowflakeService:
         plan_stale = any(
             heads.get(step) is not None and heads[step].state == "stale" for step in (8, 9)
         )
-        stale_count = len(scenes) if plan_stale else 0
+        stale_count = (
+            len(scenes)
+            if plan_stale
+            else sum(
+                1
+                for scene in scenes
+                if scene.id in accepted_scene_ids
+                and scene.manuscript_plan_version < scene.plan_version
+            )
+        )
         accepted_count = sum(1 for scene in scenes if scene.id in accepted_scene_ids)
         total = len(scenes)
         percent = round((accepted_count / total) * 100) if total else 0
@@ -421,7 +430,7 @@ class SnowflakeService:
             accepted_latest_revisions=accepted_count,
             stale_scene_count=stale_count,
             completion_percent=percent,
-            complete=bool(total) and accepted_count == total and not plan_stale,
+            complete=bool(total) and accepted_count == total and not stale_count,
         )
 
     def save_artifact(

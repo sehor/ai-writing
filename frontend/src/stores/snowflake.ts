@@ -655,7 +655,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
       )
       if (!response.ok) {
         const detail = await readErrorDetail(response)
-        throw new Error(detail.message || 'Batch acceptance failed')
+        throw new Error(response.status === 409 ? '场景或来源已变化，请重新解析并核对最新差异。' : detail.message || 'Batch acceptance failed')
       }
       const report: SceneProposalAcceptanceReport = await response.json()
       if (!isActiveProject(projectId)) {
@@ -663,7 +663,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
       }
       await loadSceneProposals(projectId)
       await useManuscriptStore().refreshSceneContracts(projectId)
-      sceneProposalStatus.value = `Created ${report.scenes.length} scene contract(s) from parsed proposals.`
+      sceneProposalStatus.value = `已应用 ${report.scenes.length} 项场景提案；已有场景保留原 ID 和正文历史。`
       await useGraphStore().loadGraphAnalysis(projectId)
     } catch (error) {
       sceneProposalError.value =

@@ -31,6 +31,7 @@ def scene_contract_from_row(row: sqlite3.Row) -> SceneContract:
         source_record_step=row["source_record_step"],
         source_record_id=row["source_record_id"],
         source_record_revision_id=row["source_record_revision_id"],
+        manuscript_plan_version=row["manuscript_plan_version"],
     )
 
 
@@ -70,7 +71,7 @@ class SceneRepository:
             SELECT id, project_id, chapter_id, sequence, title, pov, goal, conflict,
                    turning_point, outcome, required_canon, forbidden_facts,
                    information_delta, character_state_delta, story_thread_actions, open_threads,
-                   source_artifact_step, plan_version, source_record_step, source_record_id, source_record_revision_id
+                   source_artifact_step, plan_version, source_record_step, source_record_id, source_record_revision_id, manuscript_plan_version
             FROM scene_contracts
             WHERE project_id = ?
             ORDER BY sequence
@@ -85,7 +86,7 @@ class SceneRepository:
             SELECT id, project_id, chapter_id, sequence, title, pov, goal, conflict,
                    turning_point, outcome, required_canon, forbidden_facts,
                    information_delta, character_state_delta, story_thread_actions, open_threads,
-                   source_artifact_step, plan_version, source_record_step, source_record_id, source_record_revision_id
+                   source_artifact_step, plan_version, source_record_step, source_record_id, source_record_revision_id, manuscript_plan_version
             FROM scene_contracts
             WHERE project_id = ? AND id = ?
             """,

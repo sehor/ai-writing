@@ -618,6 +618,7 @@ class SQLiteWritingDataStore:
         self, project_id: str, proposal_ids: list[str]
     ) -> tuple[list[SceneContract], list[SceneProposal]]:
         with SqliteUnitOfWork(self.database_path) as uow:
+            uow.connection.execute("BEGIN IMMEDIATE")
             return accept_scene_proposals(
                 uow.connection, project_id=project_id, proposal_ids=proposal_ids
             )

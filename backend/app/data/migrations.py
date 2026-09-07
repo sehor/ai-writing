@@ -699,6 +699,19 @@ def _add_scene_record_identity(connection: sqlite3.Connection) -> None:
         """)
 
 
+def _add_scene_update_proposals(connection: sqlite3.Connection) -> None:
+    ensure_column(
+        connection, "scene_proposals", "update_context_json", "TEXT NOT NULL DEFAULT '{}'"
+    )
+    ensure_column(
+        connection, "scene_contracts", "manuscript_plan_version", "INTEGER NOT NULL DEFAULT 0"
+    )
+    connection.execute("""
+        UPDATE scene_contracts SET manuscript_plan_version = plan_version
+        WHERE EXISTS (SELECT 1 FROM manuscript_scenes m WHERE m.project_id = scene_contracts.project_id AND m.scene_id = scene_contracts.id)
+    """)
+
+
 MIGRATIONS: list[Migration] = [
     Migration(version=1, name="baseline_schema", apply=_apply_baseline_schema),
     Migration(version=2, name="scene_contracts_chapter_id", apply=_add_scene_contracts_chapter_id),
@@ -736,6 +749,7 @@ MIGRATIONS: list[Migration] = [
         version=13, name="manuscript_generation_review", apply=_add_manuscript_generation_review
     ),
     Migration(version=14, name="scene_record_identity", apply=_add_scene_record_identity),
+    Migration(version=15, name="scene_update_proposals", apply=_add_scene_update_proposals),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1].version

@@ -6,6 +6,7 @@ import { useSnowflakeStore } from '../stores/snowflake'
 import { useManuscriptStore } from '../stores/manuscript'
 import SnowflakeRevisionHistory from './snowflake/SnowflakeRevisionHistory.vue'
 import SnowflakeRecords from './snowflake/SnowflakeRecords.vue'
+import SceneProposalChanges from './snowflake/SceneProposalChanges.vue'
 
 const workspace = useWorkspaceStore()
 const snowflake = useSnowflakeStore()
@@ -576,6 +577,7 @@ function openManuscript() {
                 <td>{{ proposal.sequence }}</td>
                 <td>
                   {{ proposal.title }}
+                  <SceneProposalChanges :proposal="proposal" />
                   <small v-if="proposal.chapter_hint" class="muted">({{ proposal.chapter_hint }})</small>
                 </td>
                 <td>{{ proposal.pov || '-' }}</td>
