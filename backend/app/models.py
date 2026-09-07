@@ -4,6 +4,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.snowflake.contracts import ManuscriptSceneDraftContract
+
 
 CanonEntityType = Literal["character", "location", "item", "faction", "rule"]
 MemoryRecordType = Literal[
@@ -807,6 +809,24 @@ class ChapterCompileResponse(BaseModel):
     checklist: list[str] = Field(default_factory=list)
 
 
+class ManuscriptGenerationReview(BaseModel):
+    """Immutable original model review material, separate from author edits."""
+
+    model_config = ConfigDict(extra="forbid")
+    schema_version: Literal[1] = 1
+    availability: Literal["structured", "legacy_prose_only"]
+    generation_run_id: str = ""
+    provider: str = ""
+    model: str = ""
+    material: ManuscriptSceneDraftContract | None = None
+
+    @model_validator(mode="after")
+    def validate_material_presence(self):
+        if (self.availability == "structured") != (self.material is not None):
+            raise ValueError("Structured review requires material; legacy output has none.")
+        return self
+
+
 class ManuscriptProposalCreate(BaseModel):
     scene_id: str = Field(min_length=1, max_length=160)
     source: ManuscriptProposalSource = "scene_contract"
@@ -814,6 +834,7 @@ class ManuscriptProposalCreate(BaseModel):
     content: str = Field(min_length=1, max_length=40000)
     context: str = Field(default="", max_length=60000)
     checklist: list[str] = Field(default_factory=list)
+    generation_review: ManuscriptGenerationReview | None = None
 
     @field_validator("scene_id", "title", "content", "context")
     @classmethod

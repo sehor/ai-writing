@@ -660,6 +660,12 @@ def _add_generation_runs(connection: sqlite3.Connection) -> None:
     )
 
 
+def _add_manuscript_generation_review(connection: sqlite3.Connection) -> None:
+    ensure_column(
+        connection, "manuscript_proposals", "generation_review_json", "TEXT NOT NULL DEFAULT 'null'"
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(version=1, name="baseline_schema", apply=_apply_baseline_schema),
     Migration(version=2, name="scene_contracts_chapter_id", apply=_add_scene_contracts_chapter_id),
@@ -693,6 +699,9 @@ MIGRATIONS: list[Migration] = [
         apply=_add_snowflake_record_revisions,
     ),
     Migration(version=12, name="generation_runs", apply=_add_generation_runs),
+    Migration(
+        version=13, name="manuscript_generation_review", apply=_add_manuscript_generation_review
+    ),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1].version

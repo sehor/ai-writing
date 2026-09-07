@@ -275,6 +275,29 @@ export type ChapterCompileResponse = {
 
 export type ManuscriptProposalStatus = 'pending_review' | 'accepted' | 'rejected' | 'superseded'
 
+export type ManuscriptGenerationReview = {
+  schema_version: 1
+  availability: 'structured' | 'legacy_prose_only'
+  generation_run_id: string
+  provider: string
+  model: string
+  material: {
+    scene_id: string
+    manuscript_prose: string
+    entry_state_observed: string[]
+    exit_state_produced: string[]
+    scene_contract_coverage: {
+      goal: string; conflict: string; turning_point: string; outcome: string; missing_elements: string[]
+    }
+    new_fact_candidates: { claim: string; entity_refs: string[]; reason_introduced: string; status: 'proposal' }[]
+    design_deviation_proposals: {
+      target_artifact_ref: string; current_design: string; proposed_change: string; reason: string; downstream_impact: string[]
+    }[]
+    continuity_questions: string[]
+    source_refs: string[]
+  } | null
+}
+
 export type ManuscriptProposal = {
   id: string
   project_id: string
@@ -285,6 +308,7 @@ export type ManuscriptProposal = {
   context: string
   checklist: string[]
   status: ManuscriptProposalStatus
+  generation_review?: ManuscriptGenerationReview | null
   created_at: string
   reviewed_at: string
 }

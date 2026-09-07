@@ -55,6 +55,7 @@ def manuscript_proposal_from_row(row: sqlite3.Row) -> ManuscriptProposal:
         content=row["content"],
         context=row["context"],
         checklist=json.loads(row["checklist_json"]),
+        generation_review=json.loads(row["generation_review_json"]),
         status=row["status"],
         created_at=row["created_at"],
         reviewed_at=row["reviewed_at"],
@@ -63,7 +64,7 @@ def manuscript_proposal_from_row(row: sqlite3.Row) -> ManuscriptProposal:
 
 def manuscript_proposal_to_params(
     proposal: ManuscriptProposal,
-) -> tuple[str, str, str, str, str, str, str, str, str, str, str]:
+) -> tuple[str, ...]:
     return (
         proposal.id,
         proposal.project_id,
@@ -76,6 +77,7 @@ def manuscript_proposal_to_params(
         proposal.status,
         proposal.created_at,
         proposal.reviewed_at,
+        proposal.generation_review.model_dump_json() if proposal.generation_review else "null",
     )
 
 
@@ -138,7 +140,7 @@ def manuscript_revision_to_params(
 CHAPTER_COLUMNS = "id, project_id, sequence, title, summary"
 PROPOSAL_COLUMNS = (
     "id, project_id, scene_id, source, title, content, context,"
-    " checklist_json, status, created_at, reviewed_at"
+    " checklist_json, status, created_at, reviewed_at, generation_review_json"
 )
 SCENE_COLUMNS = "id, project_id, scene_id, proposal_id, title, content, version, accepted_at"
 REVISION_COLUMNS = "id, project_id, scene_id, proposal_id, title, content, version, created_at"
@@ -263,9 +265,9 @@ class ManuscriptRepository:
             """
             INSERT INTO manuscript_proposals (
                 id, project_id, scene_id, source, title, content, context,
-                checklist_json, status, created_at, reviewed_at
+                checklist_json, status, created_at, reviewed_at, generation_review_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             manuscript_proposal_to_params(created),
         )

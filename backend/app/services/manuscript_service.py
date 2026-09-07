@@ -17,6 +17,7 @@ from app.manuscript_export import build_export_markdown
 from app.models import (
     LegacyManuscriptImportCreate,
     ManuscriptExportResponse,
+    ManuscriptGenerationReview,
     ManuscriptProposal,
     ManuscriptProposalAcceptance,
     ManuscriptProposalCreate,
@@ -195,10 +196,18 @@ class ManuscriptService:
             ) from exc
 
         draft = execution.validated_value
+        structured = draft.scene_id != "legacy-provider-output"
         proposal = ManuscriptProposalCreate(
             scene_id=scene.id,
             title=f"{scene.sequence}. {scene.title} provider draft",
             content=draft.manuscript_prose,
+            generation_review=ManuscriptGenerationReview(
+                availability="structured" if structured else "legacy_prose_only",
+                generation_run_id=execution.generation_run_id,
+                provider=execution.completion.result.provider_id,
+                model=execution.completion.result.model_id,
+                material=draft if structured else None,
+            ),
             context=context,
             checklist=[
                 *build_compile_checklist(),
