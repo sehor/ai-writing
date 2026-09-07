@@ -1,8 +1,8 @@
 # 顺序修复交接（2026-09-07）
 
-用户要求按索引逐项处理，并且本任务最多允许一次上下文压缩。目前已使用一次；在第二次压缩前主动停在完成节点。继续时先读本文件、README.md、TRACKING.md 和下一项 issue。不要再次压缩当前任务。
+用户要求按索引逐项处理，并遵守各 issue 前置依赖。原任务记录有最多一次上下文压缩的限制，并已在完成节点交接。本次续接完成 AUD-12、AUD-13；继续时先读本文件、README.md、TRACKING.md 和下一项及其未完成前置 issue。
 
-## 已完成：11 / 23
+## 已完成：13 / 23
 
 | Issue | 本地提交 | 结果 |
 |---|---|---|
@@ -17,23 +17,29 @@
 | AUD-07 | aa04289 | 场景来源映射与规划版本，迁移 14 |
 | AUD-08 | df5fe65 | Step 8 回改生成更新提案、差异审核、冲突检查及正文过期提示，迁移 15 |
 | AUD-11 | 365a5f4 | 叶子 context、正文/审核显式端口，解除 workspace/store 循环 |
+| AUD-12 | 20ad9b7、3626351 | 两阶段拆分正文状态模块与雪花编辑区域；保留唯一会话所有权及薄门面 |
+| AUD-13 | b25f40b | 服务显式依赖、应用异常与 HTTP 映射分离、Outbox 纯事件工厂 |
 
 每项 issue 和 TRACKING.md 已更新。未推送远端，未创建 GitHub issues/PR。
 
 ## 下一步
 
-从 AUD-12 开始，其 AUD-06/08/11 前置均完成。已阅读 AUD-12，尚未修改实现：按职责逐步拆分 manuscript store、Snowflake 编辑组件，保留薄门面，交付职责/依赖说明。注意该任务要求分阶段提交，不要仅搬动共享 refs 或复制会话标志。
+索引下一项是 AUD-14，但其前置 **AUD-18 尚未完成**。应先完成 AUD-18 的事实/角色知识维护与可追溯更正契约、接口及隔离验证，再继续 AUD-14 → AUD-15。已阅读 AUD-14、AUD-18，尚未修改相关模型、迁移或实现。AUD-18 涉及 models、narrative repository/snapshot 和 backup，先写简短契约再实现，并保持这些共享文件串行修改。
 
-AUD-13 至 AUD-23 尚未处理；继续遵守各 issue 的前置依赖，特别是共享模型/迁移的串行修改。原始 AUD-12 至 AUD-23、README.md、manifest.json、publish.ps1 仍为未跟踪文件，已保留，不是本轮遗漏的代码变更。项目代码没有未提交修改。
+AUD-14 至 AUD-23 尚未处理。原始 AUD-14 至 AUD-23、README.md、manifest.json、publish.ps1 仍为未跟踪文件，已保留，不是遗漏的实现变更。AUD-12/13 的本地 issue 完成记录已纳入各自提交。项目代码没有未提交修改。
 
 ## 验证与实现要点
 
 - AUD-08 后全量后端 310 项 unittest 通过；Ruff check/format 与 compileall 通过。所有数据库测试使用临时 SQLite。
 - AUD-11 后前端 lint、build、33 项 Node + 73 项 Vitest 和 3 条 E2E 通过。浏览器门禁为 workspace-review、workspace-wiki-failure、scene-record-update。
+- AUD-12 后前端 lint、build、30 项 Node + 81 项 Vitest 和 3 条 E2E 通过。减少了锁定源码位置的断言，新增 8 项实际装配/组件行为测试；递归依赖检查覆盖 stores 子目录。
+- AUD-13 后后端 319 项 unittest、Ruff check、192 文件 format check、compileall 通过。全套首次发现旧接受接口失败时的弃用头丢失，已修复并经全套重跑确认。完整本机日志在忽略目录 `.tmp/aud13-backend.log`。
 - AUD-09 的 Linux GitHub Actions 尚未远端执行；本地门禁已通过。未进行真实付费模型、长篇负载或真实作者数据验收。
 - AUD-06 的逐项审核选择保存在本机草稿缓存，不包含在项目备份中；原始生成材料由后端持久化并包含在备份中。
 - AUD-08 以已接受 record revision 和目标 plan_version 检查更新；更新保留原 scene ID 与正文历史。人工接受、保存或恢复正文会记录当时的规划版本。旧场景来源不作猜测性匹配。
 - AUD-11 的 projectContext 是叶子 store，workspace 通过 storeToRefs 兼容原组件。manuscriptReviewPort 由 workspace 装配，独立编辑器可不装配审核面板；禁止恢复领域对 workspace 的反向导入。新依赖边界和独立装配测试可用于 AUD-12。
+- AUD-12 的正文门面在单一 Pinia scope 中创建 `stores/manuscript/` 职责模块；不要另建镜像 store/保存标志。雪花旧文导入组件实例随工作区存活，通过内部 visible 控制 DOM，保留跨步骤选文。[职责说明](../../manuscript-state-boundaries.md)。
+- AUD-13 的服务 HTTP 工厂统一从 `app.dependencies` 导入；核心服务不加载 FastAPI。应用异常由 `app.http_errors` 映射，带结构化 detail；旧接受路由附加弃用头时复用同一转换函数。数据事务引用 `app.outbox.events`；handlers 旧工厂名称仅 re-export。[边界说明](../../application-http-boundaries.md)。
 
 ## 本机执行
 
