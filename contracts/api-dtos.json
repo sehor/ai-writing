@@ -1,0 +1,813 @@
+{
+  "ManuscriptGenerationReview": {
+    "$defs": {
+      "DesignDeviationProposal": {
+        "additionalProperties": false,
+        "properties": {
+          "target_artifact_ref": {
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Target Artifact Ref",
+            "type": "string"
+          },
+          "current_design": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Current Design",
+            "type": "string"
+          },
+          "proposed_change": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Proposed Change",
+            "type": "string"
+          },
+          "reason": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Reason",
+            "type": "string"
+          },
+          "downstream_impact": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Downstream Impact",
+            "type": "array"
+          }
+        },
+        "required": [
+          "target_artifact_ref",
+          "current_design",
+          "proposed_change",
+          "reason"
+        ],
+        "title": "DesignDeviationProposal",
+        "type": "object"
+      },
+      "ManuscriptFactCandidate": {
+        "additionalProperties": false,
+        "properties": {
+          "claim": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Claim",
+            "type": "string"
+          },
+          "entity_refs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Entity Refs",
+            "type": "array"
+          },
+          "reason_introduced": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Reason Introduced",
+            "type": "string"
+          },
+          "status": {
+            "const": "proposal",
+            "default": "proposal",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "claim",
+          "reason_introduced"
+        ],
+        "title": "ManuscriptFactCandidate",
+        "type": "object"
+      },
+      "ManuscriptSceneCoverage": {
+        "additionalProperties": false,
+        "properties": {
+          "goal": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Goal",
+            "type": "string"
+          },
+          "conflict": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Conflict",
+            "type": "string"
+          },
+          "turning_point": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Turning Point",
+            "type": "string"
+          },
+          "outcome": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Outcome",
+            "type": "string"
+          },
+          "missing_elements": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Missing Elements",
+            "type": "array"
+          }
+        },
+        "required": [
+          "goal",
+          "conflict",
+          "turning_point",
+          "outcome"
+        ],
+        "title": "ManuscriptSceneCoverage",
+        "type": "object"
+      },
+      "ManuscriptSceneDraftContract": {
+        "additionalProperties": false,
+        "properties": {
+          "scene_id": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Scene Id",
+            "type": "string"
+          },
+          "manuscript_prose": {
+            "maxLength": 300000,
+            "minLength": 1,
+            "title": "Manuscript Prose",
+            "type": "string"
+          },
+          "entry_state_observed": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Entry State Observed",
+            "type": "array"
+          },
+          "exit_state_produced": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Exit State Produced",
+            "type": "array"
+          },
+          "scene_contract_coverage": {
+            "$ref": "#/$defs/ManuscriptSceneCoverage"
+          },
+          "new_fact_candidates": {
+            "items": {
+              "$ref": "#/$defs/ManuscriptFactCandidate"
+            },
+            "maxItems": 200,
+            "title": "New Fact Candidates",
+            "type": "array"
+          },
+          "design_deviation_proposals": {
+            "items": {
+              "$ref": "#/$defs/DesignDeviationProposal"
+            },
+            "maxItems": 200,
+            "title": "Design Deviation Proposals",
+            "type": "array"
+          },
+          "continuity_questions": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Continuity Questions",
+            "type": "array"
+          },
+          "source_refs": {
+            "items": {
+              "type": "string"
+            },
+            "maxItems": 200,
+            "title": "Source Refs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "scene_id",
+          "manuscript_prose",
+          "scene_contract_coverage"
+        ],
+        "title": "ManuscriptSceneDraftContract",
+        "type": "object"
+      }
+    },
+    "additionalProperties": false,
+    "description": "Immutable original model review material, separate from author edits.",
+    "properties": {
+      "schema_version": {
+        "const": 1,
+        "default": 1,
+        "title": "Schema Version",
+        "type": "integer"
+      },
+      "availability": {
+        "enum": [
+          "structured",
+          "legacy_prose_only"
+        ],
+        "title": "Availability",
+        "type": "string"
+      },
+      "generation_run_id": {
+        "default": "",
+        "title": "Generation Run Id",
+        "type": "string"
+      },
+      "provider": {
+        "default": "",
+        "title": "Provider",
+        "type": "string"
+      },
+      "model": {
+        "default": "",
+        "title": "Model",
+        "type": "string"
+      },
+      "material": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ManuscriptSceneDraftContract"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null
+      }
+    },
+    "required": [
+      "availability"
+    ],
+    "title": "ManuscriptGenerationReview",
+    "type": "object"
+  },
+  "SceneContract": {
+    "properties": {
+      "chapter_id": {
+        "default": "",
+        "maxLength": 160,
+        "title": "Chapter Id",
+        "type": "string"
+      },
+      "sequence": {
+        "maximum": 999,
+        "minimum": 1,
+        "title": "Sequence",
+        "type": "integer"
+      },
+      "title": {
+        "maxLength": 160,
+        "minLength": 1,
+        "title": "Title",
+        "type": "string"
+      },
+      "pov": {
+        "default": "",
+        "maxLength": 120,
+        "title": "Pov",
+        "type": "string"
+      },
+      "goal": {
+        "default": "",
+        "maxLength": 1000,
+        "title": "Goal",
+        "type": "string"
+      },
+      "conflict": {
+        "default": "",
+        "maxLength": 1000,
+        "title": "Conflict",
+        "type": "string"
+      },
+      "turning_point": {
+        "default": "",
+        "maxLength": 1000,
+        "title": "Turning Point",
+        "type": "string"
+      },
+      "outcome": {
+        "default": "",
+        "maxLength": 1000,
+        "title": "Outcome",
+        "type": "string"
+      },
+      "required_canon": {
+        "default": "",
+        "maxLength": 4000,
+        "title": "Required Canon",
+        "type": "string"
+      },
+      "forbidden_facts": {
+        "default": "",
+        "maxLength": 4000,
+        "title": "Forbidden Facts",
+        "type": "string"
+      },
+      "information_delta": {
+        "default": "",
+        "maxLength": 4000,
+        "title": "Information Delta",
+        "type": "string"
+      },
+      "character_state_delta": {
+        "default": "",
+        "maxLength": 4000,
+        "title": "Character State Delta",
+        "type": "string"
+      },
+      "story_thread_actions": {
+        "default": "",
+        "maxLength": 4000,
+        "title": "Story Thread Actions",
+        "type": "string"
+      },
+      "open_threads": {
+        "default": "",
+        "deprecated": true,
+        "description": "Legacy compatibility notes. Excluded from generation context; use structured StoryThread records and events.",
+        "maxLength": 4000,
+        "title": "Open Threads",
+        "type": "string"
+      },
+      "source_artifact_step": {
+        "default": 8,
+        "maximum": 10,
+        "minimum": 1,
+        "title": "Source Artifact Step",
+        "type": "integer"
+      },
+      "id": {
+        "title": "Id",
+        "type": "string"
+      },
+      "project_id": {
+        "title": "Project Id",
+        "type": "string"
+      },
+      "plan_version": {
+        "default": 1,
+        "minimum": 1,
+        "title": "Plan Version",
+        "type": "integer"
+      },
+      "source_record_step": {
+        "default": 0,
+        "enum": [
+          0,
+          8
+        ],
+        "title": "Source Record Step",
+        "type": "integer"
+      },
+      "source_record_id": {
+        "default": "",
+        "title": "Source Record Id",
+        "type": "string"
+      },
+      "source_record_revision_id": {
+        "default": "",
+        "title": "Source Record Revision Id",
+        "type": "string"
+      },
+      "manuscript_plan_version": {
+        "default": 0,
+        "minimum": 0,
+        "title": "Manuscript Plan Version",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "sequence",
+      "title",
+      "id",
+      "project_id"
+    ],
+    "title": "SceneContract",
+    "type": "object"
+  },
+  "StoryFact": {
+    "properties": {
+      "subject": {
+        "maxLength": 160,
+        "minLength": 1,
+        "title": "Subject",
+        "type": "string"
+      },
+      "predicate": {
+        "maxLength": 160,
+        "minLength": 1,
+        "title": "Predicate",
+        "type": "string"
+      },
+      "value": {
+        "maxLength": 4000,
+        "minLength": 1,
+        "title": "Value",
+        "type": "string"
+      },
+      "valid_from_scene": {
+        "maximum": 999,
+        "minimum": 0,
+        "title": "Valid From Scene",
+        "type": "integer"
+      },
+      "valid_to_scene": {
+        "anyOf": [
+          {
+            "maximum": 999,
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Valid To Scene"
+      },
+      "reader_visible_from": {
+        "anyOf": [
+          {
+            "maximum": 999,
+            "minimum": 0,
+            "type": "integer"
+          },
+          {
+            "type": "null"
+          }
+        ],
+        "default": null,
+        "title": "Reader Visible From"
+      },
+      "source_ref": {
+        "default": "",
+        "maxLength": 240,
+        "title": "Source Ref",
+        "type": "string"
+      },
+      "status": {
+        "default": "confirmed",
+        "enum": [
+          "planned",
+          "confirmed",
+          "superseded",
+          "retracted"
+        ],
+        "title": "Status",
+        "type": "string"
+      },
+      "id": {
+        "title": "Id",
+        "type": "string"
+      },
+      "project_id": {
+        "title": "Project Id",
+        "type": "string"
+      },
+      "version": {
+        "default": 1,
+        "minimum": 1,
+        "title": "Version",
+        "type": "integer"
+      },
+      "updated_at": {
+        "default": "",
+        "title": "Updated At",
+        "type": "string"
+      }
+    },
+    "required": [
+      "subject",
+      "predicate",
+      "value",
+      "valid_from_scene",
+      "id",
+      "project_id"
+    ],
+    "title": "StoryFact",
+    "type": "object"
+  },
+  "KnowledgeState": {
+    "properties": {
+      "scope": {
+        "enum": [
+          "world_truth",
+          "reader_knowledge",
+          "character_knowledge"
+        ],
+        "title": "Scope",
+        "type": "string"
+      },
+      "character": {
+        "default": "",
+        "maxLength": 160,
+        "title": "Character",
+        "type": "string"
+      },
+      "known_from_scene": {
+        "maximum": 999,
+        "minimum": 0,
+        "title": "Known From Scene",
+        "type": "integer"
+      },
+      "source_ref": {
+        "default": "",
+        "maxLength": 240,
+        "title": "Source Ref",
+        "type": "string"
+      },
+      "status": {
+        "default": "confirmed",
+        "enum": [
+          "planned",
+          "confirmed",
+          "superseded",
+          "retracted"
+        ],
+        "title": "Status",
+        "type": "string"
+      },
+      "id": {
+        "title": "Id",
+        "type": "string"
+      },
+      "fact_id": {
+        "title": "Fact Id",
+        "type": "string"
+      },
+      "project_id": {
+        "title": "Project Id",
+        "type": "string"
+      },
+      "version": {
+        "default": 1,
+        "minimum": 1,
+        "title": "Version",
+        "type": "integer"
+      },
+      "updated_at": {
+        "default": "",
+        "title": "Updated At",
+        "type": "string"
+      }
+    },
+    "required": [
+      "scope",
+      "known_from_scene",
+      "id",
+      "fact_id",
+      "project_id"
+    ],
+    "title": "KnowledgeState",
+    "type": "object"
+  },
+  "NarrativeRevision": {
+    "$defs": {
+      "KnowledgeState": {
+        "properties": {
+          "scope": {
+            "enum": [
+              "world_truth",
+              "reader_knowledge",
+              "character_knowledge"
+            ],
+            "title": "Scope",
+            "type": "string"
+          },
+          "character": {
+            "default": "",
+            "maxLength": 160,
+            "title": "Character",
+            "type": "string"
+          },
+          "known_from_scene": {
+            "maximum": 999,
+            "minimum": 0,
+            "title": "Known From Scene",
+            "type": "integer"
+          },
+          "source_ref": {
+            "default": "",
+            "maxLength": 240,
+            "title": "Source Ref",
+            "type": "string"
+          },
+          "status": {
+            "default": "confirmed",
+            "enum": [
+              "planned",
+              "confirmed",
+              "superseded",
+              "retracted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "fact_id": {
+            "title": "Fact Id",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "version": {
+            "default": 1,
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "updated_at": {
+            "default": "",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope",
+          "known_from_scene",
+          "id",
+          "fact_id",
+          "project_id"
+        ],
+        "title": "KnowledgeState",
+        "type": "object"
+      },
+      "StoryFact": {
+        "properties": {
+          "subject": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Subject",
+            "type": "string"
+          },
+          "predicate": {
+            "maxLength": 160,
+            "minLength": 1,
+            "title": "Predicate",
+            "type": "string"
+          },
+          "value": {
+            "maxLength": 4000,
+            "minLength": 1,
+            "title": "Value",
+            "type": "string"
+          },
+          "valid_from_scene": {
+            "maximum": 999,
+            "minimum": 0,
+            "title": "Valid From Scene",
+            "type": "integer"
+          },
+          "valid_to_scene": {
+            "anyOf": [
+              {
+                "maximum": 999,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Valid To Scene"
+          },
+          "reader_visible_from": {
+            "anyOf": [
+              {
+                "maximum": 999,
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Reader Visible From"
+          },
+          "source_ref": {
+            "default": "",
+            "maxLength": 240,
+            "title": "Source Ref",
+            "type": "string"
+          },
+          "status": {
+            "default": "confirmed",
+            "enum": [
+              "planned",
+              "confirmed",
+              "superseded",
+              "retracted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "project_id": {
+            "title": "Project Id",
+            "type": "string"
+          },
+          "version": {
+            "default": 1,
+            "minimum": 1,
+            "title": "Version",
+            "type": "integer"
+          },
+          "updated_at": {
+            "default": "",
+            "title": "Updated At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "predicate",
+          "value",
+          "valid_from_scene",
+          "id",
+          "project_id"
+        ],
+        "title": "StoryFact",
+        "type": "object"
+      }
+    },
+    "properties": {
+      "id": {
+        "title": "Id",
+        "type": "string"
+      },
+      "project_id": {
+        "title": "Project Id",
+        "type": "string"
+      },
+      "fact_id": {
+        "title": "Fact Id",
+        "type": "string"
+      },
+      "knowledge_state_id": {
+        "default": "",
+        "title": "Knowledge State Id",
+        "type": "string"
+      },
+      "version": {
+        "minimum": 1,
+        "title": "Version",
+        "type": "integer"
+      },
+      "reason": {
+        "maxLength": 1000,
+        "minLength": 1,
+        "title": "Reason",
+        "type": "string"
+      },
+      "created_at": {
+        "title": "Created At",
+        "type": "string"
+      },
+      "record": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/StoryFact"
+          },
+          {
+            "$ref": "#/$defs/KnowledgeState"
+          }
+        ],
+        "title": "Record"
+      }
+    },
+    "required": [
+      "id",
+      "project_id",
+      "fact_id",
+      "version",
+      "reason",
+      "created_at",
+      "record"
+    ],
+    "title": "NarrativeRevision",
+    "type": "object"
+  }
+}

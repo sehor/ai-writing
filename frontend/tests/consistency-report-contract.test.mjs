@@ -8,7 +8,7 @@ const read = (relative) =>
 const reviewsStore = read('../src/stores/reviews.ts')
 const workspaceStore = read('../src/stores/workspace.ts')
 const revisionHistory = read('../src/components/manuscript/RevisionHistory.vue')
-const types = read('../src/types/index.ts')
+const types = read('../src/types/analysis.ts')
 
 test('store exposes an idempotent consistency report action scoped to the active project', () => {
   // The action lives in the reviews domain store.

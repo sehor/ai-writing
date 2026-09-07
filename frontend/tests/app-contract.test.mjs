@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 
-const types = readFileSync(new URL('../src/types/index.ts', import.meta.url), 'utf8')
+const types = readFileSync(new URL('../src/types/reference.ts', import.meta.url), 'utf8')
 const reviewsStore = readFileSync(
   new URL('../src/stores/reviews.ts', import.meta.url),
   'utf8',

@@ -1,1306 +1,173 @@
-from __future__ import annotations
-
-from typing import Any, Literal
-
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
-
-from app.snowflake.contracts import ManuscriptSceneDraftContract
-
-
-CanonEntityType = Literal["character", "location", "item", "faction", "rule"]
-MemoryRecordType = Literal[
-    "chapter_summary",
-    "prose_sample",
-    "voice_sample",
-    "style_rule",
-]
-GraphNodeType = Literal[
-    "project",
-    "snowflake_artifact",
-    "canon_entity",
-    "scene",
-    "memory_record",
-    "story_thread",
-]
-GraphEdgeType = Literal["contains", "depends_on", "references", "informs"]
-GraphRiskSeverity = Literal["info", "warning", "critical"]
-WorkflowRuntimeType = Literal[
-    "local_deterministic",
-    "provider_deepseek",
-    "provider_openrouter",
-]
-WorkflowRuntimeKind = Literal["local_deterministic", "model_gateway"]
-GenerationRunStatus = Literal["running", "succeeded", "failed"]
-GenerationAttemptStatus = Literal["succeeded", "failed"]
-GenerationAttemptKind = Literal["primary", "repair", "fallback"]
-ManuscriptProposalSource = Literal["scene_contract", "legacy_snowflake_import"]
-ManuscriptProposalStatus = Literal["pending_review", "accepted", "rejected", "superseded"]
-WritebackTarget = Literal[
-    "canon_entity",
-    "memory_record",
-    "narrative_relation",
-    "story_thread",
-    "story_thread_event",
-    "story_thread_status",
-]
-WritebackAction = Literal["create", "update"]
-WritebackProposalStatus = Literal["pending_review", "accepted", "rejected", "superseded"]
-ReferenceScopeType = Literal[
-    "project",
-    "snowflake_step",
-    "scene",
-    "canon_entity",
-    "memory_record",
-    "manuscript_scene",
-    "graph",
-]
-ReferenceSuggestionType = Literal[
-    "brainstorm",
-    "scene_bridge",
-    "conflict_options",
-    "character_motivation",
-    "canon_gap",
-    "prose_reference",
-    "structure_fix",
-]
-ReferenceSuggestionStatus = Literal["pending_review", "accepted", "rejected", "superseded"]
-HermesProcessStatus = Literal["completed", "partial", "failed"]
-HermesWikiChangeAction = Literal["created", "updated", "skipped"]
-HermesIssueSeverity = Literal["info", "warning", "error"]
-StoryFactStatus = Literal["planned", "confirmed", "superseded", "retracted"]
-KnowledgeScope = Literal["world_truth", "reader_knowledge", "character_knowledge"]
-NarrativeRelationStatus = Literal["planned", "confirmed", "superseded"]
-StoryThreadType = Literal["foreshadow", "mystery", "relationship", "conflict", "promise", "subplot"]
-StoryThreadStatus = Literal["planned", "planted", "developing", "dormant", "paid_off", "abandoned"]
-StoryThreadAction = Literal[
-    "plant", "reinforce", "misdirect", "escalate", "partial_payoff", "payoff"
-]
-SnowflakeRevisionSource = Literal["human", "ai", "legacy", "import", "restore", "derived"]
-SnowflakeRevisionStatus = Literal[
-    "draft", "pending_review", "accepted", "rejected", "superseded", "legacy_draft"
-]
-SnowflakeHeadState = Literal["missing", "approved", "stale", "skipped"]
-SnowflakeRecordState = Literal["draft", "pending_review", "approved", "stale"]
-SnowflakeDecision = Literal["accepted", "rejected"]
-ValidationSeverity = Literal["warning", "critical"]
-ValidationStatus = Literal["passed", "warnings", "failed", "skipped"]
-
-
-class HealthResponse(BaseModel):
-    status: str = "ok"
-    service: str = "ai-writing-backend"
-
-
-class ProjectCreate(BaseModel):
-    title: str = Field(min_length=1, max_length=120)
-    premise: str = Field(min_length=1, max_length=500)
-
-    @field_validator("title", "premise")
-    @classmethod
-    def normalize_required_text(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("Value cannot be blank.")
-        return normalized
-
-
-class ProjectSummary(BaseModel):
-    id: str
-    title: str
-    premise: str
-    current_step: int = Field(ge=1, le=10)
-
-
-class SnowflakeStep(BaseModel):
-    number: int = Field(ge=1, le=10)
-    title: str
-    artifact: str
-    description: str
-    dependencies: list[int] = Field(default_factory=list)
-    optional: bool = False
-    schema_version: int = Field(default=1, ge=1)
-    validator_name: str = "markdown_projection"
-    virtual: bool = False
-
-
-class SnowflakeArtifactRevisionCreate(BaseModel):
-    step_number: int = Field(ge=1, le=10)
-    content: str = Field(min_length=1, max_length=200000)
-    structured_payload: dict[str, Any] = Field(default_factory=dict)
-    schema_version: int = Field(default=1, ge=1)
-    parent_revision_id: str = Field(default="", max_length=160)
-    base_head_revision_id: str = Field(default="", max_length=160)
-    source: SnowflakeRevisionSource = "human"
-
-    @field_validator("content")
-    @classmethod
-    def normalize_revision_content(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("Value cannot be blank.")
-        return normalized
-
-
-class SnowflakeArtifactRevisionPatch(BaseModel):
-    content: str | None = Field(default=None, min_length=1, max_length=200000)
-    structured_payload: dict[str, Any] | None = None
-
-    @field_validator("content")
-    @classmethod
-    def normalize_optional_revision_content(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("Value cannot be blank.")
-        return normalized
-
-
-class SnowflakeArtifactRevision(BaseModel):
-    id: str
-    project_id: str
-    step_number: int = Field(ge=1, le=10)
-    artifact_type: str
-    revision_no: int = Field(ge=1)
-    source: SnowflakeRevisionSource
-    status: SnowflakeRevisionStatus
-    content: str
-    structured_payload: dict[str, Any] = Field(default_factory=dict)
-    schema_version: int = Field(ge=1)
-    parent_revision_id: str = ""
-    base_head_revision_id: str = ""
-    upstream_snapshot: dict[str, str] = Field(default_factory=dict)
-    review_reason: str = ""
-    created_at: str
-    reviewed_at: str = ""
-
-
-class SnowflakeArtifactHead(BaseModel):
-    project_id: str
-    step_number: int = Field(ge=1, le=10)
-    accepted_revision_id: str = ""
-    state: SnowflakeHeadState = "missing"
-    stale_reason: str = ""
-    stale_trigger_revision_id: str = ""
-
-
-class SnowflakeStepState(BaseModel):
-    step: SnowflakeStep
-    state: SnowflakeHeadState = "missing"
-    accepted_revision: SnowflakeArtifactRevision | None = None
-    pending_count: int = Field(default=0, ge=0)
-    stale_reason: str = ""
-    stale_trigger_revision_id: str = ""
-
-
-class SnowflakeRevisionPage(BaseModel):
-    data: list[SnowflakeArtifactRevision] = Field(default_factory=list)
-    page: int = Field(ge=1)
-    page_size: int = Field(ge=1)
-    total_items: int = Field(ge=0)
-    total_pages: int = Field(ge=0)
-
-
-class SnowflakeRecordRevisionCreate(BaseModel):
-    step_number: int = Field(ge=6, le=9)
-    record_id: str = Field(min_length=1, max_length=160)
-    position: int = Field(default=1, ge=1, le=100000)
-    payload: dict[str, Any]
-    base_revision_id: str = Field(default="", max_length=160)
-    source: SnowflakeRevisionSource = "human"
-
-    @field_validator("record_id")
-    @classmethod
-    def normalize_record_id(cls, value: str) -> str:
-        value = value.strip()
-        if not value:
-            raise ValueError("Value cannot be blank.")
-        return value
-
-
-class SnowflakeRecordRevision(BaseModel):
-    id: str
-    project_id: str
-    step_number: int = Field(ge=6, le=9)
-    record_id: str
-    position: int = Field(ge=1)
-    revision_no: int = Field(ge=1)
-    source: SnowflakeRevisionSource
-    status: SnowflakeRevisionStatus
-    payload: dict[str, Any]
-    base_revision_id: str = ""
-    review_reason: str = ""
-    created_at: str
-    reviewed_at: str = ""
-
-
-class SnowflakeRecordHead(BaseModel):
-    project_id: str
-    step_number: int = Field(ge=6, le=9)
-    record_id: str
-    accepted_revision_id: str = ""
-    state: SnowflakeRecordState = "draft"
-
-
-class SnowflakeRecordPage(BaseModel):
-    data: list[SnowflakeRecordRevision] = Field(default_factory=list)
-    page: int = Field(ge=1)
-    page_size: int = Field(ge=1)
-    total_items: int = Field(ge=0)
-    total_pages: int = Field(ge=0)
-
-
-class SnowflakeRecordDecisionRequest(BaseModel):
-    decision: SnowflakeDecision
-    expected_revision_id: str = Field(default="", max_length=160)
-    review_reason: str = Field(default="", max_length=2000)
-
-
-class SnowflakeRecordDecisionResponse(BaseModel):
-    revision: SnowflakeRecordRevision
-    head: SnowflakeRecordHead
-
-
-class SnowflakeRevisionDecisionRequest(BaseModel):
-    decision: SnowflakeDecision
-    expected_head_revision_id: str = Field(default="", max_length=160)
-    review_reason: str = Field(default="", max_length=2000)
-
-
-class SnowflakeRevisionDecisionResponse(BaseModel):
-    revision: SnowflakeArtifactRevision
-    head: SnowflakeArtifactHead
-    affected_steps: list[int] = Field(default_factory=list)
-    outbox_job_id: str = ""
-    validation_report: SnowflakeValidationReport | None = None
-
-
-class SnowflakeManuscriptProgress(BaseModel):
-    project_id: str
-    total_scene_contracts: int = Field(ge=0)
-    pending_manuscript_proposals: int = Field(ge=0)
-    accepted_latest_revisions: int = Field(ge=0)
-    stale_scene_count: int = Field(ge=0)
-    completion_percent: int = Field(ge=0, le=100)
-    complete: bool
-
-
-class ModelExecutionOptions(BaseModel):
-    model_profile: str = Field(default="", max_length=120, pattern=r"^[a-z0-9._-]*$")
-    allow_fallback: bool = True
-    allow_repair: bool = True
-
-
-class ProviderGenerationRequest(ModelExecutionOptions):
-    pass
-
-
-class SnowflakeGenerationCreate(ModelExecutionOptions):
-    step_number: int = Field(ge=1, le=9)
-    instruction: str = Field(min_length=1, max_length=4000)
-    base_revision_id: str = Field(default="", max_length=160)
-    target_record_ids: list[str] = Field(default_factory=list, max_length=200)
-    generation_mode: Literal["replace", "record_set", "continue", "selection"] = "replace"
-    previous_artifacts_context_chars: int = Field(default=64000, ge=1000, le=400000)
-
-    @field_validator("instruction")
-    @classmethod
-    def normalize_instruction(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("Value cannot be blank.")
-        return normalized
-
-    @model_validator(mode="after")
-    def validate_generation_scope(self):
-        if len(self.target_record_ids) != len(set(self.target_record_ids)):
-            raise ValueError("Target record IDs must be unique.")
-        if self.target_record_ids and self.step_number < 6:
-            raise ValueError("Target record IDs are available only for Snowflake steps 6–9.")
-        if (
-            self.step_number >= 6
-            and self.generation_mode in {"selection", "continue"}
-            and not self.target_record_ids
-        ):
-            raise ValueError("This generation mode requires at least one target record ID.")
-        if self.step_number not in {6, 7, 8, 9} and self.generation_mode == "record_set":
-            raise ValueError("Record-set generation is available only for Snowflake steps 6–9.")
-        return self
-
-
-class SnowflakeGenerationRequest(ModelExecutionOptions):
-    project_id: str = Field(min_length=1, max_length=120)
-    step_number: int = Field(ge=1, le=10)
-    user_input: str = Field(min_length=1, max_length=4000)
-    base_revision_id: str = Field(default="", max_length=160)
-    target_record_ids: list[str] = Field(default_factory=list, max_length=200)
-    target_records: list[dict[str, Any]] = Field(default_factory=list, max_length=200)
-    generation_mode: Literal["replace", "record_set", "continue", "selection"] = "replace"
-    previous_artifacts_context_chars: int = Field(default=64000, ge=1000, le=400000)
-
-    @field_validator("project_id", "user_input")
-    @classmethod
-    def normalize_generation_text(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("Value cannot be blank.")
-        return normalized
-
-    @model_validator(mode="after")
-    def validate_generation_scope(self):
-        if len(self.target_record_ids) != len(set(self.target_record_ids)):
-            raise ValueError("Target record IDs must be unique.")
-        if self.target_record_ids and self.step_number < 6:
-            raise ValueError("Target record IDs are available only for Snowflake steps 6–9.")
-        if (
-            self.step_number in {6, 7, 8, 9}
-            and self.generation_mode in {"selection", "continue"}
-            and not self.target_record_ids
-        ):
-            raise ValueError("This generation mode requires at least one target record ID.")
-        if self.step_number not in {6, 7, 8, 9} and self.generation_mode == "record_set":
-            raise ValueError("Record-set generation is available only for Snowflake steps 6–9.")
-        return self
-
-
-class SnowflakeGeneratedRecord(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    record_id: str = Field(min_length=1, max_length=160)
-    payload: dict[str, Any]
-
-
-class SnowflakeGeneratedRecordSet(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    records: list[SnowflakeGeneratedRecord] = Field(min_length=1, max_length=200)
-
-
-class SnowflakeArtifactUpdate(BaseModel):
-    content: str = Field(min_length=1, max_length=20000)
-
-    @field_validator("content")
-    @classmethod
-    def normalize_content(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("Value cannot be blank.")
-        return normalized
-
-
-class SnowflakeArtifact(BaseModel):
-    project_id: str
-    step_number: int = Field(ge=1, le=10)
-    artifact: str
-    content: str
-
-
-class WorkflowAgentTrace(BaseModel):
-    stage: str
-    agent_name: str
-    status: str
-    finding_count: int = Field(default=0, ge=0)
-    details: str = ""
-    prompt_id: str = ""
-    prompt_version: str = ""
-    schema_name: str = ""
-    schema_version: str = ""
-    provider_id: str = ""
-    model_id: str = ""
-    finish_reason: str = ""
-    input_tokens: int | None = Field(default=None, ge=0)
-    output_tokens: int | None = Field(default=None, ge=0)
-    generation_run_id: str = ""
-    attempt_count: int = Field(default=0, ge=0)
-    repair_count: int = Field(default=0, ge=0)
-    fallback_count: int = Field(default=0, ge=0)
-
-
-class SnowflakeValidationFinding(BaseModel):
-    code: str
-    severity: ValidationSeverity
-    message: str
-    path: str = ""
-    evidence: str = ""
-
-
-class SnowflakeValidationReport(BaseModel):
-    step_number: int = Field(ge=1, le=10)
-    status: ValidationStatus
-    findings: list[SnowflakeValidationFinding] = Field(default_factory=list)
-
-
-class WorkflowRuntimeStatus(BaseModel):
-    runtime: WorkflowRuntimeType
-    runtime_kind: WorkflowRuntimeKind | None = None
-    provider: str
-    provider_configured: bool
-    model: str = ""
-    base_url: str = ""
-    details: str = ""
-
-
-class ModelCapabilitiesView(BaseModel):
-    text_generation: bool = True
-    json_mode: bool = False
-    json_schema: bool = False
-    temperature: bool = False
-    max_output_tokens: bool = True
-    timeout: bool = True
-    seed: bool = False
-    reasoning: bool = False
-    tools: bool = False
-    streaming: bool = False
-    vision: bool = False
-    usage_reporting: bool = True
-    finish_reason: bool = True
-    request_id: bool = True
-    context_window_tokens: int = Field(default=0, ge=0)
-    max_completion_tokens: int = Field(default=0, ge=0)
-
-
-class ModelProfileView(BaseModel):
-    id: str
-    label: str
-    provider: str
-    model: str
-    configured: bool
-    capabilities: ModelCapabilitiesView
-    fallback_profile_ids: list[str] = Field(default_factory=list)
-
-
-class GenerationAttemptCreate(BaseModel):
-    attempt_index: int = Field(ge=1)
-    attempt_kind: GenerationAttemptKind
-    profile_id: str
-    provider: str
-    model: str
-    status: GenerationAttemptStatus
-    error_code: str = ""
-    retryable: bool = False
-    duration_ms: float = Field(default=0, ge=0)
-    finish_reason: str = ""
-    input_tokens: int | None = Field(default=None, ge=0)
-    output_tokens: int | None = Field(default=None, ge=0)
-    created_at: str
-
-
-class GenerationAttempt(GenerationAttemptCreate):
-    id: str
-    run_id: str
-
-
-class GenerationRunCreate(BaseModel):
-    id: str
-    project_id: str
-    use_case: str
-    prompt_id: str
-    prompt_version: str
-    schema_name: str
-    schema_version: str
-    requested_profile_id: str = ""
-    allow_fallback: bool = True
-    allow_repair: bool = True
-    created_at: str
-
-
-class GenerationRunUpdate(BaseModel):
-    status: Literal["succeeded", "failed"]
-    final_profile_id: str = ""
-    provider: str = ""
-    model: str = ""
-    error_code: str = ""
-    safe_error: str = ""
-    attempt_count: int = Field(default=0, ge=0)
-    repair_count: int = Field(default=0, ge=0)
-    fallback_count: int = Field(default=0, ge=0)
-    input_tokens: int = Field(default=0, ge=0)
-    output_tokens: int = Field(default=0, ge=0)
-    duration_ms: float = Field(default=0, ge=0)
-    completed_at: str
-
-
-class GenerationRun(BaseModel):
-    id: str
-    project_id: str
-    use_case: str
-    prompt_id: str
-    prompt_version: str
-    schema_name: str
-    schema_version: str
-    requested_profile_id: str = ""
-    final_profile_id: str = ""
-    provider: str = ""
-    model: str = ""
-    status: GenerationRunStatus
-    error_code: str = ""
-    safe_error: str = ""
-    allow_fallback: bool = True
-    allow_repair: bool = True
-    attempt_count: int = Field(default=0, ge=0)
-    repair_count: int = Field(default=0, ge=0)
-    fallback_count: int = Field(default=0, ge=0)
-    input_tokens: int = Field(default=0, ge=0)
-    output_tokens: int = Field(default=0, ge=0)
-    duration_ms: float = Field(default=0, ge=0)
-    created_at: str
-    completed_at: str = ""
-    attempts: list[GenerationAttempt] = Field(default_factory=list)
-
-
-class SnowflakeGenerationResponse(BaseModel):
-    project_id: str
-    step_number: int = Field(ge=1, le=10)
-    artifact: str
-    content: str
-    workflow_trace: list[WorkflowAgentTrace] = Field(default_factory=list)
-    revision: SnowflakeArtifactRevision | None = None
-    record_revisions: list[SnowflakeRecordRevision] = Field(default_factory=list)
-    validation_report: SnowflakeValidationReport | None = None
-
-
-class CanonEntityCreate(BaseModel):
-    entity_type: CanonEntityType
-    name: str = Field(min_length=1, max_length=120)
-    summary: str = Field(default="", max_length=1000)
-    current_state: str = Field(default="", max_length=4000)
-    constraints: str = Field(default="", max_length=4000)
-    last_seen: str = Field(default="", max_length=120)
-    timeline_notes: str = Field(default="", max_length=8000)
-
-    @field_validator(
-        "name",
-        "summary",
-        "current_state",
-        "constraints",
-        "last_seen",
-        "timeline_notes",
-    )
-    @classmethod
-    def normalize_text(cls, value: str) -> str:
-        return value.strip()
-
-
-class CanonEntityUpdate(CanonEntityCreate):
-    pass
-
-
-class CanonEntity(CanonEntityCreate):
-    id: str
-    project_id: str
-    version: int = Field(default=1, ge=1)
-    updated_at: str = ""
-
-
-class StoryFactCreate(BaseModel):
-    subject: str = Field(min_length=1, max_length=160)
-    predicate: str = Field(min_length=1, max_length=160)
-    value: str = Field(min_length=1, max_length=4000)
-    valid_from_scene: int = Field(ge=0, le=999)
-    valid_to_scene: int | None = Field(default=None, ge=0, le=999)
-    reader_visible_from: int | None = Field(default=None, ge=0, le=999)
-    source_ref: str = Field(default="", max_length=240)
-    status: StoryFactStatus = "confirmed"
-
-    @field_validator("subject", "predicate", "value", "source_ref")
-    @classmethod
-    def normalize_story_fact_text(cls, value: str) -> str:
-        return value.strip()
-
-
-class StoryFact(StoryFactCreate):
-    id: str
-    project_id: str
-    version: int = Field(default=1, ge=1)
-    updated_at: str = ""
-
-
-class KnowledgeStateCreate(BaseModel):
-    scope: KnowledgeScope
-    character: str = Field(default="", max_length=160)
-    known_from_scene: int = Field(ge=0, le=999)
-    source_ref: str = Field(default="", max_length=240)
-    status: StoryFactStatus = "confirmed"
-
-    @field_validator("character", "source_ref")
-    @classmethod
-    def normalize_knowledge_text(cls, value: str) -> str:
-        return value.strip()
-
-    @model_validator(mode="after")
-    def validate_scope_subject(self) -> "KnowledgeStateCreate":
-        if self.scope == "character_knowledge" and not self.character:
-            raise ValueError("character is required for character_knowledge")
-        if self.scope != "character_knowledge" and self.character:
-            raise ValueError("character is only valid for character_knowledge")
-        return self
-
-
-class KnowledgeState(KnowledgeStateCreate):
-    id: str
-    fact_id: str
-    project_id: str
-    version: int = Field(default=1, ge=1)
-    updated_at: str = ""
-
-
-class CharacterKnowledgeCreate(BaseModel):
-    character: str = Field(min_length=1, max_length=160)
-    known_from_scene: int = Field(ge=0, le=999)
-
-    @field_validator("character")
-    @classmethod
-    def normalize_character_name(cls, value: str) -> str:
-        return value.strip()
-
-
-class CharacterKnowledge(CharacterKnowledgeCreate):
-    fact_id: str
-    project_id: str
-
-
-class NarrativeChangeReason(BaseModel):
-    reason: str = Field(min_length=1, max_length=1000)
-
-    @field_validator("reason", mode="before")
-    @classmethod
-    def normalize_reason(cls, value):
-        return value.strip() if isinstance(value, str) else value
-
-
-class NarrativeVersionChange(NarrativeChangeReason):
-    expected_version: int = Field(ge=1)
-
-
-class StoryFactCorrection(StoryFactCreate, NarrativeVersionChange):
-    pass
-
-
-class KnowledgeStateAuthorCreate(KnowledgeStateCreate, NarrativeChangeReason):
-    pass
-
-
-class KnowledgeStateCorrection(KnowledgeStateCreate, NarrativeVersionChange):
-    pass
-
-
-class NarrativeRevision(BaseModel):
-    id: str
-    project_id: str
-    fact_id: str
-    knowledge_state_id: str = ""
-    version: int = Field(ge=1)
-    reason: str = Field(min_length=1, max_length=1000)
-    created_at: str
-    record: StoryFact | KnowledgeState
-
-    @model_validator(mode="after")
-    def validate_identity(self) -> "NarrativeRevision":
-        record = self.record
-        if record.project_id != self.project_id or record.version != self.version:
-            raise ValueError("Narrative history identity/version mismatch")
-        if self.knowledge_state_id:
-            if not isinstance(record, KnowledgeState) or (
-                record.id != self.knowledge_state_id or record.fact_id != self.fact_id
-            ):
-                raise ValueError("Narrative knowledge history target mismatch")
-        elif not isinstance(record, StoryFact) or record.id != self.fact_id:
-            raise ValueError("Narrative fact history target mismatch")
-        return self
-
-
-class NarrativeRelationCreate(BaseModel):
-    source: str = Field(min_length=1, max_length=240)
-    target: str = Field(min_length=1, max_length=240)
-    relation: str = Field(min_length=1, max_length=160)
-    valid_from: int = Field(ge=0, le=999)
-    valid_to: int | None = Field(default=None, ge=0, le=999)
-    confidence: float = Field(default=1.0, ge=0.0, le=1.0)
-    source_ref: str = Field(default="", max_length=240)
-    status: NarrativeRelationStatus = "confirmed"
-
-    @field_validator("source", "target", "relation", "source_ref")
-    @classmethod
-    def normalize_narrative_relation_text(cls, value: str) -> str:
-        return value.strip()
-
-
-class NarrativeRelation(NarrativeRelationCreate):
-    id: str
-    project_id: str
-
-
-class StoryStateResponse(BaseModel):
-    project_id: str
-    scene_position: int
-    character: str = ""
-    world_truth: list[StoryFact] = Field(default_factory=list)
-    reader_knowledge: list[StoryFact] = Field(default_factory=list)
-    character_knowledge: list[StoryFact] = Field(default_factory=list)
-
-
-class StoryThreadCreate(BaseModel):
-    thread_type: StoryThreadType
-    title: str = Field(min_length=1, max_length=240)
-    status: StoryThreadStatus = "planned"
-    planted_at: int | None = Field(default=None, ge=0, le=999)
-    target_payoff_from: int | None = Field(default=None, ge=0, le=999)
-    target_payoff_to: int | None = Field(default=None, ge=0, le=999)
-    importance: int = Field(default=3, ge=1, le=5)
-    reveal_constraints: str = Field(default="", max_length=4000)
-
-    @field_validator("title", "reveal_constraints")
-    @classmethod
-    def normalize_story_thread_text(cls, value: str) -> str:
-        return value.strip()
-
-
-class StoryThread(StoryThreadCreate):
-    id: str
-    project_id: str
-
-
-class StoryThreadStatusUpdate(BaseModel):
-    status: StoryThreadStatus
-
-
-class StoryThreadEventCreate(BaseModel):
-    scene_id: str = Field(min_length=1, max_length=160)
-    action: StoryThreadAction
-    note: str = Field(default="", max_length=2000)
-
-    @field_validator("scene_id", "note")
-    @classmethod
-    def normalize_story_thread_event_text(cls, value: str) -> str:
-        return value.strip()
-
-
-class StoryThreadEvent(StoryThreadEventCreate):
-    id: str
-    project_id: str
-    thread_id: str
-
-
-class SceneContractCreate(BaseModel):
-    chapter_id: str = Field(default="", max_length=160)
-    sequence: int = Field(ge=1, le=999)
-    title: str = Field(min_length=1, max_length=160)
-    pov: str = Field(default="", max_length=120)
-    goal: str = Field(default="", max_length=1000)
-    conflict: str = Field(default="", max_length=1000)
-    turning_point: str = Field(default="", max_length=1000)
-    outcome: str = Field(default="", max_length=1000)
-    required_canon: str = Field(default="", max_length=4000)
-    forbidden_facts: str = Field(default="", max_length=4000)
-    information_delta: str = Field(default="", max_length=4000)
-    character_state_delta: str = Field(default="", max_length=4000)
-    story_thread_actions: str = Field(default="", max_length=4000)
-    open_threads: str = Field(
-        default="",
-        max_length=4000,
-        json_schema_extra={"deprecated": True},
-        description=(
-            "Legacy compatibility notes. Excluded from generation context; use structured "
-            "StoryThread records and events."
-        ),
-    )
-    source_artifact_step: int = Field(default=8, ge=1, le=10)
-
-    @field_validator(
-        "chapter_id",
-        "title",
-        "pov",
-        "goal",
-        "conflict",
-        "turning_point",
-        "outcome",
-        "required_canon",
-        "forbidden_facts",
-        "information_delta",
-        "character_state_delta",
-        "story_thread_actions",
-        "open_threads",
-    )
-    @classmethod
-    def normalize_scene_text(cls, value: str) -> str:
-        return value.strip()
-
-
-class SceneContractUpdate(SceneContractCreate):
-    pass
-
-
-class SceneContract(SceneContractCreate):
-    id: str
-    project_id: str
-    plan_version: int = Field(default=1, ge=1)
-    source_record_step: Literal[0, 8] = 0
-    source_record_id: str = ""
-    source_record_revision_id: str = ""
-    manuscript_plan_version: int = Field(default=0, ge=0)
-
-
-class ManuscriptChapterCreate(BaseModel):
-    sequence: int = Field(ge=1, le=999)
-    title: str = Field(min_length=1, max_length=160)
-    summary: str = Field(default="", max_length=2000)
-
-    @field_validator("title", "summary")
-    @classmethod
-    def normalize_chapter_text(cls, value: str) -> str:
-        return value.strip()
-
-
-class ManuscriptChapterUpdate(ManuscriptChapterCreate):
-    pass
-
-
-class ManuscriptChapter(ManuscriptChapterCreate):
-    id: str
-    project_id: str
-
-
-class ChapterCompileResponse(BaseModel):
-    project_id: str
-    scene_id: str
-    context: str
-    draft: str
-    checklist: list[str] = Field(default_factory=list)
-
-
-class ManuscriptGenerationReview(BaseModel):
-    """Immutable original model review material, separate from author edits."""
-
-    model_config = ConfigDict(extra="forbid")
-    schema_version: Literal[1] = 1
-    availability: Literal["structured", "legacy_prose_only"]
-    generation_run_id: str = ""
-    provider: str = ""
-    model: str = ""
-    material: ManuscriptSceneDraftContract | None = None
-
-    @model_validator(mode="after")
-    def validate_material_presence(self):
-        if (self.availability == "structured") != (self.material is not None):
-            raise ValueError("Structured review requires material; legacy output has none.")
-        return self
-
-
-class ManuscriptProposalCreate(BaseModel):
-    scene_id: str = Field(min_length=1, max_length=160)
-    source: ManuscriptProposalSource = "scene_contract"
-    title: str = Field(min_length=1, max_length=160)
-    content: str = Field(min_length=1, max_length=40000)
-    context: str = Field(default="", max_length=60000)
-    checklist: list[str] = Field(default_factory=list)
-    generation_review: ManuscriptGenerationReview | None = None
-
-    @field_validator("scene_id", "title", "content", "context")
-    @classmethod
-    def normalize_proposal_text(cls, value: str) -> str:
-        return value.strip()
-
-
-class ManuscriptProposalStatusUpdate(BaseModel):
-    status: ManuscriptProposalStatus
-
-
-class ManuscriptProposalAcceptance(BaseModel):
-    """Author edits are committed without mutating the originating AI proposal."""
-
-    title: str = Field(min_length=1, max_length=160)
-    content: str = Field(min_length=1, max_length=40000)
-    expected_scene_version: int = Field(ge=0)
-
-    @field_validator("title", "content", mode="before")
-    @classmethod
-    def trim_draft(cls, value):
-        return value.strip() if isinstance(value, str) else value
-
-
-class LegacyManuscriptImportCreate(BaseModel):
-    """A human-selected excerpt from a preserved Step 10 legacy draft."""
-
-    scene_id: str = Field(min_length=1, max_length=160)
-    title: str = Field(min_length=1, max_length=160)
-    content: str = Field(min_length=1, max_length=40000)
-
-    @field_validator("scene_id", "title", "content")
-    @classmethod
-    def trim_legacy_import(cls, value: str) -> str:
-        return value.strip()
-
-
-class ManuscriptProposal(ManuscriptProposalCreate):
-    id: str
-    project_id: str
-    status: ManuscriptProposalStatus = "pending_review"
-    created_at: str
-    reviewed_at: str = ""
-
-
-class ManuscriptScene(BaseModel):
-    id: str
-    project_id: str
-    scene_id: str
-    proposal_id: str
-    title: str
-    content: str
-    version: int = Field(ge=1)
-    accepted_at: str
-
-
-class ManuscriptSceneUpdate(BaseModel):
-    title: str = Field(min_length=1, max_length=160)
-    content: str = Field(min_length=1, max_length=40000)
-    expected_scene_version: int = Field(ge=1, strict=True)
-
-    @field_validator("title", "content")
-    @classmethod
-    def normalize_scene_update_text(cls, value: str) -> str:
-        normalized = value.strip()
-        if not normalized:
-            raise ValueError("Value cannot be blank.")
-        return normalized
-
-
-class ManuscriptRevision(BaseModel):
-    id: str
-    project_id: str
-    scene_id: str
-    proposal_id: str
-    title: str
-    content: str
-    version: int = Field(ge=1)
-    created_at: str
-
-
-class ManuscriptRevisionDiff(BaseModel):
-    project_id: str
-    left_revision_id: str
-    right_revision_id: str
-    left_title: str
-    right_title: str
-    diff_lines: list[str] = Field(default_factory=list)
-
-
-class ManuscriptExportResponse(BaseModel):
-    project_id: str
-    title: str
-    scene_count: int
-    content: str
-    generated_at: str
-
-
-class WikiExportFile(BaseModel):
-    path: str
-    content_type: str
-    content: str
-
-
-class WikiExportResponse(BaseModel):
-    project_id: str
-    title: str
-    file_count: int
-    generated_at: str
-    files: list[WikiExportFile] = Field(default_factory=list)
-
-
-class MemoryRecordCreate(BaseModel):
-    record_type: MemoryRecordType
-    title: str = Field(min_length=1, max_length=160)
-    scope: str = Field(default="", max_length=160)
-    content: str = Field(min_length=1, max_length=12000)
-    tags: str = Field(default="", max_length=1000)
-    source_ref: str = Field(default="", max_length=160)
-
-    @field_validator("title", "scope", "content", "tags", "source_ref")
-    @classmethod
-    def normalize_memory_text(cls, value: str) -> str:
-        return value.strip()
-
-
-class MemoryRecordUpdate(MemoryRecordCreate):
-    pass
-
-
-class MemoryRecord(MemoryRecordCreate):
-    id: str
-    project_id: str
-
-
-class WritebackProposalCreate(BaseModel):
-    target: WritebackTarget
-    action: WritebackAction = "create"
-    title: str = Field(min_length=1, max_length=160)
-    rationale: str = Field(default="", max_length=4000)
-    payload: dict = Field(default_factory=dict)
-    source_ref: str = Field(default="", max_length=160)
-    # Update proposals carry an optimistic-concurrency handle on the
-    # existing record plus field-level before/after changes.
-    target_record_id: str = Field(default="", max_length=160)
-    expected_version: int | None = Field(default=None, ge=1)
-    changes: dict[str, dict[str, str]] = Field(default_factory=dict)
-
-    @field_validator("title", "rationale", "source_ref", "target_record_id")
-    @classmethod
-    def normalize_writeback_text(cls, value: str) -> str:
-        return value.strip()
-
-
-class WritebackProposalStatusUpdate(BaseModel):
-    status: WritebackProposalStatus
-
-
-class WritebackProposal(WritebackProposalCreate):
-    id: str
-    project_id: str
-    status: WritebackProposalStatus = "pending_review"
-    created_at: str
-    reviewed_at: str = ""
-    applied_record_id: str = ""
-
-
-class ReferenceGenerationRequest(ModelExecutionOptions):
-    suggestion_type: ReferenceSuggestionType = "brainstorm"
-    scope_type: ReferenceScopeType = "project"
-    scope_ref: str = Field(default="", max_length=160)
-    author_problem: str = Field(min_length=1, max_length=4000)
-    desired_output: str = Field(default="", max_length=1000)
-
-    @field_validator("scope_ref", "author_problem", "desired_output")
-    @classmethod
-    def normalize_reference_request_text(cls, value: str) -> str:
-        return value.strip()
-
-
-class ReferenceSuggestionCreate(BaseModel):
-    suggestion_type: ReferenceSuggestionType
-    scope_type: ReferenceScopeType
-    scope_ref: str = Field(default="", max_length=160)
-    title: str = Field(min_length=1, max_length=160)
-    content: str = Field(min_length=1, max_length=40000)
-    rationale: str = Field(default="", max_length=4000)
-    used_context: str = Field(default="", max_length=60000)
-    canon_warnings: list[str] = Field(default_factory=list)
-    style_notes: list[str] = Field(default_factory=list)
-    graph_warnings: list[str] = Field(default_factory=list)
-    proposed_writebacks: list[WritebackProposalCreate] = Field(default_factory=list)
-    workflow_trace: list[WorkflowAgentTrace] = Field(default_factory=list)
-
-    @field_validator("scope_ref", "title", "content", "rationale", "used_context")
-    @classmethod
-    def normalize_reference_suggestion_text(cls, value: str) -> str:
-        return value.strip()
-
-
-class ReferenceSuggestionStatusUpdate(BaseModel):
-    status: ReferenceSuggestionStatus
-
-
-class ReferenceSuggestion(ReferenceSuggestionCreate):
-    id: str
-    project_id: str
-    status: ReferenceSuggestionStatus = "pending_review"
-    created_at: str
-    reviewed_at: str = ""
-
-
-class HermesWikiChange(BaseModel):
-    path: str
-    action: HermesWikiChangeAction
-    reason: str = ""
-
-
-class HermesProcessingIssue(BaseModel):
-    severity: HermesIssueSeverity
-    code: str
-    message: str
-    source_ref: str = ""
-
-
-class HermesRevisionProcessResult(BaseModel):
-    status: HermesProcessStatus
-    summary: str
-    wiki_changes: list[HermesWikiChange] = Field(default_factory=list)
-    issues: list[HermesProcessingIssue] = Field(default_factory=list)
-    writeback_proposals: list[WritebackProposalCreate] = Field(default_factory=list)
-    processed_source_ref: str
-
-
-class HermesRevisionProcessResponse(BaseModel):
-    status: HermesProcessStatus
-    summary: str
-    wiki_changes: list[HermesWikiChange] = Field(default_factory=list)
-    issues: list[HermesProcessingIssue] = Field(default_factory=list)
-    writeback_proposals: list[WritebackProposal] = Field(default_factory=list)
-    processed_source_ref: str
-    cached: bool = False
-    analysis_run_id: str = ""
-
-
-class GraphNode(BaseModel):
-    id: str
-    label: str
-    node_type: GraphNodeType
-    status: str = ""
-
-
-class GraphEdge(BaseModel):
-    source: str
-    target: str
-    edge_type: GraphEdgeType
-    label: str = ""
-
-
-class GraphRisk(BaseModel):
-    id: str
-    severity: GraphRiskSeverity
-    title: str
-    detail: str
-    source_id: str = ""
-
-
-class GraphAnalysisSummary(BaseModel):
-    node_count: int
-    edge_count: int
-    risk_count: int
-    critical_count: int
-    warning_count: int
-    unresolved_thread_count: int
-    canon_reference_count: int
-
-
-class GraphAnalysisResponse(BaseModel):
-    project_id: str
-    summary: GraphAnalysisSummary
-    nodes: list[GraphNode] = Field(default_factory=list)
-    edges: list[GraphEdge] = Field(default_factory=list)
-    risks: list[GraphRisk] = Field(default_factory=list)
-
-
-# ---------------------------------------------------------------------------
-# Structured Snowflake compiler (P1-05)
-# ---------------------------------------------------------------------------
-
-
-SceneProposalStatus = ManuscriptProposalStatus
-
-
-class SceneProposalCreate(BaseModel):
-    operation: Literal["create", "update"] = "create"
-    source_record_id: str = ""
-    source_record_revision_id: str = ""
-    target_scene_id: str = ""
-    expected_plan_version: int = Field(default=0, ge=0)
-    changes: dict[str, dict[str, Any]] = Field(default_factory=dict)
-    """A parsed Step 8 scene awaiting batch review."""
-
-    sequence: int = Field(ge=1, le=999)
-    chapter_id: str = Field(default="", max_length=160)
-    chapter_hint: str = Field(default="", max_length=160)
-    title: str = Field(min_length=1, max_length=160)
-    pov: str = Field(default="", max_length=120)
-    goal: str = Field(default="", max_length=1000)
-    conflict: str = Field(default="", max_length=1000)
-    turning_point: str = Field(default="", max_length=1000)
-    outcome: str = Field(default="", max_length=1000)
-    required_canon_ids: str = Field(default="", max_length=2000)
-    required_canon_raw: str = Field(default="", max_length=4000)
-    forbidden_fact_refs: str = Field(default="", max_length=4000)
-    information_delta: str = Field(default="", max_length=4000)
-    character_state_delta: str = Field(default="", max_length=4000)
-    story_thread_actions: str = Field(default="", max_length=4000)
-    open_threads: str = Field(
-        default="",
-        max_length=4000,
-        json_schema_extra={"deprecated": True},
-        description=(
-            "Legacy compatibility notes retained during import. Structured StoryThread actions "
-            "are the generation source."
-        ),
-    )
-    source_ref: str = Field(default="", max_length=160)
-    source_excerpt: str = Field(default="", max_length=2000)
-    warnings: list[str] = Field(default_factory=list)
-    blocking_errors: list[str] = Field(default_factory=list)
-
-    @field_validator(
-        "chapter_id",
-        "chapter_hint",
-        "title",
-        "pov",
-        "goal",
-        "conflict",
-        "turning_point",
-        "outcome",
-        "required_canon_ids",
-        "required_canon_raw",
-        "forbidden_fact_refs",
-        "information_delta",
-        "character_state_delta",
-        "story_thread_actions",
-        "open_threads",
-        "source_ref",
-    )
-    @classmethod
-    def normalize_scene_proposal_text(cls, value: str) -> str:
-        return value.strip()
-
-
-class SceneProposal(SceneProposalCreate):
-    id: str
-    project_id: str
-    status: SceneProposalStatus = "pending_review"
-    applied_scene_id: str = ""
-    created_at: str
-    reviewed_at: str = ""
-
-
-class SceneProposalStatusUpdate(BaseModel):
-    status: SceneProposalStatus
-
-
-class SceneProposalAcceptRequest(BaseModel):
-    """Empty proposal_ids accepts every pending proposal for the project."""
-
-    proposal_ids: list[str] = Field(default_factory=list)
-
-
-class CompileRunInfo(BaseModel):
-    run_id: str
-    run_version: int
-    cached: bool
-
-
-class CanonExtractionReport(BaseModel):
-    """Step 7 artifact compiled into Canon create / update proposals."""
-
-    project_id: str
-    step_number: int
-    processor: str
-    cached: bool
-    run_id: str
-    run_version: int
-    warnings: list[str] = Field(default_factory=list)
-    proposals: list[WritebackProposal] = Field(default_factory=list)
-
-
-class SceneParseReport(BaseModel):
-    """Step 8 artifact parsed into reviewable Scene Contract proposals."""
-
-    project_id: str
-    step_number: int
-    processor: str
-    cached: bool
-    run_id: str
-    run_version: int
-    warnings: list[str] = Field(default_factory=list)
-    proposals: list[SceneProposal] = Field(default_factory=list)
-    thread_proposals: list[WritebackProposal] = Field(default_factory=list)
-
-
-class SceneProposalAcceptanceReport(BaseModel):
-    project_id: str
-    scenes: list[SceneContract] = Field(default_factory=list)
-    proposals: list[SceneProposal] = Field(default_factory=list)
+"""Compatibility exports; new DTO definitions belong in app.domain_models."""
+
+from app.domain_models.analysis import (
+    HermesIssueSeverity as HermesIssueSeverity,
+    HermesProcessStatus as HermesProcessStatus,
+    HermesProcessingIssue as HermesProcessingIssue,
+    HermesRevisionProcessResponse as HermesRevisionProcessResponse,
+    HermesRevisionProcessResult as HermesRevisionProcessResult,
+    HermesWikiChange as HermesWikiChange,
+    HermesWikiChangeAction as HermesWikiChangeAction,
+    WikiExportFile as WikiExportFile,
+    WikiExportResponse as WikiExportResponse,
+)
+from app.domain_models.canon import (
+    CanonEntity as CanonEntity,
+    CanonEntityCreate as CanonEntityCreate,
+    CanonEntityType as CanonEntityType,
+    CanonEntityUpdate as CanonEntityUpdate,
+)
+from app.domain_models.compiler import (
+    CanonExtractionReport as CanonExtractionReport,
+    CompileRunInfo as CompileRunInfo,
+    SceneParseReport as SceneParseReport,
+    SceneProposal as SceneProposal,
+    SceneProposalAcceptRequest as SceneProposalAcceptRequest,
+    SceneProposalAcceptanceReport as SceneProposalAcceptanceReport,
+    SceneProposalCreate as SceneProposalCreate,
+    SceneProposalStatus as SceneProposalStatus,
+    SceneProposalStatusUpdate as SceneProposalStatusUpdate,
+)
+from app.domain_models.graph import (
+    GraphAnalysisResponse as GraphAnalysisResponse,
+    GraphAnalysisSummary as GraphAnalysisSummary,
+    GraphEdge as GraphEdge,
+    GraphEdgeType as GraphEdgeType,
+    GraphNode as GraphNode,
+    GraphNodeType as GraphNodeType,
+    GraphRisk as GraphRisk,
+    GraphRiskSeverity as GraphRiskSeverity,
+)
+from app.domain_models.manuscript import (
+    ChapterCompileResponse as ChapterCompileResponse,
+    LegacyManuscriptImportCreate as LegacyManuscriptImportCreate,
+    ManuscriptChapter as ManuscriptChapter,
+    ManuscriptChapterCreate as ManuscriptChapterCreate,
+    ManuscriptChapterUpdate as ManuscriptChapterUpdate,
+    ManuscriptExportResponse as ManuscriptExportResponse,
+    ManuscriptGenerationReview as ManuscriptGenerationReview,
+    ManuscriptProposal as ManuscriptProposal,
+    ManuscriptProposalAcceptance as ManuscriptProposalAcceptance,
+    ManuscriptProposalCreate as ManuscriptProposalCreate,
+    ManuscriptProposalSource as ManuscriptProposalSource,
+    ManuscriptProposalStatus as ManuscriptProposalStatus,
+    ManuscriptProposalStatusUpdate as ManuscriptProposalStatusUpdate,
+    ManuscriptRevision as ManuscriptRevision,
+    ManuscriptRevisionDiff as ManuscriptRevisionDiff,
+    ManuscriptScene as ManuscriptScene,
+    ManuscriptSceneUpdate as ManuscriptSceneUpdate,
+)
+from app.domain_models.memory import (
+    MemoryRecord as MemoryRecord,
+    MemoryRecordCreate as MemoryRecordCreate,
+    MemoryRecordType as MemoryRecordType,
+    MemoryRecordUpdate as MemoryRecordUpdate,
+)
+from app.domain_models.model import (
+    GenerationAttempt as GenerationAttempt,
+    GenerationAttemptCreate as GenerationAttemptCreate,
+    GenerationAttemptKind as GenerationAttemptKind,
+    GenerationAttemptStatus as GenerationAttemptStatus,
+    GenerationRun as GenerationRun,
+    GenerationRunCreate as GenerationRunCreate,
+    GenerationRunStatus as GenerationRunStatus,
+    GenerationRunUpdate as GenerationRunUpdate,
+    ModelCapabilitiesView as ModelCapabilitiesView,
+    ModelExecutionOptions as ModelExecutionOptions,
+    ModelProfileView as ModelProfileView,
+    ProviderGenerationRequest as ProviderGenerationRequest,
+    WorkflowAgentTrace as WorkflowAgentTrace,
+    WorkflowRuntimeKind as WorkflowRuntimeKind,
+    WorkflowRuntimeStatus as WorkflowRuntimeStatus,
+    WorkflowRuntimeType as WorkflowRuntimeType,
+)
+from app.domain_models.narrative import (
+    CharacterKnowledge as CharacterKnowledge,
+    CharacterKnowledgeCreate as CharacterKnowledgeCreate,
+    KnowledgeScope as KnowledgeScope,
+    KnowledgeState as KnowledgeState,
+    KnowledgeStateAuthorCreate as KnowledgeStateAuthorCreate,
+    KnowledgeStateCorrection as KnowledgeStateCorrection,
+    KnowledgeStateCreate as KnowledgeStateCreate,
+    NarrativeChangeReason as NarrativeChangeReason,
+    NarrativeRelation as NarrativeRelation,
+    NarrativeRelationCreate as NarrativeRelationCreate,
+    NarrativeRelationStatus as NarrativeRelationStatus,
+    NarrativeRevision as NarrativeRevision,
+    NarrativeVersionChange as NarrativeVersionChange,
+    StoryFact as StoryFact,
+    StoryFactCorrection as StoryFactCorrection,
+    StoryFactCreate as StoryFactCreate,
+    StoryFactStatus as StoryFactStatus,
+    StoryStateResponse as StoryStateResponse,
+    StoryThread as StoryThread,
+    StoryThreadAction as StoryThreadAction,
+    StoryThreadCreate as StoryThreadCreate,
+    StoryThreadEvent as StoryThreadEvent,
+    StoryThreadEventCreate as StoryThreadEventCreate,
+    StoryThreadStatus as StoryThreadStatus,
+    StoryThreadStatusUpdate as StoryThreadStatusUpdate,
+    StoryThreadType as StoryThreadType,
+)
+from app.domain_models.project import (
+    HealthResponse as HealthResponse,
+    ProjectCreate as ProjectCreate,
+    ProjectSummary as ProjectSummary,
+)
+from app.domain_models.reference import (
+    ReferenceGenerationRequest as ReferenceGenerationRequest,
+    ReferenceScopeType as ReferenceScopeType,
+    ReferenceSuggestion as ReferenceSuggestion,
+    ReferenceSuggestionCreate as ReferenceSuggestionCreate,
+    ReferenceSuggestionStatus as ReferenceSuggestionStatus,
+    ReferenceSuggestionStatusUpdate as ReferenceSuggestionStatusUpdate,
+    ReferenceSuggestionType as ReferenceSuggestionType,
+)
+from app.domain_models.scene import (
+    SceneContract as SceneContract,
+    SceneContractCreate as SceneContractCreate,
+    SceneContractUpdate as SceneContractUpdate,
+)
+from app.domain_models.snowflake import (
+    SnowflakeArtifact as SnowflakeArtifact,
+    SnowflakeArtifactHead as SnowflakeArtifactHead,
+    SnowflakeArtifactRevision as SnowflakeArtifactRevision,
+    SnowflakeArtifactRevisionCreate as SnowflakeArtifactRevisionCreate,
+    SnowflakeArtifactRevisionPatch as SnowflakeArtifactRevisionPatch,
+    SnowflakeArtifactUpdate as SnowflakeArtifactUpdate,
+    SnowflakeDecision as SnowflakeDecision,
+    SnowflakeGeneratedRecord as SnowflakeGeneratedRecord,
+    SnowflakeGeneratedRecordSet as SnowflakeGeneratedRecordSet,
+    SnowflakeGenerationCreate as SnowflakeGenerationCreate,
+    SnowflakeGenerationRequest as SnowflakeGenerationRequest,
+    SnowflakeGenerationResponse as SnowflakeGenerationResponse,
+    SnowflakeHeadState as SnowflakeHeadState,
+    SnowflakeManuscriptProgress as SnowflakeManuscriptProgress,
+    SnowflakeRecordDecisionRequest as SnowflakeRecordDecisionRequest,
+    SnowflakeRecordDecisionResponse as SnowflakeRecordDecisionResponse,
+    SnowflakeRecordHead as SnowflakeRecordHead,
+    SnowflakeRecordPage as SnowflakeRecordPage,
+    SnowflakeRecordRevision as SnowflakeRecordRevision,
+    SnowflakeRecordRevisionCreate as SnowflakeRecordRevisionCreate,
+    SnowflakeRecordState as SnowflakeRecordState,
+    SnowflakeRevisionDecisionRequest as SnowflakeRevisionDecisionRequest,
+    SnowflakeRevisionDecisionResponse as SnowflakeRevisionDecisionResponse,
+    SnowflakeRevisionPage as SnowflakeRevisionPage,
+    SnowflakeRevisionSource as SnowflakeRevisionSource,
+    SnowflakeRevisionStatus as SnowflakeRevisionStatus,
+    SnowflakeStep as SnowflakeStep,
+    SnowflakeStepState as SnowflakeStepState,
+    SnowflakeValidationFinding as SnowflakeValidationFinding,
+    SnowflakeValidationReport as SnowflakeValidationReport,
+    ValidationSeverity as ValidationSeverity,
+    ValidationStatus as ValidationStatus,
+)
+from app.domain_models.writeback import (
+    WritebackAction as WritebackAction,
+    WritebackProposal as WritebackProposal,
+    WritebackProposalCreate as WritebackProposalCreate,
+    WritebackProposalStatus as WritebackProposalStatus,
+    WritebackProposalStatusUpdate as WritebackProposalStatusUpdate,
+    WritebackTarget as WritebackTarget,
+)
+from app.snowflake.contracts import ManuscriptSceneDraftContract as ManuscriptSceneDraftContract

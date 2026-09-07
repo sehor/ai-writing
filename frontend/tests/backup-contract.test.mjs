@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 
 const backupsStore = readFileSync(new URL('../src/stores/backups.ts', import.meta.url), 'utf8')
 const sidebar = readFileSync(new URL('../src/components/BackupWorkspace.vue', import.meta.url), 'utf8')
-const types = readFileSync(new URL('../src/types/index.ts', import.meta.url), 'utf8')
+const types = readFileSync(new URL('../src/types/project.ts', import.meta.url), 'utf8')
 
 test('backup entry downloads the active project ZIP package', () => {
   assert.match(backupsStore, /exportActiveProjectBackup/)

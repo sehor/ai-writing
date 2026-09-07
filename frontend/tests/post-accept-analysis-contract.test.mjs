@@ -8,7 +8,7 @@ const read = (relative) =>
 const reviewsStore = read('../src/stores/reviews.ts')
 const manuscriptStore = read('../src/stores/manuscript.ts')
 const revisionHistory = read('../src/components/manuscript/RevisionHistory.vue')
-const types = read('../src/types/index.ts')
+const types = read('../src/types/analysis.ts')
 const jobsStore = read('../src/stores/analysisJobs.ts')
 
 test('store tracks post-acceptance analysis jobs scoped to the active project', () => {
