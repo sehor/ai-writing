@@ -35,23 +35,8 @@ test('projects live in a dialog instead of occupying the sidebar', () => {
   assert.doesNotMatch(snowflakeWorkspace, /class="create-project"/)
 })
 
-test('the entire Snowflake step card is the selector target', () => {
-  const selectorStart = snowflakeWorkspace.indexOf('<button\n              class="step-selector"')
-  const selectorEnd = snowflakeWorkspace.indexOf('</button>', selectorStart)
-  const selectorMarkup = snowflakeWorkspace.slice(selectorStart, selectorEnd)
-  assert.ok(selectorStart >= 0)
-  assert.match(selectorMarkup, /step\.number/)
-  assert.match(selectorMarkup, /step\.title/)
-  assert.match(selectorMarkup, /step\.description/)
-  assert.match(snowflakeWorkspace, /v-if="!isStepWorkspaceOpen" class="pipeline"/)
-  assert.match(snowflakeWorkspace, /<template v-else>/)
-  assert.match(snowflakeWorkspace, /返回规划总览/)
-})
-
-test('Snowflake generation exposes and sends a bounded upstream context budget', () => {
-  assert.match(snowflakeWorkspace, /v-model\.number="previousArtifactsContextChars"/)
-  assert.match(snowflakeWorkspace, /min="1000"/)
-  assert.match(snowflakeWorkspace, /max="400000"/)
+// Snowflake navigation, forms, and compiler controls have executable component tests.
+test('Snowflake generation sends a bounded upstream context budget', () => {
   assert.match(
     snowflakeStore,
     /previous_artifacts_context_chars: contextChars/,
@@ -62,10 +47,6 @@ test('Snowflake generation exposes and sends a bounded upstream context budget',
   )
 })
 
-test('Steps 6-9 expose records as the only editable and compilable authority', () => {
-  assert.match(snowflakeWorkspace, /<option value="record_set">生成记录草稿<\/option>/)
-  assert.doesNotMatch(snowflakeWorkspace, /Replace \/ full step/)
-  assert.match(snowflakeWorkspace, /v-if="!isRecordStep"[\s\S]*v-model="artifactDraft"/)
-  assert.match(snowflakeWorkspace, /SnowflakeRevisionHistory v-if="!activeStep\?\.virtual && !isRecordStep"/)
+test('Snowflake record actions use the record authority routes', () => {
   assert.match(snowflakeStore, /snowflake\/records\/\$\{step\}\/\$\{action\}/)
 })

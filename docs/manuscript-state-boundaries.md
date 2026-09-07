@@ -33,3 +33,19 @@ flowchart TD
 接受提案、保存正文、恢复版本统一刷新正文/历史/写回，再读取后台分析和一致性结果。独立编辑器可省略审核端口。reset 先保存并关闭正文会话，再清理其他模块；不新增自动保存监听器。
 
 验证：保留自动保存 scope、保存基线、离开保护和版本冲突行为回归；新增三种提交路径的实际刷新调用验证、迟到生成响应隔离、历史操作与编辑会话隔离。依赖检查递归扫描 stores 子目录并解析运行时 import，拒绝循环及领域反向导入 workspace。
+
+## 雪花编辑组件
+
+第二阶段：`SnowflakeWorkspace` 只负责步骤导航和区域装配。步骤选择仍经过 workspace 的原有离开保护。`snowflake` store 保持规划状态、记录审核和编译动作的唯一所有者，本次不扩大到其内部重构。
+
+| 组件 | 职责与状态 |
+| --- | --- |
+| `SnowflakeOverview` | 展示步骤和状态，发出 `openStep` 事件，不直接改变选择 |
+| `SnowflakeArtifactEditor` | 产物表单、生成设置、接受/拒绝、下游影响和 trace；直接绑定原 store，不复制草稿 |
+| `SnowflakeCompilerReview` | Step 7/8 编译、提案证据、选择及批量审核；委托原 store 动作 |
+| `SnowflakeManuscriptMilestone` | Step 10 进度、旧文选区导入表单及请求状态；唯一持有该导入会话，通过事件请求进入正文 |
+| `SnowflakeRecords` / `SnowflakeRevisionHistory` | 保留已有的记录编辑与产物版本审核职责 |
+
+子组件依赖 snowflake/projectContext；导入组件额外依赖 manuscript 以列出目标场景。子组件不导入 workspace。导入组件实例随整个工作区存活，内部只按 visible 挂载 DOM，防止返回总览或切换步骤时丢失选文。样式随所属区域移动，原控件、可访问名称和响应式断点保持。
+
+新增组件行为测试验证导航、表单/生成设置绑定、Step 6–9 记录权威入口、场景更新差异审核、旧文选区跨导航保留及导入参数。
