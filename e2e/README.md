@@ -4,6 +4,16 @@
 
 `pnpm test:browser` 使用随机端口与本地模拟数据，检查浅深主题、桌面及窄屏交互，并生成 `.tmp/ui-review/` 截图。
 
+本地与 CI 的首选命令一致：
+
+```bash
+cd frontend
+pnpm exec playwright install chromium
+pnpm test:e2e
+```
+
+CI 在 Linux 上用 `pnpm exec playwright install --with-deps chromium` 安装浏览器及系统依赖，并把 `AI_WRITING_E2E_PYTHON` 指向 `backend/.venv/bin/python`。本地自动识别 Windows/POSIX 的后端虚拟环境；也可用该变量指定解释器。两个当前用例都通过共享 harness 验证临时数据根，并在 `finally` 中关闭浏览器、服务进程和临时数据。
+
 以下是重构前完整场景的历史说明。旧版入口保留为 `pnpm test:e2e:legacy`，其页面选择器对应旧界面，不作为当前工作台的验收命令。
 
 Real-browser E2E suite from the archived `docs/older/ai-writing-improvement-plan.md`, section 九 / P1-08:
@@ -29,7 +39,7 @@ reaches the spawned backend through the Vite proxy.
       cd frontend
       pnpm exec playwright install chromium
 
-## How to run
+## Legacy scripts (historical only)
 
 Run each script from inside `e2e/`:
 

@@ -182,7 +182,7 @@ Not yet implemented:
    - Implemented v0: zero-dependency frontend contract test for References UI wiring.
    - Implemented v0: backend route test for manuscript proposal acceptance, export, and Canon write-back.
    - Implemented v0: browser-level smoke test for the frontend review flow with mocked API routes.
-   - Implemented in P1-08: real-browser E2E against a live backend and temporary SQLite root (`e2e/full-review-loop.e2e.mjs`, `e2e/wiki-failure.e2e.mjs`). Next: broaden edge-case coverage.
+   - Real-browser E2E against a live backend and temporary SQLite root: `e2e/workspace-review.e2e.mjs` and `e2e/workspace-wiki-failure.e2e.mjs`, run through `pnpm test:e2e` locally and in CI.
 
 ## Development
 
@@ -249,12 +249,12 @@ The compatibility `requirements.txt` is generated with
 Do not edit it independently. Frontend tests include real Pinia/component behavior
 tests as well as the remaining source-boundary checks.
 
-Browser E2E (optional, local only — boots a real backend on a temporary SQLite root plus Vite, then drives Chromium):
+Browser E2E (required in CI; boots a real backend on a temporary SQLite root plus Vite, then drives Chromium):
 
 ```bash
-cd e2e
-node full-review-loop.e2e.mjs   # happy path: accept -> auto-analysis -> review -> write-back -> restart persistence
-node wiki-failure.e2e.mjs       # wiki ingest failure + UI retry recovery
+cd frontend
+pnpm exec playwright install chromium
+pnpm test:e2e
 ```
 
 Interrupted backup imports are reconciled on startup before requests or background jobs run.

@@ -102,15 +102,11 @@ jobs:
         working-directory: frontend
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Run full review loop E2E
+      - name: Run current workspace E2E
+        working-directory: frontend
         env:
           AI_WRITING_E2E_PYTHON: ${{ github.workspace }}/backend/.venv/bin/python
-        run: node e2e/full-review-loop.e2e.mjs
-
-      - name: Run wiki failure E2E
-        env:
-          AI_WRITING_E2E_PYTHON: ${{ github.workspace }}/backend/.venv/bin/python
-        run: node e2e/wiki-failure.e2e.mjs
+        run: pnpm test:e2e
 
   repository:
     name: Repository hygiene (git diff --check)
