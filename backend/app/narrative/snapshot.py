@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 
 from app.cognition.interfaces import ContextPacket, ProjectCognitionSnapshot, WritingScope
-from app.data import WritingDataStore
+from app.data.ports.reading import NarrativeSnapshotReader
 from app.models import (
     CanonEntity,
     ManuscriptScene,
@@ -59,7 +59,7 @@ class NarrativeSnapshot:
         *,
         project_id: str,
         scene_id: str,
-        data_store: WritingDataStore,
+        data_store: NarrativeSnapshotReader,
         cognition=None,
     ) -> "NarrativeSnapshot":
         project = data_store.get_project(project_id)
@@ -409,7 +409,7 @@ def _character_label(node_id: str) -> str:
 
 
 def _threads_for_scene(
-    data_store: WritingDataStore,
+    data_store: NarrativeSnapshotReader,
     project_id: str,
     scenes: list[SceneContract],
     target_sequence: int,

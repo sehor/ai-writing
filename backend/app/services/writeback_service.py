@@ -13,7 +13,7 @@ from app.analysis.service import AnalysisService, writeback_input_fingerprint
 from app.cognition.registry import CognitionRegistry
 from app.cognition.snapshots import build_project_snapshot
 from app.cognition.interfaces import CommittedContentEvent
-from app.data import WritingDataStore
+from app.data.ports.writeback import WritebackDataPort
 from app.integrations.hermes import HermesAgentClient
 from app.llm import (
     ModelGatewayError,
@@ -45,7 +45,7 @@ class SceneForRevisionNotFoundError(LookupError):
 class WritebackService:
     def __init__(
         self,
-        data_store: WritingDataStore,
+        data_store: WritebackDataPort,
         cognition: CognitionRegistry,
         analysis: AnalysisService,
         registry: ModelGatewayRegistry | None = None,

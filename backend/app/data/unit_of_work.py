@@ -37,8 +37,9 @@ def open_connection(database_path: Path) -> sqlite3.Connection:
 class SqliteUnitOfWork:
     """One shared connection plus every repository bound to it."""
 
-    def __init__(self, database_path: Path):
+    def __init__(self, database_path: Path, *, write: bool = False):
         self.database_path = database_path
+        self.write = write
         self._connection: sqlite3.Connection | None = None
         self._repositories: dict[str, object] = {}
 
@@ -48,6 +49,14 @@ class SqliteUnitOfWork:
 
     def __enter__(self) -> "SqliteUnitOfWork":
         self._connection = open_connection(self.database_path)
+        if self.write:
+            try:
+                # Reserve the writer before any read used for a version/state decision.
+                self._connection.execute("BEGIN IMMEDIATE")
+            except BaseException:
+                self._connection.close()
+                self._connection = None
+                raise
         return self
 
     def __exit__(self, exc_type, exc_value, traceback) -> bool:

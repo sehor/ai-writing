@@ -12,7 +12,8 @@ from app.analysis.consistency import CONSISTENCY_PROCESSOR, check_revision
 from app.analysis.models import ConsistencyReport, ConsistencyReportSummary
 from app.cognition.registry import CognitionRegistry
 from app.narrative import NarrativeSnapshot
-from app.data import WritingDataStore, utc_now
+from app.data.ports.manuscript import ManuscriptDataPort
+from app.data.helpers import utc_now
 from app.llm import (
     ModelGatewayError,
     ModelGatewayRegistry,
@@ -40,7 +41,7 @@ from app.services.compile_service import build_compile_checklist, build_scene_dr
 class ManuscriptService:
     def __init__(
         self,
-        data_store: WritingDataStore,
+        data_store: ManuscriptDataPort,
         cognition: CognitionRegistry,
     ):
         self.data_store = data_store

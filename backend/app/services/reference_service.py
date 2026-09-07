@@ -11,7 +11,7 @@ from app.agents.reference_workflow import (
 )
 from app.cognition.registry import CognitionRegistry
 from app.cognition.snapshots import build_project_snapshot
-from app.data import WritingDataStore
+from app.data.ports.reference import ReferenceDataPort
 from app.narrative import NarrativeSnapshot
 from app.llm import (
     ModelGatewayRegistry,
@@ -26,7 +26,7 @@ from app.agents.reference_workflow import build_reference_context
 class ReferenceService:
     def __init__(
         self,
-        data_store: WritingDataStore,
+        data_store: ReferenceDataPort,
         cognition: CognitionRegistry,
         registry: ModelGatewayRegistry | None = None,
     ):

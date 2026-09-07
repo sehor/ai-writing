@@ -166,7 +166,7 @@ class AcceptManuscriptProposalAtomicityTests(unittest.TestCase):
             project_id, proposal_id = self._prepare_pending_proposal(store)
 
             with mock.patch(
-                "app.data.flows.enqueue_manuscript_revision_analysis_jobs",
+                "app.data.transactions.revision_jobs.enqueue_manuscript_revision_analysis_jobs",
                 side_effect=RuntimeError("outbox down"),
             ):
                 with self.assertRaises(RuntimeError):

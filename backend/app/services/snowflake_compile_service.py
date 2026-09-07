@@ -16,7 +16,7 @@ from dataclasses import dataclass
 import re
 
 from app.analysis.service import AnalysisService, compute_input_hash
-from app.data import WritingDataStore
+from app.data.ports.compiler import CompileDataPort
 from app.data.repositories.scene_proposals import scene_contract_input
 from app.models import (
     CanonExtractionReport,
@@ -75,7 +75,7 @@ def _canon_candidate_key(proposal) -> tuple:
 
 
 class SnowflakeCompileService:
-    def __init__(self, data_store: WritingDataStore):
+    def __init__(self, data_store: CompileDataPort):
         self.data_store = data_store
         self.analysis = AnalysisService(data_store)
 

@@ -14,6 +14,7 @@ from typing import Callable
 
 from pydantic import ValidationError
 
+from app.data.ports.analysis import AnalysisDataPort
 from app.analysis.consistency import CONSISTENCY_PROCESSOR
 from app.analysis.models import AnalysisRun, ConsistencyFinding
 from app.models import ManuscriptRevision
@@ -65,7 +66,7 @@ def writeback_input_fingerprint(
 
 
 class AnalysisService:
-    def __init__(self, data_store):
+    def __init__(self, data_store: AnalysisDataPort):
         self.data_store = data_store
 
     def run_writeback_generation(

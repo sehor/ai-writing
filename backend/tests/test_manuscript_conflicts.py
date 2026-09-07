@@ -108,7 +108,8 @@ class ManuscriptConflictTests(unittest.TestCase):
     def test_failure_after_version_check_rolls_back_all_writes(self):
         before = self.state()
         with patch(
-            "app.data.flows.enqueue_committed_revision_jobs", side_effect=RuntimeError("fail")
+            "app.data.transactions.manuscript.enqueue_committed_revision_jobs",
+            side_effect=RuntimeError("fail"),
         ):
             with self.assertRaises(RuntimeError):
                 self.store.update_manuscript_scene(

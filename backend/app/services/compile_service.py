@@ -2,7 +2,7 @@ from app.errors import ResourceNotFoundError
 
 from app.cognition.interfaces import ContextPacket
 from app.cognition.registry import CognitionRegistry
-from app.data import WritingDataStore
+from app.data.ports.reading import NarrativeSnapshotReader
 from app.models import ChapterCompileResponse, SceneContract
 from app.narrative import NarrativeSnapshot
 from app.text_utils import truncate as truncate_context
@@ -11,7 +11,7 @@ from app.text_utils import truncate as truncate_context
 class CompileService:
     def __init__(
         self,
-        data_store: WritingDataStore,
+        data_store: NarrativeSnapshotReader,
         cognition: CognitionRegistry,
     ):
         self.data_store = data_store

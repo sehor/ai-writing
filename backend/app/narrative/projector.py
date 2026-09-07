@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import networkx as nx
 
-from app.data import WritingDataStore
+from app.data.ports.reading import NarrativeGraphReader
 from app.models import NarrativeRelation
 from app.narrative.graph import NarrativeGraph
 
@@ -10,7 +10,7 @@ from app.narrative.graph import NarrativeGraph
 class NarrativeGraphProjector:
     """Deterministically project authoritative narrative relations into NetworkX."""
 
-    def __init__(self, data_store: WritingDataStore):
+    def __init__(self, data_store: NarrativeGraphReader):
         self.data_store = data_store
 
     def project(self, project_id: str) -> NarrativeGraph:

@@ -3,7 +3,7 @@
 from dataclasses import asdict
 
 
-from app.data import WritingDataStore
+from app.data.ports.generation import GenerationRunReader
 from app.llm import (
     ModelCatalog,
     ModelGatewayError,
@@ -17,7 +17,7 @@ from app.models import GenerationRun, ModelCapabilitiesView, ModelProfileView
 class ModelService:
     def __init__(
         self,
-        data_store: WritingDataStore,
+        data_store: GenerationRunReader,
         registry: ModelGatewayRegistry | None = None,
         catalog: ModelCatalog | None = None,
     ) -> None:

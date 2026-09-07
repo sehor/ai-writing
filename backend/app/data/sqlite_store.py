@@ -7,46 +7,45 @@ method name and signature is unchanged from the mixin-based store:
 - Single-aggregate operations open a short SqliteUnitOfWork internally.
 - Multi-step transactional flows (acceptance, restore, batch accept,
   write-back apply, outbox enqueueing) run inside ONE unit of work and
-  delegate to app.data.flows.
+  delegate to app.data.transactions.
 - Methods that historically accepted a trailing (or leading) connection
   argument still do; the connection-scoped repository is constructed on
   the spot so callers can keep composing transactions via connect().
 """
 
+import sqlite3
 from contextlib import contextmanager
 from pathlib import Path
-import sqlite3
 from typing import Iterator
 
-from app.data.flows import (
-    accept_manuscript_proposal,
-    accept_scene_proposals,
-    accept_writeback_proposal,
-    decide_snowflake_record_revision,
-    decide_snowflake_revision,
-    enqueue_manuscript_revision_analysis_jobs,
-    enqueue_manuscript_revision_index_job,
-    restore_manuscript_revision,
-    update_manuscript_scene,
-)
+from app.data.migrations import initialize_schema
 from app.data.repositories.analysis import AnalysisRepository
 from app.data.repositories.canon import CanonRepository
 from app.data.repositories.memory import MemoryRepository
+from app.data.repositories.narrative_maintenance import NarrativeMaintenance
 from app.data.repositories.outbox import OutboxRepository
 from app.data.repositories.projects import ProjectRepository
 from app.data.repositories.review import ReviewRepository
 from app.data.repositories.scene_proposals import SceneProposalRepository
 from app.data.repositories.scenes import SceneRepository
 from app.data.repositories.snowflake_records import SnowflakeRecordRepository
-from app.data.migrations import initialize_schema
-from app.data.repositories.narrative_maintenance import NarrativeMaintenance
+from app.data.transactions.manuscript import (
+    accept_manuscript_proposal,
+    restore_manuscript_revision,
+    update_manuscript_scene,
+)
+from app.data.transactions.revision_jobs import (
+    enqueue_manuscript_revision_analysis_jobs,
+    enqueue_manuscript_revision_index_job,
+)
+from app.data.transactions.scene_compile import accept_scene_proposals
+from app.data.transactions.snowflake import (
+    decide_snowflake_record_revision,
+    decide_snowflake_revision,
+)
+from app.data.transactions.writeback import accept_writeback_proposal
 from app.data.unit_of_work import SqliteUnitOfWork, open_connection
 from app.models import (
-    StoryFactCorrection,
-    NarrativeVersionChange,
-    KnowledgeStateAuthorCreate,
-    KnowledgeStateCorrection,
-    NarrativeRevision,
     CanonEntity,
     CanonEntityCreate,
     CanonEntityUpdate,
@@ -58,10 +57,9 @@ from app.models import (
     GenerationRunCreate,
     GenerationRunUpdate,
     KnowledgeState,
+    KnowledgeStateAuthorCreate,
+    KnowledgeStateCorrection,
     KnowledgeStateCreate,
-    MemoryRecord,
-    MemoryRecordCreate,
-    MemoryRecordUpdate,
     ManuscriptChapter,
     ManuscriptChapterCreate,
     ManuscriptChapterUpdate,
@@ -72,6 +70,13 @@ from app.models import (
     ManuscriptRevision,
     ManuscriptScene,
     ManuscriptSceneUpdate,
+    MemoryRecord,
+    MemoryRecordCreate,
+    MemoryRecordUpdate,
+    NarrativeRelation,
+    NarrativeRelationCreate,
+    NarrativeRevision,
+    NarrativeVersionChange,
     ProjectCreate,
     ProjectSummary,
     ReferenceSuggestion,
@@ -90,9 +95,8 @@ from app.models import (
     SnowflakeRecordDecisionResponse,
     SnowflakeRecordRevision,
     SnowflakeRecordRevisionCreate,
-    NarrativeRelation,
-    NarrativeRelationCreate,
     StoryFact,
+    StoryFactCorrection,
     StoryFactCreate,
     StoryThread,
     StoryThreadCreate,
@@ -268,9 +272,8 @@ class SQLiteWritingDataStore:
         expected_head_revision_id: str,
         review_reason: str = "",
     ) -> tuple[SnowflakeArtifactRevision, SnowflakeArtifactHead, list[int], str]:
-        with SqliteUnitOfWork(self.database_path) as uow:
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
             # Reserve the writer before reading the head used by optimistic checks.
-            uow.connection.execute("BEGIN IMMEDIATE")
             return decide_snowflake_revision(
                 uow.connection,
                 project_id=project_id,
@@ -333,8 +336,7 @@ class SQLiteWritingDataStore:
         *,
         status: str = "draft",
     ) -> list[SnowflakeRecordRevision]:
-        with SqliteUnitOfWork(self.database_path) as uow:
-            uow.connection.execute("BEGIN IMMEDIATE")
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
             repository = SnowflakeRecordRepository(uow.connection)
             return [repository.create(project_id, create, status=status) for create in creates]
 
@@ -361,8 +363,7 @@ class SQLiteWritingDataStore:
         expected_revision_id: str,
         review_reason: str = "",
     ) -> SnowflakeRecordDecisionResponse:
-        with SqliteUnitOfWork(self.database_path) as uow:
-            uow.connection.execute("BEGIN IMMEDIATE")
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
             return decide_snowflake_record_revision(
                 uow.connection,
                 project_id=project_id,
@@ -419,29 +420,25 @@ class SQLiteWritingDataStore:
     def correct_story_fact(
         self, project_id: str, fact_id: str, change: StoryFactCorrection
     ) -> StoryFact:
-        with SqliteUnitOfWork(self.database_path) as uow:
-            uow.connection.execute("BEGIN IMMEDIATE")
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
             return NarrativeMaintenance(uow.narrative).correct_fact(project_id, fact_id, change)
 
     def retract_story_fact(
         self, project_id: str, fact_id: str, change: NarrativeVersionChange
     ) -> StoryFact:
-        with SqliteUnitOfWork(self.database_path) as uow:
-            uow.connection.execute("BEGIN IMMEDIATE")
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
             return NarrativeMaintenance(uow.narrative).retract_fact(project_id, fact_id, change)
 
     def create_author_knowledge(
         self, project_id: str, fact_id: str, create: KnowledgeStateAuthorCreate
     ) -> KnowledgeState:
-        with SqliteUnitOfWork(self.database_path) as uow:
-            uow.connection.execute("BEGIN IMMEDIATE")
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
             return NarrativeMaintenance(uow.narrative).create_knowledge(project_id, fact_id, create)
 
     def correct_knowledge_state(
         self, project_id: str, fact_id: str, knowledge_id: str, change: KnowledgeStateCorrection
     ) -> KnowledgeState:
-        with SqliteUnitOfWork(self.database_path) as uow:
-            uow.connection.execute("BEGIN IMMEDIATE")
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
             return NarrativeMaintenance(uow.narrative).correct_knowledge(
                 project_id, fact_id, knowledge_id, change
             )
@@ -449,8 +446,7 @@ class SQLiteWritingDataStore:
     def retract_knowledge_state(
         self, project_id: str, fact_id: str, knowledge_id: str, change: NarrativeVersionChange
     ) -> KnowledgeState:
-        with SqliteUnitOfWork(self.database_path) as uow:
-            uow.connection.execute("BEGIN IMMEDIATE")
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
             return NarrativeMaintenance(uow.narrative).retract_knowledge(
                 project_id, fact_id, knowledge_id, change
             )
@@ -464,8 +460,7 @@ class SQLiteWritingDataStore:
             return uow.narrative.get_fact(project_id, fact_id)
 
     def create_story_fact(self, project_id: str, fact: StoryFactCreate) -> StoryFact:
-        with SqliteUnitOfWork(self.database_path) as uow:
-            uow.connection.execute("BEGIN IMMEDIATE")
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
             return uow.narrative.create_fact(project_id, fact)
 
     def list_story_facts(self, project_id: str) -> list[StoryFact]:
@@ -486,8 +481,7 @@ class SQLiteWritingDataStore:
         fact_id: str,
         knowledge: KnowledgeStateCreate,
     ) -> KnowledgeState:
-        with SqliteUnitOfWork(self.database_path) as uow:
-            uow.connection.execute("BEGIN IMMEDIATE")
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
             return uow.narrative.set_knowledge_state(project_id, fact_id, knowledge)
 
     def list_knowledge_states(self, project_id: str, fact_id: str) -> list[KnowledgeState]:
@@ -500,8 +494,7 @@ class SQLiteWritingDataStore:
         fact_id: str,
         knowledge: CharacterKnowledgeCreate,
     ) -> CharacterKnowledge:
-        with SqliteUnitOfWork(self.database_path) as uow:
-            uow.connection.execute("BEGIN IMMEDIATE")
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
             return uow.narrative.set_character_knowledge(project_id, fact_id, knowledge)
 
     def list_character_facts_at(
@@ -673,8 +666,7 @@ class SQLiteWritingDataStore:
     def accept_scene_proposals(
         self, project_id: str, proposal_ids: list[str]
     ) -> tuple[list[SceneContract], list[SceneProposal]]:
-        with SqliteUnitOfWork(self.database_path) as uow:
-            uow.connection.execute("BEGIN IMMEDIATE")
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
             return accept_scene_proposals(
                 uow.connection, project_id=project_id, proposal_ids=proposal_ids
             )
@@ -757,8 +749,7 @@ class SQLiteWritingDataStore:
     def accept_manuscript_proposal(
         self, project_id: str, proposal_id: str, draft: ManuscriptProposalAcceptance | None = None
     ) -> ManuscriptScene | None:
-        with SqliteUnitOfWork(self.database_path) as uow:
-            uow.connection.execute("BEGIN IMMEDIATE")
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
             return accept_manuscript_proposal(
                 uow.connection, project_id=project_id, proposal_id=proposal_id, draft=draft
             )
@@ -766,7 +757,7 @@ class SQLiteWritingDataStore:
     def restore_manuscript_revision(
         self, project_id: str, revision_id: str
     ) -> ManuscriptScene | None:
-        with SqliteUnitOfWork(self.database_path) as uow:
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
             return restore_manuscript_revision(
                 uow.connection, project_id=project_id, revision_id=revision_id
             )
@@ -774,9 +765,8 @@ class SQLiteWritingDataStore:
     def update_manuscript_scene(
         self, project_id: str, scene_id: str, update: ManuscriptSceneUpdate
     ) -> ManuscriptScene | None:
-        with SqliteUnitOfWork(self.database_path) as uow:
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
             # Serialize the version check and all revision/outbox writes.
-            uow.connection.execute("BEGIN IMMEDIATE")
             return update_manuscript_scene(
                 uow.connection, project_id=project_id, scene_id=scene_id, update=update
             )
@@ -888,7 +878,7 @@ class SQLiteWritingDataStore:
     def accept_writeback_proposal(
         self, project_id: str, proposal_id: str
     ) -> WritebackProposal | None:
-        with SqliteUnitOfWork(self.database_path) as uow:
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
             return accept_writeback_proposal(
                 uow.connection, project_id=project_id, proposal_id=proposal_id
             )

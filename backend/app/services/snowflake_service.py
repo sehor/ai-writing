@@ -12,7 +12,7 @@ from math import ceil
 
 
 from app.agents.writing_workflow import WritingWorkflow
-from app.data import WritingDataStore
+from app.data.ports.snowflake import SnowflakeDataPort
 from app.llm import (
     ModelGatewayError,
     ModelGatewayRegistry,
@@ -118,7 +118,7 @@ class SnowflakeRecordValidationError(ValueError):
 class SnowflakeService:
     def __init__(
         self,
-        data_store: WritingDataStore,
+        data_store: SnowflakeDataPort,
         llm_wiki: LlmWiki,
         registry: ModelGatewayRegistry | None = None,
     ):

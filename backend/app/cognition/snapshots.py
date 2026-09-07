@@ -6,13 +6,13 @@ builder for consumers that have not moved to scene-scoped context.
 """
 
 from app.cognition.interfaces import ProjectCognitionSnapshot
-from app.data import WritingDataStore
+from app.data.ports.reading import ProjectSnapshotReader
 from app.narrative.snapshot import NarrativeSnapshot
 
 
 def build_project_snapshot(
     project_id: str,
-    data_store: WritingDataStore,
+    data_store: ProjectSnapshotReader,
 ) -> ProjectCognitionSnapshot:
     project = data_store.get_project(project_id)
     if project is None:
