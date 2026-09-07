@@ -1,9 +1,18 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from typing import Callable, TypeVar
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from app.narrative.director import DirectorAnalyzer, DirectorReport
 
 from app.data import WritingDataStore, get_data_store
 from app.dependencies import require_project
+from app.errors import InvalidOperationError, ResourceNotFoundError
 from app.models import (
+    StoryFactCorrection,
+    NarrativeVersionChange,
+    NarrativeRevision,
+    KnowledgeState,
+    KnowledgeStateAuthorCreate,
+    KnowledgeStateCorrection,
     CharacterKnowledge,
     NarrativeRelation,
     CharacterKnowledgeCreate,
@@ -19,6 +28,17 @@ from app.models import (
 
 
 router = APIRouter(tags=["narrative"])
+
+T = TypeVar("T")
+
+
+def _apply_correction(action: Callable[..., T], *args) -> T:
+    try:
+        return action(*args)
+    except LookupError as exc:
+        raise ResourceNotFoundError(str(exc)) from exc
+    except ValueError as exc:
+        raise InvalidOperationError(str(exc)) from exc
 
 
 @router.get("/projects/{project_id}/narrative/relations", response_model=list[NarrativeRelation])
@@ -90,12 +110,114 @@ def set_character_knowledge(
         return data_store.set_character_knowledge(project_id, fact_id, knowledge)
     except LookupError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
+
+
+@router.put("/projects/{project_id}/story-facts/{fact_id}", response_model=StoryFact)
+def correct_story_fact(
+    project_id: str,
+    fact_id: str,
+    change: StoryFactCorrection,
+    data_store: WritingDataStore = Depends(get_data_store),
+) -> StoryFact:
+    require_project(project_id, data_store)
+    return _apply_correction(data_store.correct_story_fact, project_id, fact_id, change)
+
+
+@router.post("/projects/{project_id}/story-facts/{fact_id}/retract", response_model=StoryFact)
+def retract_story_fact(
+    project_id: str,
+    fact_id: str,
+    change: NarrativeVersionChange,
+    data_store: WritingDataStore = Depends(get_data_store),
+) -> StoryFact:
+    require_project(project_id, data_store)
+    return _apply_correction(data_store.retract_story_fact, project_id, fact_id, change)
+
+
+@router.get(
+    "/projects/{project_id}/story-facts/{fact_id}/history", response_model=list[NarrativeRevision]
+)
+def narrative_history(
+    project_id: str,
+    fact_id: str,
+    data_store: WritingDataStore = Depends(get_data_store),
+) -> list[NarrativeRevision]:
+    require_project(project_id, data_store)
+    return data_store.list_narrative_history(project_id, fact_id)
+
+
+@router.get(
+    "/projects/{project_id}/story-facts/{fact_id}/knowledge-states",
+    response_model=list[KnowledgeState],
+)
+def list_fact_knowledge(
+    project_id: str,
+    fact_id: str,
+    data_store: WritingDataStore = Depends(get_data_store),
+) -> list[KnowledgeState]:
+    require_project(project_id, data_store)
+    if data_store.get_story_fact(project_id, fact_id) is None:
+        raise ResourceNotFoundError("Story fact not found")
+    return data_store.list_knowledge_states(project_id, fact_id)
+
+
+@router.post(
+    "/projects/{project_id}/story-facts/{fact_id}/knowledge-states",
+    response_model=KnowledgeState,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_author_knowledge(
+    project_id: str,
+    fact_id: str,
+    create: KnowledgeStateAuthorCreate,
+    data_store: WritingDataStore = Depends(get_data_store),
+) -> KnowledgeState:
+    require_project(project_id, data_store)
+    return _apply_correction(data_store.create_author_knowledge, project_id, fact_id, create)
+
+
+@router.put(
+    "/projects/{project_id}/story-facts/{fact_id}/knowledge-states/{knowledge_id}",
+    response_model=KnowledgeState,
+)
+def correct_knowledge_state(
+    project_id: str,
+    fact_id: str,
+    knowledge_id: str,
+    change: KnowledgeStateCorrection,
+    data_store: WritingDataStore = Depends(get_data_store),
+) -> KnowledgeState:
+    require_project(project_id, data_store)
+    return _apply_correction(
+        data_store.correct_knowledge_state, project_id, fact_id, knowledge_id, change
+    )
+
+
+@router.post(
+    "/projects/{project_id}/story-facts/{fact_id}/knowledge-states/{knowledge_id}/retract",
+    response_model=KnowledgeState,
+)
+def retract_knowledge_state(
+    project_id: str,
+    fact_id: str,
+    knowledge_id: str,
+    change: NarrativeVersionChange,
+    data_store: WritingDataStore = Depends(get_data_store),
+) -> KnowledgeState:
+    require_project(project_id, data_store)
+    return _apply_correction(
+        data_store.retract_knowledge_state, project_id, fact_id, knowledge_id, change
+    )
 
 
 @router.get("/projects/{project_id}/story-state", response_model=StoryStateResponse)
 def get_story_state(
     project_id: str,
-    scene_position: int,
+    scene_position: int = Query(ge=0, le=999),
     character: str = "",
     data_store: WritingDataStore = Depends(get_data_store),
 ) -> StoryStateResponse:

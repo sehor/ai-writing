@@ -39,8 +39,14 @@ from app.data.repositories.scene_proposals import SceneProposalRepository
 from app.data.repositories.scenes import SceneRepository
 from app.data.repositories.snowflake_records import SnowflakeRecordRepository
 from app.data.migrations import initialize_schema
+from app.data.repositories.narrative_maintenance import NarrativeMaintenance
 from app.data.unit_of_work import SqliteUnitOfWork, open_connection
 from app.models import (
+    StoryFactCorrection,
+    NarrativeVersionChange,
+    KnowledgeStateAuthorCreate,
+    KnowledgeStateCorrection,
+    NarrativeRevision,
     CanonEntity,
     CanonEntityCreate,
     CanonEntityUpdate,
@@ -410,8 +416,56 @@ class SQLiteWritingDataStore:
     # Narrative state: temporal facts / knowledge / story threads
     # ------------------------------------------------------------------
 
+    def correct_story_fact(
+        self, project_id: str, fact_id: str, change: StoryFactCorrection
+    ) -> StoryFact:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            uow.connection.execute("BEGIN IMMEDIATE")
+            return NarrativeMaintenance(uow.narrative).correct_fact(project_id, fact_id, change)
+
+    def retract_story_fact(
+        self, project_id: str, fact_id: str, change: NarrativeVersionChange
+    ) -> StoryFact:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            uow.connection.execute("BEGIN IMMEDIATE")
+            return NarrativeMaintenance(uow.narrative).retract_fact(project_id, fact_id, change)
+
+    def create_author_knowledge(
+        self, project_id: str, fact_id: str, create: KnowledgeStateAuthorCreate
+    ) -> KnowledgeState:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            uow.connection.execute("BEGIN IMMEDIATE")
+            return NarrativeMaintenance(uow.narrative).create_knowledge(project_id, fact_id, create)
+
+    def correct_knowledge_state(
+        self, project_id: str, fact_id: str, knowledge_id: str, change: KnowledgeStateCorrection
+    ) -> KnowledgeState:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            uow.connection.execute("BEGIN IMMEDIATE")
+            return NarrativeMaintenance(uow.narrative).correct_knowledge(
+                project_id, fact_id, knowledge_id, change
+            )
+
+    def retract_knowledge_state(
+        self, project_id: str, fact_id: str, knowledge_id: str, change: NarrativeVersionChange
+    ) -> KnowledgeState:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            uow.connection.execute("BEGIN IMMEDIATE")
+            return NarrativeMaintenance(uow.narrative).retract_knowledge(
+                project_id, fact_id, knowledge_id, change
+            )
+
+    def list_narrative_history(self, project_id: str, fact_id: str) -> list[NarrativeRevision]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return NarrativeMaintenance(uow.narrative).history(project_id, fact_id)
+
+    def get_story_fact(self, project_id: str, fact_id: str) -> StoryFact | None:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.narrative.get_fact(project_id, fact_id)
+
     def create_story_fact(self, project_id: str, fact: StoryFactCreate) -> StoryFact:
         with SqliteUnitOfWork(self.database_path) as uow:
+            uow.connection.execute("BEGIN IMMEDIATE")
             return uow.narrative.create_fact(project_id, fact)
 
     def list_story_facts(self, project_id: str) -> list[StoryFact]:
@@ -433,6 +487,7 @@ class SQLiteWritingDataStore:
         knowledge: KnowledgeStateCreate,
     ) -> KnowledgeState:
         with SqliteUnitOfWork(self.database_path) as uow:
+            uow.connection.execute("BEGIN IMMEDIATE")
             return uow.narrative.set_knowledge_state(project_id, fact_id, knowledge)
 
     def list_knowledge_states(self, project_id: str, fact_id: str) -> list[KnowledgeState]:
@@ -446,6 +501,7 @@ class SQLiteWritingDataStore:
         knowledge: CharacterKnowledgeCreate,
     ) -> CharacterKnowledge:
         with SqliteUnitOfWork(self.database_path) as uow:
+            uow.connection.execute("BEGIN IMMEDIATE")
             return uow.narrative.set_character_knowledge(project_id, fact_id, knowledge)
 
     def list_character_facts_at(

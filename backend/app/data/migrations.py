@@ -712,6 +712,36 @@ def _add_scene_update_proposals(connection: sqlite3.Connection) -> None:
     """)
 
 
+def _add_narrative_revision_history(connection: sqlite3.Connection) -> None:
+    for table in ("story_facts", "knowledge_states"):
+        connection.execute(f"ALTER TABLE {table} ADD COLUMN version INTEGER NOT NULL DEFAULT 1")
+        connection.execute(f"ALTER TABLE {table} ADD COLUMN updated_at TEXT NOT NULL DEFAULT ''")
+    _run_script(
+        connection,
+        """
+        CREATE UNIQUE INDEX idx_story_fact_project_identity ON story_facts(project_id, id);
+        CREATE UNIQUE INDEX idx_knowledge_project_fact_identity
+            ON knowledge_states(project_id, fact_id, id);
+        CREATE TABLE narrative_revisions (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL,
+            fact_id TEXT NOT NULL,
+            knowledge_state_id TEXT,
+            version INTEGER NOT NULL CHECK(version >= 1),
+            reason TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            record_json TEXT NOT NULL,
+            FOREIGN KEY (project_id, fact_id) REFERENCES story_facts(project_id, id)
+                ON DELETE CASCADE,
+            FOREIGN KEY (project_id, fact_id, knowledge_state_id)
+                REFERENCES knowledge_states(project_id, fact_id, id) ON DELETE CASCADE
+        );
+        CREATE UNIQUE INDEX idx_narrative_revision_version
+            ON narrative_revisions(project_id, fact_id, COALESCE(knowledge_state_id, ''), version);
+        """,
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(version=1, name="baseline_schema", apply=_apply_baseline_schema),
     Migration(version=2, name="scene_contracts_chapter_id", apply=_add_scene_contracts_chapter_id),
@@ -750,6 +780,7 @@ MIGRATIONS: list[Migration] = [
     ),
     Migration(version=14, name="scene_record_identity", apply=_add_scene_record_identity),
     Migration(version=15, name="scene_update_proposals", apply=_add_scene_update_proposals),
+    Migration(version=16, name="narrative_revision_history", apply=_add_narrative_revision_history),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1].version

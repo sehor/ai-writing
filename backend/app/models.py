@@ -67,7 +67,7 @@ ReferenceSuggestionStatus = Literal["pending_review", "accepted", "rejected", "s
 HermesProcessStatus = Literal["completed", "partial", "failed"]
 HermesWikiChangeAction = Literal["created", "updated", "skipped"]
 HermesIssueSeverity = Literal["info", "warning", "error"]
-StoryFactStatus = Literal["planned", "confirmed", "superseded"]
+StoryFactStatus = Literal["planned", "confirmed", "superseded", "retracted"]
 KnowledgeScope = Literal["world_truth", "reader_knowledge", "character_knowledge"]
 NarrativeRelationStatus = Literal["planned", "confirmed", "superseded"]
 StoryThreadType = Literal["foreshadow", "mystery", "relationship", "conflict", "promise", "subplot"]
@@ -611,6 +611,8 @@ class StoryFactCreate(BaseModel):
 class StoryFact(StoryFactCreate):
     id: str
     project_id: str
+    version: int = Field(default=1, ge=1)
+    updated_at: str = ""
 
 
 class KnowledgeStateCreate(BaseModel):
@@ -638,6 +640,8 @@ class KnowledgeState(KnowledgeStateCreate):
     id: str
     fact_id: str
     project_id: str
+    version: int = Field(default=1, ge=1)
+    updated_at: str = ""
 
 
 class CharacterKnowledgeCreate(BaseModel):
@@ -653,6 +657,56 @@ class CharacterKnowledgeCreate(BaseModel):
 class CharacterKnowledge(CharacterKnowledgeCreate):
     fact_id: str
     project_id: str
+
+
+class NarrativeChangeReason(BaseModel):
+    reason: str = Field(min_length=1, max_length=1000)
+
+    @field_validator("reason", mode="before")
+    @classmethod
+    def normalize_reason(cls, value):
+        return value.strip() if isinstance(value, str) else value
+
+
+class NarrativeVersionChange(NarrativeChangeReason):
+    expected_version: int = Field(ge=1)
+
+
+class StoryFactCorrection(StoryFactCreate, NarrativeVersionChange):
+    pass
+
+
+class KnowledgeStateAuthorCreate(KnowledgeStateCreate, NarrativeChangeReason):
+    pass
+
+
+class KnowledgeStateCorrection(KnowledgeStateCreate, NarrativeVersionChange):
+    pass
+
+
+class NarrativeRevision(BaseModel):
+    id: str
+    project_id: str
+    fact_id: str
+    knowledge_state_id: str = ""
+    version: int = Field(ge=1)
+    reason: str = Field(min_length=1, max_length=1000)
+    created_at: str
+    record: StoryFact | KnowledgeState
+
+    @model_validator(mode="after")
+    def validate_identity(self) -> "NarrativeRevision":
+        record = self.record
+        if record.project_id != self.project_id or record.version != self.version:
+            raise ValueError("Narrative history identity/version mismatch")
+        if self.knowledge_state_id:
+            if not isinstance(record, KnowledgeState) or (
+                record.id != self.knowledge_state_id or record.fact_id != self.fact_id
+            ):
+                raise ValueError("Narrative knowledge history target mismatch")
+        elif not isinstance(record, StoryFact) or record.id != self.fact_id:
+            raise ValueError("Narrative fact history target mismatch")
+        return self
 
 
 class NarrativeRelationCreate(BaseModel):

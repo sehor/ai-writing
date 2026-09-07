@@ -41,12 +41,18 @@ TABLES_IN_ORDER = (
     "story_facts",
     "story_fact_character_knowledge",
     "knowledge_states",
+    "narrative_revisions",
     "narrative_relations",
     "story_threads",
     "story_thread_events",
 )
+PRE_NARRATIVE_REVISION_TABLES = tuple(
+    table for table in TABLES_IN_ORDER if table != "narrative_revisions"
+)
 PRE_GENERATION_RUN_TABLES = tuple(
-    table for table in TABLES_IN_ORDER if table not in {"generation_runs", "generation_attempts"}
+    table
+    for table in PRE_NARRATIVE_REVISION_TABLES
+    if table not in {"generation_runs", "generation_attempts"}
 )
 LEGACY_V2_TABLES = tuple(
     table
@@ -69,6 +75,7 @@ NARRATIVE_TABLES = frozenset(
         "story_facts",
         "story_fact_character_knowledge",
         "knowledge_states",
+        "narrative_revisions",
         "narrative_relations",
         "story_threads",
         "story_thread_events",
@@ -161,6 +168,8 @@ def validate_tables(manifest: dict, tables: Any) -> dict:
         schema_version = manifest.get("schema_version", 0)
         expected_tables = (
             TABLES_IN_ORDER
+            if schema_version >= 16
+            else PRE_NARRATIVE_REVISION_TABLES
             if schema_version >= 12
             else PRE_GENERATION_RUN_TABLES
             if schema_version >= 11

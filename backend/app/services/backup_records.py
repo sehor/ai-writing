@@ -15,6 +15,7 @@ from app.data.repositories.manuscript import (
     manuscript_scene_from_row,
 )
 from app.data.repositories.memory import memory_record_from_row
+from app.data.repositories.narrative_maintenance import narrative_revision_from_row
 from app.data.repositories.narrative import (
     _event_from_row,
     _fact_from_row,
@@ -60,6 +61,7 @@ RECORD_READERS = {
     "story_facts": _fact_from_row,
     "story_fact_character_knowledge": _character_knowledge,
     "knowledge_states": _knowledge_state_from_row,
+    "narrative_revisions": narrative_revision_from_row,
     "narrative_relations": _relation_from_row,
     "story_threads": _thread_from_row,
     "story_thread_events": _event_from_row,

@@ -1,6 +1,11 @@
 from typing import Protocol
 
 from app.models import (
+    StoryFactCorrection,
+    NarrativeVersionChange,
+    KnowledgeStateAuthorCreate,
+    KnowledgeStateCorrection,
+    NarrativeRevision,
     CanonEntity,
     CanonEntityCreate,
     CanonEntityUpdate,
@@ -252,6 +257,30 @@ class WritingDataStore(Protocol):
 
     def delete_canon_entity(self, project_id: str, entity_id: str) -> bool:
         pass
+
+    def correct_story_fact(
+        self, project_id: str, fact_id: str, change: StoryFactCorrection
+    ) -> StoryFact: ...
+
+    def retract_story_fact(
+        self, project_id: str, fact_id: str, change: NarrativeVersionChange
+    ) -> StoryFact: ...
+
+    def create_author_knowledge(
+        self, project_id: str, fact_id: str, create: KnowledgeStateAuthorCreate
+    ) -> KnowledgeState: ...
+
+    def correct_knowledge_state(
+        self, project_id: str, fact_id: str, knowledge_id: str, change: KnowledgeStateCorrection
+    ) -> KnowledgeState: ...
+
+    def retract_knowledge_state(
+        self, project_id: str, fact_id: str, knowledge_id: str, change: NarrativeVersionChange
+    ) -> KnowledgeState: ...
+
+    def list_narrative_history(self, project_id: str, fact_id: str) -> list[NarrativeRevision]: ...
+
+    def get_story_fact(self, project_id: str, fact_id: str) -> StoryFact | None: ...
 
     def create_story_fact(self, project_id: str, fact: StoryFactCreate) -> StoryFact:
         pass
