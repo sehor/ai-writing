@@ -263,6 +263,8 @@ class SQLiteWritingDataStore:
         review_reason: str = "",
     ) -> tuple[SnowflakeArtifactRevision, SnowflakeArtifactHead, list[int], str]:
         with SqliteUnitOfWork(self.database_path) as uow:
+            # Reserve the writer before reading the head used by optimistic checks.
+            uow.connection.execute("BEGIN IMMEDIATE")
             return decide_snowflake_revision(
                 uow.connection,
                 project_id=project_id,
@@ -354,6 +356,7 @@ class SQLiteWritingDataStore:
         review_reason: str = "",
     ) -> SnowflakeRecordDecisionResponse:
         with SqliteUnitOfWork(self.database_path) as uow:
+            uow.connection.execute("BEGIN IMMEDIATE")
             return decide_snowflake_record_revision(
                 uow.connection,
                 project_id=project_id,

@@ -106,6 +106,12 @@ def decide_snowflake_revision(
     if revision is None:
         raise SnowflakeRevisionNotFoundError("Snowflake revision not found.")
     head = snowflake.get_head(project_id, revision.step_number)
+    if (
+        decision == revision.status == "accepted"
+        and head.accepted_revision_id == revision.id
+        and expected_head_revision_id in {revision.base_head_revision_id, revision.id}
+    ):
+        return revision, head, [], ""
     if decision == "accepted" and (
         head.accepted_revision_id != expected_head_revision_id
         or revision.base_head_revision_id != expected_head_revision_id
@@ -190,6 +196,14 @@ def decide_snowflake_record_revision(
     candidate = records.get_revision(project_id, revision_id)
     if candidate is None:
         raise LookupError("Snowflake record revision not found.")
+    if candidate.status == decision == "accepted":
+        head = records.get_head(project_id, candidate.step_number, candidate.record_id)
+        if (
+            head is not None
+            and head.accepted_revision_id == candidate.id
+            and expected_revision_id in {candidate.base_revision_id, candidate.id}
+        ):
+            return SnowflakeRecordDecisionResponse(revision=candidate, head=head)
     if decision == "accepted":
         validation = validate_snowflake_record_payload(candidate.step_number, candidate.payload)
         if validation.status == "failed":
