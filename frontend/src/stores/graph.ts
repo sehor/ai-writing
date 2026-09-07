@@ -2,26 +2,22 @@ import { ref } from 'vue'
 import { defineStore } from 'pinia'
 import { fetchApi } from '../api/client'
 import type { GraphAnalysisResponse } from '../types'
-import { useWorkspaceStore } from './workspace'
-import type { WorkspaceShell } from './workspaceShell'
+import { useProjectContextStore } from './projectContext'
 
 /** Graph / structure analysis for the active project. */
 export const useGraphStore = defineStore('graph', () => {
-  // Lazy, explicitly-typed access keeps the store type graph acyclic.
-  function ws(): WorkspaceShell {
-    return useWorkspaceStore()
-  }
+  const context = useProjectContextStore()
 
   const graphAnalysis = ref<GraphAnalysisResponse | null>(null)
   const isLoadingGraph = ref(false)
   const graphError = ref('')
 
   function isActiveProject(projectId: string) {
-    return projectId === ws().activeProjectId
+    return projectId === context.activeProjectId
   }
 
   async function loadGraphAnalysis(
-    projectId = ws().activeProject?.id,
+    projectId = context.activeProjectId,
     signal?: AbortSignal,
   ) {
     graphError.value = ''

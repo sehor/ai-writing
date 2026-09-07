@@ -4,7 +4,7 @@ import { useBackupsStore } from '../src/stores/backups'
 import { fetchApi } from '../src/api/client'
 
 vi.mock('../src/api/client', () => ({ fetchApi: vi.fn() }))
-vi.mock('../src/stores/workspace', () => ({ useWorkspaceStore: () => ({
+vi.mock('../src/stores/projectContext', () => ({ useProjectContextStore: () => ({
   activeProjectId: 'novel', activeProject: { id: 'novel', title: 'Novel' },
   reloadActiveProject: vi.fn(),
 }) }))

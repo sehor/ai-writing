@@ -30,7 +30,7 @@ test('shared label formatting humanizes enum values without unsafe parsing', () 
 test('proposal acceptance refreshes dependent collections in one batch', () => {
   assert.match(
     manuscriptStore,
-    /await Promise\.all\(\[\s*loadManuscriptScenes\(projectId\),\s*loadManuscriptRevisions\(projectId\),\s*reviews\.loadWritebackProposals\(projectId\),?\s*\]\)/s,
+    /await Promise\.all\(\[\s*loadManuscriptScenes\(projectId\),\s*loadManuscriptRevisions\(projectId\),\s*reviewPort\?\.loadWritebackProposals\(projectId\),?\s*\]\)/s,
   )
 })
 

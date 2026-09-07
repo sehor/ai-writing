@@ -26,19 +26,16 @@ import { useGraphStore } from './graph'
 import { useManuscriptStore } from './manuscript'
 import { useProjectsStore } from './projects'
 import { useReviewsStore } from './reviews'
-import { useWorkspaceStore } from './workspace'
-import type { WorkspaceShell } from './workspaceShell'
+import { useProjectContextStore } from './projectContext'
 
 /** Snowflake method steps, artifact editor/generation, and the structured
  *  Step 7/8 compiler that produces canon / scene proposals. */
 export const useSnowflakeStore = defineStore('snowflake', () => {
-  // Lazy, explicitly-typed access keeps the store type graph acyclic.
-  function ws(): WorkspaceShell {
-    return useWorkspaceStore()
-  }
+  const context = useProjectContextStore()
   const requestScopes = useScopedRequest()
 
   const steps = ref<SnowflakeStep[]>([])
+  const activeStep = computed(() => steps.value.find(step => step.number === context.activeStepNumber) ?? steps.value[0])
   const artifacts = ref<SnowflakeArtifact[]>([])
   const stepStates = ref<SnowflakeStepState[]>([])
   const revisions = ref<SnowflakeArtifactRevision[]>([])
@@ -67,11 +64,11 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
   const sceneProposalStatus = ref('')
 
   const savedActiveArtifact = computed(() =>
-    artifacts.value.find((artifact) => artifact.step_number === ws().activeStepNumber)
+    artifacts.value.find((artifact) => artifact.step_number === context.activeStepNumber)
   )
 
   const activeStepState = computed(() =>
-    stepStates.value.find((state) => state.step.number === ws().activeStepNumber)
+    stepStates.value.find((state) => state.step.number === context.activeStepNumber)
   )
 
   const activeRevision = computed(() =>
@@ -102,12 +99,12 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
   })
 
   function isActiveProject(projectId: string) {
-    return projectId === ws().activeProjectId
+    return projectId === context.activeProjectId
   }
 
   function artifactScopeKey(
-    projectId = ws().activeProjectId,
-    step = ws().activeStepNumber
+    projectId = context.activeProjectId,
+    step = context.activeStepNumber
   ): string {
     return `snowflake:${projectId}:${step}`
   }
@@ -128,7 +125,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     ].sort((left, right) => right.revision_no - left.revision_no)
   }
 
-  async function loadStepStates(projectId = ws().activeProject?.id) {
+  async function loadStepStates(projectId = context.activeProjectId) {
     if (!projectId) {
       stepStates.value = []
       return
@@ -140,8 +137,8 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
   }
 
   async function loadRevisions(
-    stepNumber = ws().activeStepNumber,
-    projectId = ws().activeProject?.id
+    stepNumber = context.activeStepNumber,
+    projectId = context.activeProjectId
   ) {
     if (!projectId) {
       revisions.value = []
@@ -153,12 +150,12 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     )
     if (!response.ok) throw new Error('Could not load Snowflake revision history')
     const page: SnowflakeRevisionPage = await response.json()
-    if (!isActiveProject(projectId) || stepNumber !== ws().activeStepNumber) return
+    if (!isActiveProject(projectId) || stepNumber !== context.activeStepNumber) return
     revisions.value = page.data
     activeRevisionId.value = ''
   }
 
-  async function loadManuscriptProgress(projectId = ws().activeProject?.id) {
+  async function loadManuscriptProgress(projectId = context.activeProjectId) {
     if (!projectId) {
       manuscriptProgress.value = null
       return
@@ -169,8 +166,8 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     if (isActiveProject(projectId)) manuscriptProgress.value = loaded
   }
 
-  async function loadRecords(stepNumber = ws().activeStepNumber, page = 1) {
-    const projectId = ws().activeProject?.id
+  async function loadRecords(stepNumber = context.activeStepNumber, page = 1) {
+    const projectId = context.activeProjectId
     if (!projectId || stepNumber < 6 || stepNumber > 9) {
       records.value = []
       selectedRecordIds.value = []
@@ -188,7 +185,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     )
     if (!response.ok) throw new Error('Could not load Snowflake records')
     const loaded: SnowflakeRecordPage = await response.json()
-    if (!isActiveProject(projectId) || ws().activeStepNumber !== stepNumber) return
+    if (!isActiveProject(projectId) || context.activeStepNumber !== stepNumber) return
     records.value = loaded.data
     recordPage.value = loaded.page
     recordTotalPages.value = loaded.total_pages
@@ -203,8 +200,8 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
   }
 
   async function createRecordRevision(recordId: string, position: number, payload: Record<string, unknown>) {
-    const projectId = ws().activeProject?.id
-    const stepNumber = ws().activeStepNumber
+    const projectId = context.activeProjectId
+    const stepNumber = context.activeStepNumber
     if (!projectId || stepNumber < 6 || stepNumber > 9) return
     const current = records.value.find((record) => record.record_id === recordId)
     const baseRevisionId = current?.status === 'accepted' ? current.id : current?.base_revision_id ?? ''
@@ -224,7 +221,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
   }
 
   async function decideRecordRevision(revision: SnowflakeRecordRevision, decision: 'accepted' | 'rejected') {
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     if (!projectId) return
     const response = await fetchApi(
       `/projects/${projectId}/snowflake/record-revisions/${revision.id}/decisions`,
@@ -248,7 +245,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     title: string,
     content: string,
   ): Promise<ManuscriptProposal> {
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     if (!projectId) throw new Error('Select a project first.')
     const response = await fetchApi(
       `/projects/${projectId}/manuscript/proposals/from-legacy-snowflake/${revisionId}`,
@@ -278,10 +275,10 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
   async function saveArtifact() {
     artifactError.value = ''
     artifactStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     const content = artifactDraft.value.trim()
 
-    if (!projectId || !ws().activeStep) {
+    if (!projectId || !activeStep.value) {
       artifactError.value = '请先创建或选择项目。'
       return
     }
@@ -306,7 +303,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
             canPatch
               ? { content }
               : {
-                  step_number: ws().activeStepNumber,
+                  step_number: context.activeStepNumber,
                   content,
                   parent_revision_id:
                     activeStepState.value?.accepted_revision?.id ?? '',
@@ -342,16 +339,16 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     artifactError.value = ''
     artifactStatus.value = ''
     workflowTrace.value = []
-    const projectId = ws().activeProject?.id
-    const instruction = generationInstruction.value.trim() || ws().activeProject?.premise.trim()
+    const projectId = context.activeProjectId
+    const instruction = generationInstruction.value.trim() || useProjectsStore().activeProject?.premise.trim()
     const contextChars = Number(previousArtifactsContextChars.value)
-    const isRecordStep = ws().activeStepNumber >= 6 && ws().activeStepNumber <= 9
+    const isRecordStep = context.activeStepNumber >= 6 && context.activeStepNumber <= 9
     const targetRecordIds =
       isRecordStep && ['selection', 'continue'].includes(generationMode.value)
         ? selectedRecordIds.value
         : []
 
-    if (!projectId || !ws().activeStep || !instruction) {
+    if (!projectId || !activeStep.value || !instruction) {
       artifactError.value = '请先创建或选择项目。'
       return
     }
@@ -370,20 +367,20 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     const generationScope = requestScopes.begin(
       projectId,
       'snowflake',
-      String(ws().activeStepNumber)
+      String(context.activeStepNumber)
     )
     try {
       const response = await fetchApi(`/projects/${projectId}/snowflake/generations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          step_number: ws().activeStepNumber,
+          step_number: context.activeStepNumber,
           instruction,
           base_revision_id: activeStepState.value?.accepted_revision?.id ?? '',
           target_record_ids: targetRecordIds,
           generation_mode: generationMode.value,
           previous_artifacts_context_chars: contextChars,
-          ...ws().modelExecutionOptions(),
+          ...context.modelExecutionOptions(),
         }),
       })
       if (!response.ok) {
@@ -428,7 +425,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
   async function decideRevision(revisionId: string, decision: 'accepted' | 'rejected') {
     artifactError.value = ''
     artifactStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     const state = activeStepState.value
     if (!projectId || !state) return
     isSavingArtifact.value = true
@@ -483,10 +480,10 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
   }
 
   async function skipActiveStep() {
-    const projectId = ws().activeProject?.id
-    if (!projectId || !ws().activeStep?.optional) return
+    const projectId = context.activeProjectId
+    if (!projectId || !activeStep.value?.optional) return
     const response = await fetchApi(
-      `/projects/${projectId}/snowflake/steps/${ws().activeStepNumber}/skip-decisions`,
+      `/projects/${projectId}/snowflake/steps/${context.activeStepNumber}/skip-decisions`,
       { method: 'POST' }
     )
     if (!response.ok) {
@@ -495,13 +492,13 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
       return
     }
     await loadStepStates(projectId)
-    useProjectsStore().advanceActiveProject(ws().activeStepNumber)
+    useProjectsStore().advanceActiveProject(context.activeStepNumber)
     artifactStatus.value = 'Optional step skipped.'
   }
 
   // ---- Structured Snowflake compiler (P1-05): Step 7/8 -> proposals ----
 
-  async function loadSceneProposals(projectId = ws().activeProject?.id) {
+  async function loadSceneProposals(projectId = context.activeProjectId) {
     sceneProposalError.value = ''
     if (!projectId) {
       sceneProposals.value = []
@@ -536,10 +533,10 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     artifactStatus.value = ''
     sceneProposalError.value = ''
     sceneProposalStatus.value = ''
-    const projectId = ws().activeProject?.id
-    const step = ws().activeStepNumber
+    const projectId = context.activeProjectId
+    const step = context.activeStepNumber
 
-    if (!projectId || !ws().activeStep) {
+    if (!projectId || !activeStep.value) {
       sceneProposalError.value = '请先创建或选择项目。'
       return
     }
@@ -616,7 +613,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
   async function acceptSceneProposalBatch(acceptAll: boolean) {
     sceneProposalError.value = ''
     sceneProposalStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     if (!projectId) {
       sceneProposalError.value = '请先创建或选择项目。'
       return
@@ -678,7 +675,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
   async function rejectSceneProposal(proposalId: string) {
     sceneProposalError.value = ''
     sceneProposalStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     if (!projectId) {
       sceneProposalError.value = '请先创建或选择项目。'
       return

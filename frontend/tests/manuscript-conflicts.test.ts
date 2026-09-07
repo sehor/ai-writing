@@ -8,7 +8,7 @@ import AcceptedManuscript from '../src/components/manuscript/AcceptedManuscript.
 import type { ManuscriptScene } from '../src/types'
 
 const { workspace } = vi.hoisted(() => ({ workspace: { activeProjectId: 'a', activeProject: { id: 'a' } } }))
-vi.mock('../src/stores/workspace', () => ({ useWorkspaceStore: () => workspace }))
+vi.mock('../src/stores/projectContext', () => ({ useProjectContextStore: () => workspace }))
 vi.mock('../src/stores/reviews', () => ({ useReviewsStore: () => ({
   loadWritebackProposals: vi.fn(), loadPostAcceptAnalysisJobs: vi.fn(), showLatestConsistencyReport: vi.fn(),
 }) }))

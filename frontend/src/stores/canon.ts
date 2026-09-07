@@ -12,15 +12,11 @@ import {
 } from '../services/draftSessions'
 import type { CanonDraft, CanonEntity } from '../types'
 import { useGraphStore } from './graph'
-import { useWorkspaceStore } from './workspace'
-import type { WorkspaceShell } from './workspaceShell'
+import { useProjectContextStore } from './projectContext'
 
 /** Confirmed story facts (the Canon DB) and their editor draft. */
 export const useCanonStore = defineStore('canon', () => {
-  // Lazy, explicitly-typed access keeps the store type graph acyclic.
-  function ws(): WorkspaceShell {
-    return useWorkspaceStore()
-  }
+  const context = useProjectContextStore()
 
   const canonEntities = ref<CanonEntity[]>([])
   const activeCanonId = ref('')
@@ -57,11 +53,11 @@ export const useCanonStore = defineStore('canon', () => {
   }
 
   function isActiveProject(projectId: string) {
-    return projectId === ws().activeProjectId
+    return projectId === context.activeProjectId
   }
 
   function canonScopeKey(
-    projectId = ws().activeProjectId,
+    projectId = context.activeProjectId,
     id = activeCanonId.value
   ): string {
     return `canon:${projectId}:${id || 'new'}`
@@ -79,7 +75,7 @@ export const useCanonStore = defineStore('canon', () => {
     if (suppressNextSelectionGuard) {
       suppressNextSelectionGuard = false
     } else {
-      const previousScope = canonScopeKey(ws().activeProjectId, prev)
+      const previousScope = canonScopeKey(context.activeProjectId, prev)
       if (isScopeDirty(previousScope, canonDraft.value)) {
         if (!confirmLeave(previousScope, prev ? 'Canon 实体编辑' : '新建 Canon 表单')) {
           const outgoingDraft = canonDraft.value
@@ -124,7 +120,7 @@ export const useCanonStore = defineStore('canon', () => {
   async function saveCanonEntity() {
     canonError.value = ''
     canonStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     const name = canonDraft.value.name.trim()
 
     if (!projectId) {
@@ -198,7 +194,7 @@ export const useCanonStore = defineStore('canon', () => {
   async function deleteCanonEntity() {
     canonError.value = ''
     canonStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     const entityId = activeCanonId.value
 
     if (!projectId || !entityId) {

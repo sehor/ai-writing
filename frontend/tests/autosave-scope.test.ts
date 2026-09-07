@@ -8,8 +8,8 @@ import { useEditorSessionStore } from '../src/stores/editorSession'
 import { loadDraft } from '../src/services/draftCache'
 import { isScopeDirty, persistDraft, queueAutosave, setBaseline } from '../src/services/draftSessions'
 
-vi.mock('../src/stores/workspace', () => ({
-  useWorkspaceStore: () => ({ activeProjectId: 'autosave', activeProject: { id: 'autosave' } }),
+vi.mock('../src/stores/projectContext', () => ({
+  useProjectContextStore: () => ({ activeProjectId: 'autosave', activeProject: { id: 'autosave' } }),
 }))
 
 beforeEach(() => {

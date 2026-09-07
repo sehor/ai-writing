@@ -9,7 +9,7 @@ import { loadDraft, saveDraft } from '../src/services/draftCache'
 import { isScopeDirty, setBaseline } from '../src/services/draftSessions'
 
 const shell = reactive({ activeProjectId: 'save', activeProject: { id: 'save' } })
-vi.mock('../src/stores/workspace', () => ({ useWorkspaceStore: () => shell }))
+vi.mock('../src/stores/projectContext', () => ({ useProjectContextStore: () => shell }))
 vi.mock('../src/stores/graph', () => ({ useGraphStore: () => ({ loadGraphAnalysis: vi.fn() }) }))
 
 beforeEach(() => {

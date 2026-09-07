@@ -14,10 +14,9 @@ import type {
 } from '../types'
 import { useCanonStore } from './canon'
 import { useGraphStore } from './graph'
-import { useManuscriptStore } from './manuscript'
+import type { ManuscriptRevisionSource } from './manuscriptReviewPort'
 import { useMemoryStore } from './memory'
-import { useWorkspaceStore } from './workspace'
-import type { WorkspaceShell } from './workspaceShell'
+import { useProjectContextStore } from './projectContext'
 import { useAnalysisJobsStore, analysisJobLabel } from './analysisJobs'
 import { useNarrativeStore } from './narrative'
 import { supportedWriteback } from '../domain/writeback'
@@ -27,10 +26,9 @@ import { supportedWriteback } from '../domain/writeback'
 export const useReviewsStore = defineStore('reviews', () => {
   const analysisJobs = useAnalysisJobsStore()
   const { jobs: postAcceptJobs, error: analysisJobsError } = storeToRefs(analysisJobs)
-  // Lazy, explicitly-typed access keeps the store type graph acyclic.
-  function ws(): WorkspaceShell {
-    return useWorkspaceStore()
-  }
+  const context = useProjectContextStore()
+  let revisionSource: ManuscriptRevisionSource = () => []
+  function configureRevisionSource(source: ManuscriptRevisionSource) { revisionSource = source }
 
   // ---- Write-back proposals ----
   const writebackProposals = ref<WritebackProposal[]>([])
@@ -87,10 +85,10 @@ export const useReviewsStore = defineStore('reviews', () => {
   }
 
   function isActiveProject(projectId: string) {
-    return projectId === ws().activeProjectId
+    return projectId === context.activeProjectId
   }
 
-  function referenceScopeKey(projectId = ws().activeProjectId): string {
+  function referenceScopeKey(projectId = context.activeProjectId): string {
     return `reference:${projectId}:request`
   }
 
@@ -98,7 +96,7 @@ export const useReviewsStore = defineStore('reviews', () => {
     deep: true,
   })
 
-  async function loadWritebackProposals(projectId = ws().activeProject?.id, signal?: AbortSignal) {
+  async function loadWritebackProposals(projectId = context.activeProjectId, signal?: AbortSignal) {
     writebackError.value = ''
     if (!projectId) {
       writebackProposals.value = []
@@ -124,7 +122,7 @@ export const useReviewsStore = defineStore('reviews', () => {
     }
   }
 
-  async function loadReferenceSuggestions(projectId = ws().activeProject?.id) {
+  async function loadReferenceSuggestions(projectId = context.activeProjectId) {
     referenceError.value = ''
     if (!projectId) {
       referenceSuggestions.value = []
@@ -153,7 +151,7 @@ export const useReviewsStore = defineStore('reviews', () => {
   async function generateReferenceSuggestion(provider = false) {
     referenceError.value = ''
     referenceStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     const authorProblem = referenceDraft.value.author_problem.trim()
 
     if (!projectId) {
@@ -181,7 +179,7 @@ export const useReviewsStore = defineStore('reviews', () => {
             scope_ref: referenceDraft.value.scope_ref.trim(),
             author_problem: authorProblem,
             desired_output: referenceDraft.value.desired_output.trim(),
-            ...(provider ? ws().modelExecutionOptions() : {}),
+            ...(provider ? context.modelExecutionOptions() : {}),
           }),
         }
       )
@@ -217,7 +215,7 @@ export const useReviewsStore = defineStore('reviews', () => {
   ) {
     referenceError.value = ''
     referenceStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
 
     if (!projectId) {
       referenceError.value = '请先创建或选择项目。'
@@ -265,7 +263,7 @@ export const useReviewsStore = defineStore('reviews', () => {
   async function createWritebackFromRevision(revisionId: string, provider = false) {
     writebackError.value = ''
     writebackStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
 
     if (!projectId) {
       writebackError.value = '请先创建或选择项目。'
@@ -282,7 +280,7 @@ export const useReviewsStore = defineStore('reviews', () => {
           ? {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(ws().modelExecutionOptions()),
+              body: JSON.stringify(context.modelExecutionOptions()),
             }
           : { method: 'POST' }
       )
@@ -318,7 +316,7 @@ export const useReviewsStore = defineStore('reviews', () => {
     writebackError.value = ''
     writebackStatus.value = ''
     hermesProcessReport.value = null
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
 
     if (!projectId) {
       writebackError.value = '请先创建或选择项目。'
@@ -364,7 +362,7 @@ export const useReviewsStore = defineStore('reviews', () => {
   async function runConsistencyCheck(revisionId: string, force = false) {
     consistencyError.value = ''
     consistencyStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
 
     if (!projectId) {
       consistencyError.value = '请先创建或选择项目。'
@@ -410,7 +408,7 @@ export const useReviewsStore = defineStore('reviews', () => {
 
   // ---- Post-acceptance analysis (P1-07): show job status, surface results ----
 
-  async function loadPostAcceptAnalysisJobs(projectId = ws().activeProject?.id) {
+  async function loadPostAcceptAnalysisJobs(projectId = context.activeProjectId) {
     if (!projectId) { analysisJobs.stop(); return }
     await analysisJobs.load(projectId, async (completed, signal) => {
       const refreshes: Promise<void>[] = []
@@ -429,14 +427,14 @@ export const useReviewsStore = defineStore('reviews', () => {
   }
 
   async function showLatestConsistencyReport(
-    projectId = ws().activeProject?.id,
+    projectId = context.activeProjectId,
     revisionId?: string,
     signal?: AbortSignal
   ) {
     if (!projectId) {
       return
     }
-    const revisions = useManuscriptStore().manuscriptRevisions
+    const revisions = revisionSource(projectId)
     const revision = revisionId
       ? revisions.find((item) => item.id === revisionId)
       : revisions[0]
@@ -465,7 +463,7 @@ export const useReviewsStore = defineStore('reviews', () => {
   async function updateWritebackStatus(proposalId: string, status: WritebackProposalStatus) {
     writebackError.value = ''
     writebackStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     const proposal = writebackProposals.value.find((item) => item.id === proposalId)
     if (status === 'accepted' && (!proposal || !supportedWriteback(proposal.target))) {
       writebackError.value = '不支持的提案类型，不能接受。'
@@ -535,7 +533,7 @@ export const useReviewsStore = defineStore('reviews', () => {
   }
 
   /** Re-read canon entities and memory records after an applied write-back. */
-  async function refreshCanonAndMemory(projectId = ws().activeProject?.id) {
+  async function refreshCanonAndMemory(projectId = context.activeProjectId) {
     if (!projectId) {
       return
     }
@@ -581,6 +579,7 @@ export const useReviewsStore = defineStore('reviews', () => {
   }
 
   return {
+    configureRevisionSource,
     writebackProposals,
     activeWritebackId,
     writebackError,

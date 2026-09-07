@@ -111,7 +111,7 @@ test('snowflake generation responses are bound to project and step scopes', () =
     generateStart,
     generateEnd === -1 ? undefined : generateEnd
   )
-  assert.match(generateSource, /requestScopes\.begin\(\s*projectId,\s*'snowflake',\s*String\(ws\(\)\.activeStepNumber\)\s*\)/)
+  assert.match(generateSource, /requestScopes\.begin\(\s*projectId,\s*'snowflake',\s*String\(context\.activeStepNumber\)\s*\)/)
   const currentChecks = generateSource.match(/requestScopes\.isCurrent\(generationScope\)/g) ?? []
   assert.ok(currentChecks.length >= 2, 'success and error paths must both validate the scope')
 })

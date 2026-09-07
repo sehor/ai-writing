@@ -1,18 +1,15 @@
-import { ref } from 'vue'
+import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import { fetchApi } from '../api/client'
 import type { ProjectSummary } from '../types'
-import { useWorkspaceStore } from './workspace'
-import type { WorkspaceShell } from './workspaceShell'
+import { useProjectContextStore } from './projectContext'
 
-/** Project list plus the create form; selection itself lives in the workspace store. */
+/** Project list and create form; the leaf context owns selection. */
 export const useProjectsStore = defineStore('projects', () => {
-  // Lazy, explicitly-typed access keeps the store type graph acyclic.
-  function ws(): WorkspaceShell {
-    return useWorkspaceStore()
-  }
+  const context = useProjectContextStore()
 
   const projects = ref<ProjectSummary[]>([])
+  const activeProject = computed(() => projects.value.find(project => project.id === context.activeProjectId))
   const newProject = ref({
     title: '',
     premise: '',
@@ -44,7 +41,7 @@ export const useProjectsStore = defineStore('projects', () => {
       const created = await response.json()
       projects.value = [...projects.value, created]
       // Switching the workspace selection triggers the project load fan-out.
-      ws().activeProjectId = created.id
+      context.activeProjectId = created.id
       newProject.value = { title: '', premise: '' }
       createStatus.value = `Project "${created.title}" created successfully.`
       return created as ProjectSummary
@@ -58,7 +55,7 @@ export const useProjectsStore = defineStore('projects', () => {
 
   /** Optimistically bump the project's current_step after a saved step. */
   function advanceActiveProject(completedStep: number) {
-    const project = ws().activeProject
+    const project = activeProject.value
     if (!project) {
       return
     }
@@ -71,6 +68,7 @@ export const useProjectsStore = defineStore('projects', () => {
   }
 
   return {
+    activeProject,
     projects,
     newProject,
     isCreating,

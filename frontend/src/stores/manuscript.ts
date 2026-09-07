@@ -32,20 +32,19 @@ import type {
   ConsistencyReport,
 } from '../types'
 import { useGraphStore } from './graph'
-import { useReviewsStore } from './reviews'
-import { useWorkspaceStore } from './workspace'
+import type { ManuscriptReviewPort } from './manuscriptReviewPort'
+import { useProjectContextStore } from './projectContext'
 import { useProposalDraftStore } from './proposalDraft'
-import type { WorkspaceShell } from './workspaceShell'
 
 type ManuscriptEditDraft = { title: string; content: string; expected_scene_version: number | null }
 
 /** Manuscript domain: chapters, scene contracts, review proposals, and the
  *  accepted scenes / revisions / diff / export pipeline. */
 export const useManuscriptStore = defineStore('manuscript', () => {
-  // Lazy, explicitly-typed access keeps the store type graph acyclic.
-  function ws(): WorkspaceShell {
-    return useWorkspaceStore()
-  }
+  const context = useProjectContextStore()
+  // An isolated editor has no review panels; the application wires them when mounted.
+  let reviewPort: ManuscriptReviewPort | undefined
+  function configureReviewPort(port: ManuscriptReviewPort) { reviewPort = port }
   const editorSession = useEditorSessionStore()
   const requestScopes = useScopedRequest()
 
@@ -181,25 +180,25 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   }
 
   function isActiveProject(projectId: string) {
-    return projectId === ws().activeProjectId
+    return projectId === context.activeProjectId
   }
 
   function chapterScopeKey(
-    projectId = ws().activeProjectId,
+    projectId = context.activeProjectId,
     id = activeChapterId.value
   ): string {
     return `chapter:${projectId}:${id || 'new'}`
   }
 
   function sceneScopeKey(
-    projectId = ws().activeProjectId,
+    projectId = context.activeProjectId,
     id = activeSceneId.value
   ): string {
     return `scene:${projectId}:${id || 'new'}`
   }
 
   function manuscriptEditScopeKey(
-    projectId = ws().activeProjectId,
+    projectId = context.activeProjectId,
     sceneId = editingManuscriptSceneId.value
   ): string {
     return `manuscript:${projectId}:${sceneId || 'new'}`
@@ -242,7 +241,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     if (suppressNextChapterSelectionGuard) {
       suppressNextChapterSelectionGuard = false
     } else {
-      const previousScope = chapterScopeKey(ws().activeProjectId, prev)
+      const previousScope = chapterScopeKey(context.activeProjectId, prev)
       if (isScopeDirty(previousScope, chapterDraft.value)) {
         if (!confirmLeave(previousScope, prev ? 'Chapter 编辑' : '新建 Chapter 表单')) {
           const outgoingDraft = chapterDraft.value
@@ -279,7 +278,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     if (suppressNextSceneSelectionGuard) {
       suppressNextSceneSelectionGuard = false
     } else {
-      const previousScope = sceneScopeKey(ws().activeProjectId, prev)
+      const previousScope = sceneScopeKey(context.activeProjectId, prev)
       if (isScopeDirty(previousScope, sceneDraft.value)) {
         if (!confirmLeave(previousScope, prev ? 'Scene Contract 编辑' : '新建 Scene 表单')) {
           const outgoingDraft = sceneDraft.value
@@ -324,7 +323,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
 
   // ---- Loaders ----
 
-  async function loadManuscriptProposals(projectId = ws().activeProject?.id) {
+  async function loadManuscriptProposals(projectId = context.activeProjectId) {
     manuscriptError.value = ''
     if (!projectId) {
       manuscriptProposals.value = []
@@ -350,7 +349,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     }
   }
 
-  async function loadManuscriptChapters(projectId = ws().activeProject?.id) {
+  async function loadManuscriptChapters(projectId = context.activeProjectId) {
     chapterError.value = ''
     if (!projectId) {
       manuscriptChapters.value = []
@@ -376,7 +375,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     }
   }
 
-  async function loadManuscriptScenes(projectId = ws().activeProject?.id) {
+  async function loadManuscriptScenes(projectId = context.activeProjectId) {
     manuscriptError.value = ''
     if (!projectId) {
       manuscriptScenes.value = []
@@ -398,7 +397,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     }
   }
 
-  async function loadManuscriptRevisions(projectId = ws().activeProject?.id) {
+  async function loadManuscriptRevisions(projectId = context.activeProjectId) {
     manuscriptError.value = ''
     if (!projectId) {
       manuscriptRevisions.value = []
@@ -456,7 +455,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   async function saveChapter() {
     chapterError.value = ''
     chapterStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     const title = chapterDraft.value.title.trim()
 
     if (!projectId) {
@@ -523,7 +522,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   async function deleteChapter() {
     chapterError.value = ''
     chapterStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     const chapterId = activeChapterId.value
 
     if (!projectId || !chapterId) {
@@ -574,7 +573,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   async function saveSceneContract() {
     sceneError.value = ''
     sceneStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     const title = sceneDraft.value.title.trim()
 
     if (!projectId) {
@@ -653,7 +652,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   async function deleteSceneContract() {
     sceneError.value = ''
     sceneStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     const sceneId = activeSceneId.value
 
     if (!projectId || !sceneId) {
@@ -687,7 +686,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     sceneError.value = ''
     sceneStatus.value = ''
     compileResult.value = null
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     const sceneId = activeSceneId.value
 
     if (!projectId || !sceneId) {
@@ -746,7 +745,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   async function createProposalFromScene(provider = false) {
     manuscriptError.value = ''
     manuscriptStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     const sceneId = activeSceneId.value
 
     if (!projectId || !sceneId) {
@@ -764,7 +763,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
           ? {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(ws().modelExecutionOptions()),
+              body: JSON.stringify(context.modelExecutionOptions()),
             }
           : { method: 'POST' }
       )
@@ -796,23 +795,22 @@ export const useManuscriptStore = defineStore('manuscript', () => {
 
   /** Every committed revision refreshes the same authoring/review surfaces. */
   async function refreshCommittedRevision(projectId: string) {
-    const reviews = useReviewsStore()
     await Promise.all([
       loadManuscriptScenes(projectId),
       loadManuscriptRevisions(projectId),
-      reviews.loadWritebackProposals(projectId),
+      reviewPort?.loadWritebackProposals(projectId),
     ])
     if (!isActiveProject(projectId)) return
     await Promise.all([
-      reviews.loadPostAcceptAnalysisJobs(projectId),
-      reviews.showLatestConsistencyReport(projectId),
+      reviewPort?.loadPostAcceptAnalysisJobs(projectId),
+      reviewPort?.showLatestConsistencyReport(projectId),
     ])
   }
 
   async function updateProposalStatus(proposalId: string, status: ManuscriptProposalStatus) {
     manuscriptError.value = ''
     manuscriptStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
 
     if (!projectId) {
       manuscriptError.value = '请先创建或选择项目。'
@@ -866,7 +864,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   }
 
   async function checkProposalConsistency(proposalId: string) {
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     const draft = useProposalDraftStore()
     if (!projectId || draft.proposalId !== proposalId || !draft.title.trim() || !draft.content.trim()) {
       manuscriptError.value = '请先打开并填写待审核草稿。'
@@ -903,7 +901,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     manuscriptStatus.value = ''
     proposalConsistencyReport.value = null
     revisionDiff.value = null
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
 
     if (!projectId || !diffLeftRevisionId.value || !diffRightRevisionId.value) {
       manuscriptError.value = 'Select two revisions to compare.'
@@ -934,7 +932,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   async function restoreRevision(revisionId: string) {
     manuscriptError.value = ''
     manuscriptStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
 
     if (!projectId) {
       manuscriptError.value = '请先创建或选择项目。'
@@ -970,7 +968,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     manuscriptError.value = ''
     manuscriptStatus.value = ''
     manuscriptExport.value = null
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
 
     if (!projectId) {
       manuscriptError.value = '请先创建或选择项目。'
@@ -1012,12 +1010,12 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     manuscriptStatus.value = ''
     hydratingManuscriptEdit = true
     manuscriptEditSession++
-    manuscriptEditProjectId = ws().activeProjectId
+    manuscriptEditProjectId = context.activeProjectId
     manuscriptSaveConflict.value = false
     manuscriptEditReviewReady.value = true
     isRefreshingManuscriptEdit.value = false
     editingManuscriptSceneId.value = scene.scene_id
-    const nextScope = manuscriptEditScopeKey(ws().activeProjectId, scene.scene_id)
+    const nextScope = manuscriptEditScopeKey(context.activeProjectId, scene.scene_id)
     const baseline = { title: scene.title, content: scene.content, expected_scene_version: scene.version }
     setBaseline(nextScope, baseline)
     const cached = restoreCachedDraft<ManuscriptEditDraft>(nextScope)
@@ -1094,7 +1092,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     if (isSavingManuscriptScene.value || sceneId !== editingManuscriptSceneId.value) return
     manuscriptError.value = ''
     manuscriptStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     const title = manuscriptEditTitle.value.trim()
     const content = manuscriptEditContent.value.trim()
 
@@ -1209,6 +1207,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   }
 
   return {
+    configureReviewPort,
     manuscriptChapters,
     activeChapterId,
     chapterDraft,

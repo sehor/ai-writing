@@ -12,15 +12,11 @@ import {
 } from '../services/draftSessions'
 import type { MemoryDraft, MemoryRecord } from '../types'
 import { useGraphStore } from './graph'
-import { useWorkspaceStore } from './workspace'
-import type { WorkspaceShell } from './workspaceShell'
+import { useProjectContextStore } from './projectContext'
 
 /** Memory / style continuity records and their editor draft. */
 export const useMemoryStore = defineStore('memory', () => {
-  // Lazy, explicitly-typed access keeps the store type graph acyclic.
-  function ws(): WorkspaceShell {
-    return useWorkspaceStore()
-  }
+  const context = useProjectContextStore()
 
   const memoryRecords = ref<MemoryRecord[]>([])
   const activeMemoryId = ref('')
@@ -56,11 +52,11 @@ export const useMemoryStore = defineStore('memory', () => {
   }
 
   function isActiveProject(projectId: string) {
-    return projectId === ws().activeProjectId
+    return projectId === context.activeProjectId
   }
 
   function memoryScopeKey(
-    projectId = ws().activeProjectId,
+    projectId = context.activeProjectId,
     id = activeMemoryId.value
   ): string {
     return `memory:${projectId}:${id || 'new'}`
@@ -78,7 +74,7 @@ export const useMemoryStore = defineStore('memory', () => {
     if (suppressNextSelectionGuard) {
       suppressNextSelectionGuard = false
     } else {
-      const previousScope = memoryScopeKey(ws().activeProjectId, prev)
+      const previousScope = memoryScopeKey(context.activeProjectId, prev)
       if (isScopeDirty(previousScope, memoryDraft.value)) {
         if (!confirmLeave(previousScope, prev ? 'Memory / Style 编辑' : '新建 Memory 表单')) {
           const outgoingDraft = memoryDraft.value
@@ -122,7 +118,7 @@ export const useMemoryStore = defineStore('memory', () => {
   async function saveMemoryRecord() {
     memoryError.value = ''
     memoryStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     const title = memoryDraft.value.title.trim()
     const content = memoryDraft.value.content.trim()
 
@@ -196,7 +192,7 @@ export const useMemoryStore = defineStore('memory', () => {
   async function deleteMemoryRecord() {
     memoryError.value = ''
     memoryStatus.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     const recordId = activeMemoryId.value
 
     if (!projectId || !recordId) {

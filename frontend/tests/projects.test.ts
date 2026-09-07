@@ -8,7 +8,7 @@ const { workspace } = vi.hoisted(() => ({
 }))
 
 vi.mock('../src/api/client', () => ({ fetchApi: vi.fn() }))
-vi.mock('../src/stores/workspace', () => ({ useWorkspaceStore: () => workspace }))
+vi.mock('../src/stores/projectContext', () => ({ useProjectContextStore: () => workspace }))
 
 beforeEach(() => {
   setActivePinia(createPinia())

@@ -45,7 +45,7 @@ test('overwrite requires an explicit confirmation when the target exists', () =>
 
 test('a finished import refreshes the project list and selects the restored project', () => {
   assert.match(backupsStore, /useProjectsStore\(\)\.projects = await projectsResponse\.json\(\)/)
-  assert.match(backupsStore, /ws\(\)\.activeProjectId = result\.project\.id/)
+  assert.match(backupsStore, /context\.activeProjectId = result\.project\.id/)
   assert.match(sidebar, /data-testid="confirm-import"/)
 })
 test('backup preview preserves its safeguards inside the project dialog', () => {

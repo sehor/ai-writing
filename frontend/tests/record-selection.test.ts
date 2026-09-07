@@ -4,8 +4,8 @@ import { nextTick } from 'vue'
 import { useManuscriptStore } from '../src/stores/manuscript'
 import { useMemoryStore } from '../src/stores/memory'
 
-vi.mock('../src/stores/workspace', () => ({
-  useWorkspaceStore: () => ({
+vi.mock('../src/stores/projectContext', () => ({
+  useProjectContextStore: () => ({
     activeProjectId: 'a',
     activeProject: { id: 'a' },
   }),

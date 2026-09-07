@@ -4,17 +4,13 @@ import { fetchApi } from '../api/client'
 import { readErrorDetail } from '../api/errors'
 import type { BackupImportSummary, BackupPreviewSummary } from '../types'
 import { useProjectsStore } from './projects'
-import { useWorkspaceStore } from './workspace'
-import type { WorkspaceShell } from './workspaceShell'
+import { useProjectContextStore } from './projectContext'
 
 /** Project backup / restore (P2-07 frontend): download the ZIP package of the
  *  active project, preview an uploaded package before importing, and restore
  *  it with an explicit overwrite confirmation when the target already exists. */
 export const useBackupsStore = defineStore('backups', () => {
-  // Lazy, explicitly-typed access keeps the store type graph acyclic.
-  function ws(): WorkspaceShell {
-    return useWorkspaceStore()
-  }
+  const context = useProjectContextStore()
 
   const isExporting = ref(false)
   const exportError = ref('')
@@ -44,7 +40,7 @@ export const useBackupsStore = defineStore('backups', () => {
   /** Download the active project's ZIP package through a temporary object URL. */
   async function exportActiveProjectBackup() {
     exportError.value = ''
-    const projectId = ws().activeProject?.id
+    const projectId = context.activeProjectId
     if (!projectId) {
       exportError.value = '请先创建或选择项目。'
       return
@@ -165,8 +161,8 @@ export const useBackupsStore = defineStore('backups', () => {
       if (projectsResponse.ok) {
         useProjectsStore().projects = await projectsResponse.json()
       }
-      if (ws().activeProjectId === result.project.id) ws().reloadActiveProject()
-      else ws().activeProjectId = result.project.id
+      if (context.activeProjectId === result.project.id) context.reloadActiveProject()
+      else context.activeProjectId = result.project.id
     } catch (error) {
       importError.value =
         error instanceof Error

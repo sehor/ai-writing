@@ -2,7 +2,7 @@ import { beforeEach, expect, test, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
 import { fetchApi } from '../src/api/client'
 import { useSnowflakeStore } from '../src/stores/snowflake'
-import type { SnowflakeRecordRevision } from '../src/types'
+import type { SnowflakeRecordRevision, SnowflakeStep } from '../src/types'
 
 const workspace = vi.hoisted(() => ({
   activeProjectId: 'novel',
@@ -13,7 +13,7 @@ const workspace = vi.hoisted(() => ({
 }))
 
 vi.mock('../src/api/client', () => ({ fetchApi: vi.fn() }))
-vi.mock('../src/stores/workspace', () => ({ useWorkspaceStore: () => workspace }))
+vi.mock('../src/stores/projectContext', () => ({ useProjectContextStore: () => workspace }))
 
 const currentRecord = {
   id: 'record-revision-101',
@@ -42,6 +42,7 @@ const pendingRecord = {
 
 beforeEach(() => {
   setActivePinia(createPinia())
+  useSnowflakeStore().steps = [workspace.activeStep as SnowflakeStep]
   localStorage.clear()
   vi.mocked(fetchApi).mockReset()
 })

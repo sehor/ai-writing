@@ -1,4 +1,4 @@
-import { defineStore } from 'pinia'
+import { defineStore, storeToRefs } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { fetchApi } from '../api/client'
 import { readLocation, readPreference, writePreference } from '../services/preferences'
@@ -13,6 +13,7 @@ import {
 } from '../services/draftSessions'
 import { useEditorSessionStore } from './editorSession'
 import { useProjectsStore } from './projects'
+import { useProjectContextStore } from './projectContext'
 import { useSnowflakeStore } from './snowflake'
 import { useCanonStore } from './canon'
 import { useManuscriptStore } from './manuscript'
@@ -28,28 +29,26 @@ import type {
   ManuscriptChapterDraft,
   SceneDraft,
   MemoryDraft,
-  ReferenceDraft
-  ,ModelExecutionOptions
-  ,ModelProfile
-} from "../types"
+  ReferenceDraft,
+  ModelProfile,
+} from '../types'
 
 type ApiStatus = 'checking' | 'ok' | 'offline'
 
 /**
- * Workspace shell store. Owns only the navigation selection (project / section /
- * snowflake step), global runtime status, and the orchestration that switches
- * every domain store between projects. Domain state lives in the dedicated
- * stores (projects / snowflake / canon / memory / manuscript / reviews / graph).
+ * Application shell: exposes leaf selections for existing components and owns
+ * runtime status, navigation guards, project loading and cross-domain wiring.
+ * Domain stores read projectContext directly and never import this shell.
  */
 export const useWorkspaceStore = defineStore('workspace', () => {
   // ---- Global navigation + runtime status ----
-  const activeProjectId = ref('')
-  const activeStepNumber = ref(1)
+  const context = useProjectContextStore()
+  const { activeProjectId, activeStepNumber, selectedModelProfile, projectReload } = storeToRefs(context)
+  const { modelExecutionOptions, reloadActiveProject } = context
   const activeSection = ref<ActiveSection>('snowflake')
   const apiStatus = ref<ApiStatus>('checking')
   const workflowRuntime = ref<WorkflowRuntimeStatus | null>(null)
   const modelProfiles = ref<ModelProfile[]>([])
-  const selectedModelProfile = ref(localStorage.getItem('ai-writing:model-profile') ?? '')
 
   // ---- Domain stores: coordinated here, never owned here ----
   const editorSession = useEditorSessionStore()
@@ -60,6 +59,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const memory = useMemoryStore()
   const reviews = useReviewsStore()
   const graph = useGraphStore()
+  manuscript.configureReviewPort(reviews)
+  reviews.configureRevisionSource(projectId => isActiveProject(projectId) ? manuscript.manuscriptRevisions : [])
 
   // ---- Draft safety (P0-05): page-close flush + switch guards ----
   const { confirmLeave, confirmLeaveMultiple } = useDirtyGuard({
@@ -127,15 +128,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   let suppressNextSelectionGuard = false
 
   let projectLoadController: AbortController | null = null
-  const projectReload = ref(0)
   const isLoadingProject = ref(false)
 
-  function reloadActiveProject() {
-    flushAllDirtyDrafts()
-    projectReload.value++
-  }
-
   watch([activeProjectId, projectReload], async ([projectId, reload], [prevProjectId, previousReload]) => {
+    if (reload !== previousReload) flushAllDirtyDrafts()
     if (suppressNextSelectionGuard) {
       suppressNextSelectionGuard = false
     } else if (prevProjectId && reload === previousReload) {
@@ -425,17 +421,6 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     activeStepNumber.value = stepNumber
   }
 
-  function modelExecutionOptions(): ModelExecutionOptions {
-    return {
-      model_profile: selectedModelProfile.value,
-      allow_fallback: true,
-      allow_repair: true,
-    }
-  }
-
-  watch(selectedModelProfile, (profileId) => {
-    localStorage.setItem('ai-writing:model-profile', profileId)
-  })
 
   return {
     reloadActiveProject,

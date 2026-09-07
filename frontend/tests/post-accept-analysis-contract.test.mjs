@@ -26,7 +26,7 @@ test('accepting a proposal surfaces automatic analyses without a manual run', ()
   // Acceptance orchestration lives in the manuscript store's proposal action.
   assert.match(
     manuscriptStore,
-    /reviews\.loadPostAcceptAnalysisJobs\(projectId\),\r?\n\s+reviews\.showLatestConsistencyReport\(projectId\),/,
+    /reviewPort\?\.loadPostAcceptAnalysisJobs\(projectId\),\r?\n\s+reviewPort\?\.showLatestConsistencyReport\(projectId\),/,
   )
   // The report is fetched through the replay GET route, never auto-created state.
   assert.match(reviewsStore, /analysis\/consistency\/from-revision\/\$\{revision\.id\}/)
@@ -38,7 +38,7 @@ test('manual save and restore refresh the same analysis panel (P1-01)', () => {
   // restore - must surface the scheduled pipeline jobs and their report.
   assert.equal(manuscriptStore.match(/await refreshCommittedRevision\(projectId\)/g)?.length,
     3, 'accept, manual save and restore use the shared refresh action')
-  assert.equal(manuscriptStore.match(/reviews\.loadPostAcceptAnalysisJobs\(projectId\)/g)?.length,
+  assert.equal(manuscriptStore.match(/reviewPort\?\.loadPostAcceptAnalysisJobs\(projectId\)/g)?.length,
     1, 'the shared action owns polling startup')
 })
 

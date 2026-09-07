@@ -8,7 +8,7 @@ import { fetchApi } from '../src/api/client'
 import type { StoryThread, WritebackProposal } from '../src/types'
 
 vi.mock('../src/api/client', () => ({ fetchApi: vi.fn() }))
-vi.mock('../src/stores/workspace', () => ({ useWorkspaceStore: () => ({
+vi.mock('../src/stores/projectContext', () => ({ useProjectContextStore: () => ({
   activeProjectId: 'novel', activeProject: { id: 'novel' }, activeStepNumber: 1,
 }) }))
 
