@@ -2,8 +2,10 @@
 import { storeToRefs } from 'pinia'
 import { statusText } from '../../utils/format'
 import { useReviewsStore } from '../../stores/reviews'
+import { useCopilotContextStore } from '../../stores/copilotContext'
 
 const store = useReviewsStore()
+const copilot = useCopilotContextStore()
 const {
   referenceSuggestions,
   activeReferenceId,
@@ -37,6 +39,12 @@ const {
     </div>
 
     <form class="reference-form" @submit.prevent="generateReferenceSuggestion(false)">
+      <section v-if="copilot.request" aria-label="求助原文" class="draft-conflict">
+        <p>{{ copilot.request.selection_mode === 'selection' ? '选中文字' : '整场景草稿' }} · {{ copilot.request.source_kind === 'proposal_draft' ? '待审核草稿' : '正文编辑草稿' }} · 基于 v{{ copilot.request.expected_scene_version }}</p>
+        <details><summary>查看求助原文</summary><pre>{{ copilot.request.selected_text }}</pre></details>
+        <p v-if="copilot.stale" class="error-text" role="alert">原文、目标或版本已变化，请回到编辑器重新选择。</p>
+        <button type="button" class="quiet-button" @click="copilot.clear()">移除选区，使用普通参考请求</button>
+      </section>
       <div class="scene-fields">
         <label>
           <span>请求类型</span>
@@ -52,7 +60,7 @@ const {
         </label>
         <label>
           <span>范围</span>
-          <select v-model="referenceDraft.scope_type">
+          <select v-model="referenceDraft.scope_type" :disabled="!!copilot.request">
             <option value="project">项目</option>
             <option value="snowflake_step">雪花步骤</option>
             <option value="scene">场景</option>
@@ -66,6 +74,7 @@ const {
           <span>范围标识</span>
           <input
             v-model="referenceDraft.scope_ref"
+            :disabled="!!copilot.request"
             autocomplete="off"
             placeholder="填写场景标识或步骤序号，也可留空"
           />
@@ -97,12 +106,12 @@ const {
           <button
             class="secondary"
             type="button"
-            :disabled="isGeneratingProviderReference"
+            :disabled="isGeneratingProviderReference || isGeneratingReference || copilot.stale"
             @click="generateReferenceSuggestion(true)"
           >
             {{ isGeneratingProviderReference ? '生成中…' : '使用模型生成参考' }}
           </button>
-          <button class="primary" type="submit" :disabled="isGeneratingReference">
+          <button class="primary" type="submit" :disabled="isGeneratingReference || isGeneratingProviderReference || copilot.stale">
             {{ isGeneratingReference ? '生成中…' : '生成参考建议' }}
           </button>
         </div>

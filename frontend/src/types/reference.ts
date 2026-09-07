@@ -22,6 +22,7 @@ export type ReferenceSuggestionType =
   | 'structure_fix'
 
 export type ReferenceSuggestion = {
+  editor_context?: ReferenceEditorContext | null
   id: string
   project_id: string
   suggestion_type: ReferenceSuggestionType
@@ -47,4 +48,17 @@ export type ReferenceDraft = {
   scope_ref: string
   author_problem: string
   desired_output: string
+}
+export type ReferenceEditorContext = {
+  project_id: string
+  scene_id: string
+  source_kind: 'accepted_manuscript' | 'proposal_draft'
+  proposal_id: string
+  expected_scene_version: number
+  session_id: string
+  snapshot_text: string
+  selection_mode: 'selection' | 'whole_scene'
+  selection_start: number
+  selection_end: number
+  selected_text: string
 }

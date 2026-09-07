@@ -5,6 +5,7 @@ same context assembly; routers only parse requests and map errors.
 """
 
 from app.agents.reference_workflow import (
+    with_editor_context,
     build_local_reference_suggestion,
     generate_gateway_reference_suggestion,
     scope_for_request,
@@ -12,6 +13,7 @@ from app.agents.reference_workflow import (
 from app.cognition.registry import CognitionRegistry
 from app.cognition.snapshots import build_project_snapshot
 from app.data.ports.reference import ReferenceDataPort
+from app.errors import ResourceNotFoundError, StateConflictError, InvalidOperationError
 from app.narrative import NarrativeSnapshot
 from app.llm import (
     ModelGatewayRegistry,
@@ -38,6 +40,7 @@ class ReferenceService:
         return self.data_store.list_reference_suggestions(project_id)
 
     def _assemble(self, project_id: str, request: ReferenceGenerationRequest):
+        self._validate_editor_target(project_id, request)
         if request.scope_type == "scene" and request.scope_ref:
             narrative = NarrativeSnapshot.for_scene(
                 project_id=project_id,
@@ -54,12 +57,35 @@ class ReferenceService:
                     narrative.render_generation_context(),
                 ]
             )
-            return snapshot, cognition_context, context
+            return snapshot, cognition_context, with_editor_context(context, request)
 
         snapshot = build_project_snapshot(project_id, self.data_store)
         cognition_context = self.cognition.prepare_context(snapshot, scope_for_request(request))
         context = build_reference_context(snapshot, request, cognition_context)
-        return snapshot, cognition_context, context
+        return snapshot, cognition_context, with_editor_context(context, request)
+
+    def _validate_editor_target(self, project_id: str, request: ReferenceGenerationRequest):
+        editor = request.editor_context
+        if editor is None:
+            return
+        if editor.project_id != project_id:
+            raise ResourceNotFoundError("Editor target not found in this project.")
+        if request.scope_type != "scene" or request.scope_ref != editor.scene_id:
+            raise InvalidOperationError("Editor context requires its own scene scope.")
+        if self.data_store.get_scene_contract(project_id, editor.scene_id) is None:
+            raise ResourceNotFoundError("Editor scene not found.")
+        scene = self.data_store.get_manuscript_scene(project_id, editor.scene_id)
+        version = scene.version if scene else 0
+        if version != editor.expected_scene_version:
+            raise StateConflictError("正文版本已变化，请重新选择求助文本。")
+        if editor.source_kind == "accepted_manuscript" and scene is None:
+            raise ResourceNotFoundError("Accepted manuscript not found.")
+        if editor.source_kind == "proposal_draft":
+            proposal = self.data_store.get_manuscript_proposal(project_id, editor.proposal_id)
+            if proposal is None or proposal.scene_id != editor.scene_id:
+                raise ResourceNotFoundError("Editor proposal not found in this scene.")
+            if proposal.status != "pending_review":
+                raise StateConflictError("草稿审核状态已变化，请重新选择求助文本。")
 
     def generate_local(
         self, project_id: str, request: ReferenceGenerationRequest
@@ -74,6 +100,7 @@ class ReferenceService:
             suggestion = build_local_reference_suggestion(
                 request, context, snapshot, cognition_context
             )
+        self._validate_editor_target(project_id, request)
         return self.data_store.create_reference_suggestion(project_id, suggestion)
 
     def generate_provider(
@@ -88,6 +115,7 @@ class ReferenceService:
             cognition_context,
             project_id=project_id,
         )
+        self._validate_editor_target(project_id, request)
         return self.data_store.create_reference_suggestion(project_id, generated.suggestion)
 
     def update_status(

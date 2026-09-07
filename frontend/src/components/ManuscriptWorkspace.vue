@@ -12,6 +12,7 @@ import AcceptedManuscript from './manuscript/AcceptedManuscript.vue'
 import ManuscriptInputs from './manuscript/ManuscriptInputs.vue'
 import ManuscriptProposalWorkspace from './manuscript/ManuscriptProposalWorkspace.vue'
 import ReferenceWorkspace from './manuscript/ReferenceWorkspace.vue'
+import { useCopilotContextStore } from '../stores/copilotContext'
 import RevisionHistory from './manuscript/RevisionHistory.vue'
 import WritebackReview from './manuscript/WritebackReview.vue'
 const store = useManuscriptStore()
@@ -26,6 +27,8 @@ const panel = ref<'reference' | 'settings' | 'history' | 'analysis' | null>(
 )
 const panelButtons = ref<HTMLElement>()
 const panelEl = ref<HTMLElement>()
+const copilot = useCopilotContextStore()
+watch(() => copilot.captureCount, () => { if (panel.value !== 'reference') openPanel('reference') })
 const current = computed(() =>
   store.manuscriptScenes.find(
     (scene) => scene.scene_id === store.activeSceneId,

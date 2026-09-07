@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import SaveState from '../ui/SaveState.vue'
 import GenerationReview from './GenerationReview.vue'
-import { vAutosize } from '../../directives/autosize'
+import CopilotEditor from './CopilotEditor.vue'
 import { storeToRefs } from 'pinia'
 import { computed, watch, onBeforeUnmount } from 'vue'
 import { statusText } from '../../utils/format'
@@ -144,7 +144,9 @@ onBeforeUnmount(() => draft.persist())
               <button class="secondary" type="button" @click="draft.rebase(currentScene?.version ?? 0)">已核对新版正文，更新草稿基准</button>
             </section>
             <label><span>草稿标题</span><input v-model="draft.title" aria-label="AI 草稿标题" maxlength="160" :disabled="isUpdatingProposal" /></label>
-            <label><span>作者草稿 · 可编辑后再接受</span><textarea v-autosize class="prose-editor" v-model="draft.content" data-testid="proposal-draft-content" aria-label="AI 草稿正文" rows="18" maxlength="40000" :disabled="isUpdatingProposal" /></label>
+            <div><p>作者草稿 · 可编辑后再接受</p><CopilotEditor v-model="draft.content" label="AI 草稿正文" test-id="proposal-draft-content"
+              :disabled="isUpdatingProposal" :unavailable="versionConflict"
+              :target="{ project_id: workspace.activeProjectId, scene_id: activeProposal.scene_id, source_kind: 'proposal_draft', proposal_id: activeProposal.id, expected_scene_version: draft.expectedSceneVersion }" /></div>
             <SaveState :scope="draft.scopeKey" :saving="isUpdatingProposal" :conflict="versionConflict" />
             <details><summary>AI 原稿与修改稿对照</summary><div class="draft-comparison"><section><h5>AI 原稿（只读）</h5><pre>{{ activeProposal.content }}</pre></section><section><h5>作者修改</h5><pre>{{ draft.content }}</pre></section></div></details>
           </template>

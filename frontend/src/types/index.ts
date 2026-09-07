@@ -87,6 +87,7 @@ export type {
   ReferenceScopeType,
   ReferenceSuggestionType,
   ReferenceSuggestion,
+  ReferenceEditorContext,
   ReferenceDraft,
 } from './reference'
 

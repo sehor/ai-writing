@@ -1,12 +1,14 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { vAutosize } from '../../directives/autosize'
+import CopilotEditor from './CopilotEditor.vue'
+import { useProjectContextStore } from '../../stores/projectContext'
 import SaveState from '../ui/SaveState.vue'
 import { storeToRefs } from 'pinia'
 import { useManuscriptStore } from '../../stores/manuscript'
 
 const props = defineProps<{ sceneId?: string }>()
 const store = useManuscriptStore()
+const project = useProjectContextStore()
 const {
   manuscriptScenes,
   editingManuscriptSceneId,
@@ -97,10 +99,11 @@ const characterCount = computed(() => manuscriptEditContent.value.replace(/\s/g,
             <span class="sr-only">正文标题</span>
             <input v-model="manuscriptEditTitle" class="document-title-input" aria-label="正文标题" autocomplete="off" />
           </label>
-          <label>
-            <span class="sr-only">正文内容</span>
-            <textarea v-autosize v-model="manuscriptEditContent" class="prose-editor" aria-label="正文内容" rows="18" spellcheck="false" />
-          </label>
+          <div>
+            <CopilotEditor v-model="manuscriptEditContent" label="正文内容"
+              :unavailable="isSavingManuscriptScene || manuscriptEditNeedsReview"
+              :target="{ project_id: project.activeProjectId, scene_id: scene.scene_id, source_kind: 'accepted_manuscript', proposal_id: '', expected_scene_version: manuscriptEditVersion ?? 0 }" />
+          </div>
           <p v-if="manuscriptError" class="error-text" role="alert">{{ manuscriptError }}</p>
           <section v-if="manuscriptEditNeedsReview" class="export-output" aria-label="正文版本冲突">
             <p class="error-text">

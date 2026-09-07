@@ -19,6 +19,7 @@ import { useMemoryStore } from './memory'
 import { useProjectContextStore } from './projectContext'
 import { useAnalysisJobsStore, analysisJobLabel } from './analysisJobs'
 import { useNarrativeStore } from './narrative'
+import { useCopilotContextStore } from './copilotContext'
 import { supportedWriteback } from '../domain/writeback'
 
 /** Human review queues: write-back proposals, reference suggestions, and the
@@ -27,6 +28,7 @@ export const useReviewsStore = defineStore('reviews', () => {
   const analysisJobs = useAnalysisJobsStore()
   const { jobs: postAcceptJobs, error: analysisJobsError } = storeToRefs(analysisJobs)
   const context = useProjectContextStore()
+  const copilot = useCopilotContextStore()
   let revisionSource: ManuscriptRevisionSource = () => []
   function configureRevisionSource(source: ManuscriptRevisionSource) { revisionSource = source }
 
@@ -50,6 +52,14 @@ export const useReviewsStore = defineStore('reviews', () => {
   const isGeneratingReference = ref(false)
   const isGeneratingProviderReference = ref(false)
   const isUpdatingReference = ref(false)
+  watch(() => copilot.captureCount, () => {
+    if (!copilot.request) return
+    referenceDraft.value.scope_type = 'scene'
+    referenceDraft.value.scope_ref = copilot.request.scene_id
+    referenceDraft.value.suggestion_type = 'prose_reference'
+    referenceError.value = ''
+    referenceStatus.value = '已带入求助原文，请填写写作问题。'
+  }, { flush: 'sync' })
 
   // ---- Consistency reports + post-acceptance analysis (P1-07) ----
   const consistencyReport = ref<ConsistencyReport | null>(null)
@@ -153,6 +163,12 @@ export const useReviewsStore = defineStore('reviews', () => {
     referenceStatus.value = ''
     const projectId = context.activeProjectId
     const authorProblem = referenceDraft.value.author_problem.trim()
+    const editor = copilot.request
+    if (isGeneratingReference.value || isGeneratingProviderReference.value) return
+    if (editor && (!copilot.isCurrent(editor) || referenceDraft.value.scope_type !== 'scene' || referenceDraft.value.scope_ref !== editor.scene_id)) {
+      referenceError.value = '求助原文已过期或范围已变化，请回到编辑器重新选择。'
+      return
+    }
 
     if (!projectId) {
       referenceError.value = '请先创建或选择项目。'
@@ -178,6 +194,7 @@ export const useReviewsStore = defineStore('reviews', () => {
             scope_type: referenceDraft.value.scope_type,
             scope_ref: referenceDraft.value.scope_ref.trim(),
             author_problem: authorProblem,
+            editor_context: editor,
             desired_output: referenceDraft.value.desired_output.trim(),
             ...(provider ? context.modelExecutionOptions() : {}),
           }),
@@ -191,6 +208,9 @@ export const useReviewsStore = defineStore('reviews', () => {
       if (!isActiveProject(projectId)) {
         return
       }
+      if (editor && !copilot.isCurrent(editor)) {
+        return
+      }
       referenceSuggestions.value = [
         created,
         ...referenceSuggestions.value.filter((suggestion) => suggestion.id !== created.id),
@@ -200,6 +220,7 @@ export const useReviewsStore = defineStore('reviews', () => {
         ? 'Provider reference created for review.'
         : 'Reference created for review.'
     } catch (error) {
+      if (!isActiveProject(projectId) || (editor && !copilot.isCurrent(editor))) return
       referenceError.value =
         error instanceof Error
           ? `Reference generation failed. ${error.message}`

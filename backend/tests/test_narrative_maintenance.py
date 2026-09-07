@@ -391,7 +391,7 @@ class NarrativeMaintenanceTests(unittest.TestCase):
             "INSERT INTO story_facts(id,project_id,subject,predicate,value,valid_from_scene) VALUES('fact','legacy','Letter','author','Original',1)"
         )
         connection.commit()
-        self.assertEqual(run_migrations(connection), 1)
+        self.assertEqual(run_migrations(connection), sum(m.version > 15 for m in MIGRATIONS))
         self.assertEqual(run_migrations(connection), 0)
         row = connection.execute(
             "SELECT value, version FROM story_facts WHERE id='fact'"

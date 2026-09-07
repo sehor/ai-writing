@@ -74,6 +74,7 @@ def writeback_proposal_to_params(
 
 def reference_suggestion_from_row(row: sqlite3.Row) -> ReferenceSuggestion:
     return ReferenceSuggestion(
+        editor_context=json.loads(dict(row).get("editor_context_json") or "null"),
         id=row["id"],
         project_id=row["project_id"],
         suggestion_type=row["suggestion_type"],
@@ -102,7 +103,7 @@ def reference_suggestion_from_row(row: sqlite3.Row) -> ReferenceSuggestion:
 
 def reference_suggestion_to_params(
     suggestion: ReferenceSuggestion,
-) -> tuple[str, str, str, str, str, str, str, str, str, str, str, str, str, str, str, str, str]:
+) -> tuple:
     return (
         suggestion.id,
         suggestion.project_id,
@@ -121,6 +122,7 @@ def reference_suggestion_to_params(
         suggestion.status,
         suggestion.created_at,
         suggestion.reviewed_at,
+        suggestion.editor_context.model_dump_json() if suggestion.editor_context else None,
     )
 
 
@@ -297,7 +299,7 @@ class ReviewRepository:
                title, content, rationale, used_context,
                canon_warnings_json, style_notes_json, graph_warnings_json,
                proposed_writebacks_json, workflow_trace_json,
-               status, created_at, reviewed_at
+               status, created_at, reviewed_at, editor_context_json
         FROM reference_suggestions
     """
 
@@ -350,9 +352,9 @@ class ReviewRepository:
                 title, content, rationale, used_context,
                 canon_warnings_json, style_notes_json, graph_warnings_json,
                 proposed_writebacks_json, workflow_trace_json,
-                status, created_at, reviewed_at
+                status, created_at, reviewed_at, editor_context_json
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             reference_suggestion_to_params(created),
         )

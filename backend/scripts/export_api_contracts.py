@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app.domain_models.manuscript import ManuscriptGenerationReview
 from app.domain_models.narrative import KnowledgeState, NarrativeRevision, StoryFact
 from app.domain_models.scene import SceneContract
+from app.domain_models.reference import ReferenceEditorContext
 
 CONTRACTS = (
     ManuscriptGenerationReview,
@@ -16,6 +17,7 @@ CONTRACTS = (
     StoryFact,
     KnowledgeState,
     NarrativeRevision,
+    ReferenceEditorContext,
 )
 FIXTURE = Path(__file__).resolve().parents[2] / "contracts" / "api-dtos.json"
 

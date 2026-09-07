@@ -13,7 +13,7 @@
     "test:browser": "node tests/browser-review-loop.mjs",
     "test:browser:workspace": "node tests/workspace-browser.mjs",
     "test:e2e:workspace": "node ../e2e/workspace-review.e2e.mjs",
-    "test:e2e": "node ../e2e/workspace-review.e2e.mjs && node ../e2e/workspace-wiki-failure.e2e.mjs && node ../e2e/scene-record-update.e2e.mjs",
+    "test:e2e": "node ../e2e/workspace-review.e2e.mjs && node ../e2e/workspace-wiki-failure.e2e.mjs && node ../e2e/scene-record-update.e2e.mjs && node ../e2e/copilot-selection.e2e.mjs",
     "test:e2e:legacy": "node ../e2e/full-review-loop.e2e.mjs && node ../e2e/wiki-failure.e2e.mjs"
   },
   "dependencies": {

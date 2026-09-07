@@ -115,6 +115,7 @@ from app.domain_models.project import (
     ProjectSummary as ProjectSummary,
 )
 from app.domain_models.reference import (
+    ReferenceEditorContext as ReferenceEditorContext,
     ReferenceGenerationRequest as ReferenceGenerationRequest,
     ReferenceScopeType as ReferenceScopeType,
     ReferenceSuggestion as ReferenceSuggestion,

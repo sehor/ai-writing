@@ -809,5 +809,91 @@
     ],
     "title": "NarrativeRevision",
     "type": "object"
+  },
+  "ReferenceEditorContext": {
+    "additionalProperties": false,
+    "properties": {
+      "project_id": {
+        "maxLength": 160,
+        "minLength": 1,
+        "title": "Project Id",
+        "type": "string"
+      },
+      "scene_id": {
+        "maxLength": 160,
+        "minLength": 1,
+        "title": "Scene Id",
+        "type": "string"
+      },
+      "source_kind": {
+        "enum": [
+          "accepted_manuscript",
+          "proposal_draft"
+        ],
+        "title": "Source Kind",
+        "type": "string"
+      },
+      "proposal_id": {
+        "default": "",
+        "maxLength": 160,
+        "title": "Proposal Id",
+        "type": "string"
+      },
+      "expected_scene_version": {
+        "minimum": 0,
+        "title": "Expected Scene Version",
+        "type": "integer"
+      },
+      "session_id": {
+        "maxLength": 160,
+        "minLength": 1,
+        "title": "Session Id",
+        "type": "string"
+      },
+      "snapshot_text": {
+        "maxLength": 40000,
+        "minLength": 1,
+        "title": "Snapshot Text",
+        "type": "string"
+      },
+      "selection_mode": {
+        "enum": [
+          "selection",
+          "whole_scene"
+        ],
+        "title": "Selection Mode",
+        "type": "string"
+      },
+      "selection_start": {
+        "minimum": 0,
+        "title": "Selection Start",
+        "type": "integer"
+      },
+      "selection_end": {
+        "minimum": 0,
+        "title": "Selection End",
+        "type": "integer"
+      },
+      "selected_text": {
+        "maxLength": 40000,
+        "minLength": 1,
+        "title": "Selected Text",
+        "type": "string"
+      }
+    },
+    "required": [
+      "project_id",
+      "scene_id",
+      "source_kind",
+      "expected_scene_version",
+      "session_id",
+      "snapshot_text",
+      "selection_mode",
+      "selection_start",
+      "selection_end",
+      "selected_text"
+    ],
+    "title": "ReferenceEditorContext",
+    "type": "object"
   }
 }
