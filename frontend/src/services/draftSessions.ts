@@ -11,10 +11,14 @@ function stableValue(value: unknown): string {
   return JSON.stringify(value)
 }
 
-export function setBaseline(scopeKey: string, value: unknown): void {
+function cancelAutosave(scopeKey: string): void {
   const pending = autosaveTimers.get(scopeKey)
-  if (pending) clearTimeout(pending)
+  if (pending !== undefined) clearTimeout(pending)
   autosaveTimers.delete(scopeKey)
+}
+
+export function setBaseline(scopeKey: string, value: unknown): void {
+  cancelAutosave(scopeKey)
   draftBaselines.set(scopeKey, stableValue(value))
   useEditorSessionStore().markClean(scopeKey)
 }
@@ -30,6 +34,7 @@ function scopeHasProject(scopeKey: string): boolean {
 }
 
 export function persistDraft(scopeKey: string, value: unknown): void {
+  cancelAutosave(scopeKey)
   if (!scopeHasProject(scopeKey)) {
     return
   }
@@ -61,17 +66,22 @@ export function formatSavedAt(iso: string): string {
 }
 
 export function queueAutosave(scopeKey: string, read: () => unknown): void {
-  const existing = autosaveTimers.get(scopeKey)
-  if (existing) {
-    clearTimeout(existing)
+  cancelAutosave(scopeKey)
+  // Freeze both the value and its editor session before a record/project switch.
+  const value: unknown = JSON.parse(stableValue(read()))
+  const session = useEditorSessionStore()
+  if (!scopeHasProject(scopeKey) || !isScopeDirty(scopeKey, value)) {
+    return
   }
+  session.markDirty(scopeKey)
   autosaveTimers.set(
     scopeKey,
     setTimeout(() => {
       autosaveTimers.delete(scopeKey)
-      const value = read()
       if (isScopeDirty(scopeKey, value)) {
-        persistDraft(scopeKey, value)
+        const cached = saveDraft(scopeKey, value)
+        if (cached) session.markDirty(scopeKey, cached.savedAt)
+        else session.markAutosaveFailed(scopeKey)
       }
     }, 400)
   )
