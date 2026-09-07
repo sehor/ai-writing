@@ -1,8 +1,8 @@
 # 顺序修复交接（2026-09-07）
 
-用户要求按索引逐项处理，并遵守各 issue 前置依赖。此前完成 AUD-18、14、15、16 后交接；再次继续后完成 AUD-17 与 AUD-19。按此前“第二次自动上下文压缩前停下”的限制，本次在 AUD-19 完整验收/提交节点再次交接，不继续启动下一项。再次继续时先读本文件、README.md、TRACKING.md 和下一项及其未完成前置 issue。
+用户本轮明确要求完成 AUD-20、21、22、23。已按依赖顺序完成并逐项本地提交，原23项在各自边界内全部验收。此处是最终交接，不再有下一项原AUD待办；更大产品愿景及未验证能力不能自动算作完成。
 
-## 已完成：19 / 23
+## 已完成：23 / 23
 
 | Issue | 本地提交 | 结果 |
 |---|---|---|
@@ -24,17 +24,28 @@
 | AUD-15 | 1775750 | 按聚合拆分事务、服务窄数据端口、统一写锁入口与并发/回滚验证 |
 | AUD-16 | 8becb11 | 两类正文草稿选区求助、版本/会话隔离、结构化来源与迁移 17 |
 | AUD-17 | 6bcd27c | 参考建议预览、替换/插入、重复保护和安全撤销只写现有本地草稿 |
-| AUD-19 | 本次提交 | 时态事实/读者知识/角色知识作者界面、统一草稿安全与 scene-safe 预览/生成隔离 |
+| AUD-19 | cd915a2 | 时态事实/读者知识/角色知识作者界面、统一草稿安全与 scene-safe 预览/生成隔离 |
+| AUD-20 | 4953825 | 真实分析执行范围/来源、未配置与有限检查提示、CLP证据校验、迁移18 |
+| AUD-21 | d7ca277 | 卷/章节归属、非破坏删除与排序、旧备份兼容及迁移19 |
+| AUD-22 | 51b6c38 | 20/200/999场景容量基线、完整性/超限验证与轻量CI，实测卡顿另列后续 |
+| AUD-23 | 本提交（git log --grep=AUD-23） | A/B/C矩阵、7条真实浏览器流程、重启/人工边界证据与历史文档状态同步 |
 
 每项 issue 和 TRACKING.md 已更新。未推送远端，未创建 GitHub issues/PR。
 
-## 下一步
+## 完成范围与后续
 
-索引下一项为 **AUD-20**：明确保存后分析处理器的真实能力、Provider/CLP 降级状态与验收。开始前读取 AUD-20 原始 issue 并复核前置依赖；不要把“任务已排队/处理器存在”误当成“真实模型能力已验证”，要继续沿用现有 outbox、runtime/provider 状态和人工审核边界。
+原23项无剩余待办。新后续优化见 [PERF-01/02](../../performance-followups.md)：999场景历史面板中位约5秒、最慢20秒，场景切换约845ms；完整性已通过不等于交互达标。专用多级Redo/结构化多候选选择仍为部分完成，详情见 [作者验收矩阵](../../author-acceptance-matrix.md)。真实付费模型/外部CLP效果、真实作者数据、生产性能、远端Linux Actions未验证，没有自动启动或发布这些工作。
 
-剩余 AUD-20、21、22、23，共 4 项。对应原始 issue 文件及 README.md、manifest.json、publish.ps1 仍为未跟踪文件，已保留，不是遗漏的实现变更。AUD-19 原始 issue 在本次完成后纳入提交。完成提交后项目代码应无未提交修改，只保留上述未跟踪审查/发布文件。
+AUD-20～23文档均随各自提交纳入跟踪。只保留本审查目录的原始 README.md、manifest.json、publish.ps1 未跟踪；未删除、未执行发布脚本，未推送远端或创建GitHub issues/PR。项目代码及本轮验收文档均已本地提交。
 
 ## 验证与实现要点
+
+- **最终全量**：364项backend unittest；全backend Ruff check/format、app/scripts compileall；33项Node +112项Vitest、lint/build；7条当前中文工作台E2E通过。A/B/C新增断言覆盖UI建章/场景、本地草稿刷新、手动提交、来源证据、安全上下文更新及正常后端重启。专用Redo未冒充验证。
+- AUD-20：execution_json记录每次Outbox处理器/范围，旧记录null不猜测。CLP未配置是not_executed，本地规则是limited，失败可重试；不会随保存自动启用Provider。CLP虚构引文被拒绝。[能力与可选效果方案](../../analysis-capabilities-and-acceptance.md)。
+- AUD-21：卷与章节归属用独立表及复合外键，删卷只解归属不删正文，scene.sequence仍是叙事时点。schema≤18备份可导入，旧ID不变。[卷契约](../../manuscript-volume-contract.md)。
+- AUD-22：20/200/999场景、每场景2,000字/3个修订均完成数据库、HTTP和浏览器分层测量；恢复哈希及数量一致，越界写入422。CI仅small，15秒宽松挂起保护不等于产品预算。一次全档调用触及工具300秒时限，之后大档独立完整通过；固定基线与限制见 [性能文档](../../performance-baseline.md)，原始测量在 `.tmp/performance-*.json`，不可把测试完成理解为大档已流畅。
+
+以下为各阶段历史记录：
 
 - AUD-08 后全量后端 310 项 unittest 通过；Ruff check/format 与 compileall 通过。所有数据库测试使用临时 SQLite。
 - AUD-11 后前端 lint、build、33 项 Node + 73 项 Vitest 和 3 条 E2E 通过。浏览器门禁为 workspace-review、workspace-wiki-failure、scene-record-update。
@@ -47,7 +58,7 @@
 - AUD-16 的 `ReferenceEditorContext` 使用 UTF-16 码元偏移；来源随参考建议以可空 JSON 列保存，旧记录/备份为 null。后端检查项目、场景、提案状态和正文版本，允许本地未保存草稿；实际 prompt 使用有界上下文加完整选区。`CopilotEditor` 注册当前编辑会话，`copilotContext` 仅管理临时选区，不拥有保存或正文修改权。切换/修改后旧选区过期，旧异步结果不能激活到新编辑器。关键 schema fixture 已增至 6 类。[选区契约](../../copilot-selection-contract.md)。
 - AUD-17 后前端 31 项 Node + 94 项 Vitest、lint/build 和 4 条 E2E 通过。新增 `referenceApplication` 只协调 proposalDraft/正式正文已有本地草稿；预览不写正文，应用触发既有 dirty/cache，不直接保存版本；应用后旧快照失效阻止重复插入，撤销仅在同会话/目标/版本且文本仍等于应用结果时允许。[选区与应用契约](../../copilot-selection-contract.md)。
 - AUD-19 后前端 31 项 Node + 102 项 Vitest、lint/build 和 5 条 E2E 通过。Canon 现有导航复用 NarrativePanel 维护全部作者事实/知识；事实和知识 scope 接入统一 draftSessions。场景预览只读取 `/story-state`，新增浏览器 E2E 证明未来隐藏事实虽然在作者管理列表可见，但场景 4 预览和真实本地 Reference `used_context` 都不会泄漏该秘密；无外部/付费模型调用。截图 `.tmp/narrative-maintenance.png`。[作者界面契约](../../narrative-maintenance-ui.md)。
-- AUD-09 的 Linux GitHub Actions 尚未远端执行；本地门禁已通过。未进行真实付费模型、长篇负载或真实作者数据验收。
+- AUD-09 的 Linux GitHub Actions 尚未远端执行；本地门禁已通过。真实付费模型和真实作者数据未验收；合成长篇负载测量已由AUD-22补齐，范围不外推。
 - AUD-06 的逐项审核选择保存在本机草稿缓存，不包含在项目备份中；原始生成材料由后端持久化并包含在备份中。
 - AUD-08 以已接受 record revision 和目标 plan_version 检查更新；更新保留原 scene ID 与正文历史。人工接受、保存或恢复正文会记录当时的规划版本。旧场景来源不作猜测性匹配。
 - AUD-11 的 projectContext 是叶子 store，workspace 通过 storeToRefs 兼容原组件。manuscriptReviewPort 由 workspace 装配，独立编辑器可不装配审核面板；禁止恢复领域对 workspace 的反向导入。新依赖边界和独立装配测试可用于 AUD-12。
@@ -69,6 +80,10 @@ rtk pnpm lint
 rtk pnpm test
 rtk pnpm build
 rtk pnpm test:e2e
+rtk pnpm test:perf
+# 更大性能测量按根目录单档执行，避免单工具时限：
+# rtk proxy node e2e/longform-benchmark.mjs --size medium
+# rtk proxy node e2e/longform-benchmark.mjs --size large
 ```
 
 本地 Git 暂存/提交因 `.git` 权限需工具审批，本轮均已获自动审核通过；按 issue 独立提交。不要发布原始 issue 文件，除非用户另行授权。

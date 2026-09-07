@@ -146,7 +146,9 @@ try {
   assert.equal(await editor.inputValue(), '作者尚未保存的新段落。')
   await page.getByRole('button', { name: '分析与回写', exact: true }).click()
   await page.locator('.writeback-review').waitFor()
+  const sourceRevision = (await client.get(`${base}/manuscript/revisions`)).find(revision => revision.version === 1)
   await client.post(`${base}/writeback/proposals`, {
+    source_ref: `manuscript_revision:${sourceRevision.id}`,
     target: 'canon_entity',
     action: 'create',
     title: '确认灯塔的位置',
@@ -156,7 +158,7 @@ try {
       name: '旧灯塔',
       summary: '位于雾港入口。',
       current_state: '仍在使用',
-      constraints: '',
+      constraints: '灯塔的位置固定在雾港入口。',
       last_seen: '',
       timeline_notes: '',
     },
@@ -170,6 +172,8 @@ try {
       hasText: '确认灯塔的位置',
     })
     .click()
+  assert.equal((await client.get(`${base}/canon/entities`)).some(entity => entity.name === '旧灯塔'), false)
+  await page.locator('.writeback-review .evidence-excerpt').filter({ hasText: '灯塔' }).waitFor()
   await page
     .locator('.writeback-review .proposal-detail')
     .getByRole('button', { name: '接受', exact: true })
@@ -180,9 +184,25 @@ try {
       (entity) => entity.name === '旧灯塔',
     ),
   )
+  const regenerated = await client.post(`${base}/references/suggestions/generate`, {
+    scope_type: 'scene', scope_ref: scene.id, suggestion_type: 'scene_bridge', author_problem: '根据当前已确认设定给出衔接参考。',
+  })
+  assert.ok(regenerated.used_context.includes('旧灯塔'))
+  assert.ok(regenerated.used_context.includes('灯塔的位置固定在雾港入口。'))
+  assert.equal(regenerated.used_context.includes('仍在使用'), false, 'legacy current-state prose is not scene-safe evidence')
+  const persistedRevisions = await client.get(`${base}/manuscript/revisions`)
+  await pollUntil(async () => (await client.get(`${base}/outbox-jobs`)).every(job => ['succeeded', 'failed'].includes(job.status)), { label: 'derived work settles before restart', timeoutMs: 60000 })
+  await page.goto('about:blank')
+  await stopBackend(backend)
+  backend = await startBackend({ port: backendPort, dataRoot })
+  await page.goto(vite.url)
+  await editor.waitFor()
+  assert.equal(await editor.inputValue(), '作者尚未保存的新段落。')
+  assert.deepEqual(await client.get(`${base}/manuscript/revisions`), persistedRevisions)
+  assert.equal((await client.get(`${base}/canon/entities`)).filter(entity => entity.name === '旧灯塔').length, 1)
   assert.deepEqual(errors, [])
   console.log(
-    'PASS: real SQLite project, local proposal, author review, save continuity, analysis, export, concurrent conflict and reload persistence.',
+    'PASS A/C: structured review, explicit save, concurrency, evidence-backed manual writeback, fresh scene-safe context and backend restart persistence.',
   )
 } catch (error) {
   reportFailure(error, backend ? [backend] : [])

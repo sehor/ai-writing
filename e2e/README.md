@@ -1,20 +1,36 @@
-# e2e — P1-08 真实后端浏览器测试
+# e2e — 当前中文工作台验收
 
-当前中文工作台使用 `pnpm test:e2e`：运行 `workspace-review.e2e.mjs` 和 `workspace-wiki-failure.e2e.mjs`。前者通过真实生成服务和受控 FakeModelGateway（无外部模型调用）覆盖结构化材料审阅、刷新恢复和真实后端的草稿审核、持续编辑、分析、导出、冲突、恢复与设定回写；后者覆盖文件存储故障和界面重试。前者使用临时端口，后者沿用下文的 8132 / 5176，所有数据均隔离。
+更新日期：2026-09-07；完整需求映射和未验证范围见 [作者验收矩阵](../docs/author-acceptance-matrix.md)。`pnpm test:e2e` 当前串行运行以下7条真实后端浏览器用例，不使用旧英文选择器作为门禁。
 
-`pnpm test:browser` 使用随机端口与本地模拟数据，检查浅深主题、桌面及窄屏交互，并生成 `.tmp/ui-review/` 截图。
+| 文件 | 证据与夹具范围 |
+|---|---|
+| `structured-drafting.e2e.mjs` | A：真实API准备项目，UI创建章/场景→本地生成→改稿→刷新草稿→明确接受→后端重启/重开UI，正文和修订ID保持 |
+| `workspace-review.e2e.mjs` | A/C：真实服务+受控Fake生成完整审核材料；UI审核、保存、并发409、导出；有来源的待审Canon候选经UI接受后才生效，新场景安全上下文读取已确认约束；重启保留 |
+| `workspace-wiki-failure.e2e.mjs` | C：阻塞模块存储制造真实失败，UI显示范围/未执行CLP、重试成功、不多建正文版本 |
+| `scene-record-update.e2e.mjs` | Step8回改、更新提案、目标版本冲突、重编译、稳定场景/历史与正文规划过期提示 |
+| `copilot-selection.e2e.mjs` | B：两类草稿选区→建议→预览/应用/Undo；重复/过期保护；显式保存才产生v2，刷新保留且参考采纳状态不被暗改 |
+| `narrative-maintenance.e2e.mjs` | 事实/知识UI维护、草稿恢复、场景预览、未来事实不进入当前Reference安全上下文 |
+| `manuscript-volumes.e2e.mjs` | 卷创建、更名、排序、归卷/移出、项目隔离、草稿刷新恢复、删卷不删章/场景/正文历史 |
 
-本地与 CI 的首选命令一致：
+所有脚本通过共享harness检查临时SQLite与模块数据根，使用合成文本、独立浏览器及受控本地/Fake路径，没有真实付费模型调用或真实作者数据。大多数使用随机端口；`workspace-wiki-failure.e2e.mjs` 保留8132/5176，启动前应空闲。`finally` 关闭各自子进程，部分失败用例保留其隔离数据供排查，绝不清理作者目录。
 
-```bash
-cd frontend
-pnpm exec playwright install chromium
-pnpm test:e2e
+从frontend目录运行（已安装锁定依赖和浏览器时无需重复安装）：
+
+```powershell
+rtk pnpm exec playwright install chromium
+rtk pnpm test:e2e
+rtk pnpm test:perf
 ```
 
-CI 在 Linux 上用 `pnpm exec playwright install --with-deps chromium` 安装浏览器及系统依赖，并把 `AI_WRITING_E2E_PYTHON` 指向 `backend/.venv/bin/python`。本地自动识别 Windows/POSIX 的后端虚拟环境；也可用该变量指定解释器。两个当前用例都通过共享 harness 验证临时数据根，并在 `finally` 中关闭浏览器、服务进程和临时数据。
+CI在Linux安装Playwright系统依赖，`AI_WRITING_E2E_PYTHON` 指向 `backend/.venv/bin/python`；本地harness自动识别Windows/POSIX后端虚拟环境。工作流还配置20场景small性能门禁和JSON/截图证据保留，**当前远端Actions未执行**，不能把配置存在说成远端全绿。
 
-以下是重构前完整场景的历史说明。旧版入口保留为 `pnpm test:e2e:legacy`，其页面选择器对应旧界面，不作为当前工作台的验收命令。
+性能测量不混进7条功能E2E：`pnpm test:perf` 仅small；`pnpm test:perf:full` 全三档；短时限执行器宜在根目录逐次运行 `rtk proxy node e2e/longform-benchmark.mjs --size medium` 与 `--size large`。细分耗时、机器、容量限制、一次全档工具超时和后续完整大档结果见 [性能基线](../docs/performance-baseline.md)。999场景的完整性通过不代表历史面板性能达标。
+
+`pnpm test:browser` 使用本地模拟数据验证主题/窄屏，属于可选视觉smoke，不替代上述真实SQLite验收。专用多级Redo未实现；当前B用例验证单次安全Undo和明确重新应用/保存，不虚构Redo覆盖。
+
+## 历史归档：原P1-08流程说明
+
+以下内容保留重构前背景。`pnpm test:e2e:legacy` 指向旧界面，不是当前工作台验收；其中旧状态/选择器及历史限制不得直接复制成当前结论。
 
 Real-browser E2E suite from the archived `docs/older/ai-writing-improvement-plan.md`, section 九 / P1-08:
 a **real FastAPI backend** over a **temp SQLite data root**, a **real Vite dev server**,
@@ -27,7 +43,7 @@ reaches the spawned backend through the Vite proxy.
 | File | Purpose |
 | --- | --- |
 | `lib/harness.mjs` | Shared helpers: temp roots, backend/Vite lifecycle, health waits, API client |
-| `full-review-loop.e2e.mjs | Happy path: project → Step 7 → Canon proposals → chapter/scene → proposal accept → auto-analysis → write-back accept → export → restart persistence → Step 8 parse + batch accept → scene edit v2 → restore v1 |
+| `full-review-loop.e2e.mjs` | Happy path: project → Step 7 → Canon proposals → chapter/scene → proposal accept → auto-analysis → write-back accept → export → restart persistence → Step 8 parse + batch accept → scene edit v2 → restore v1 |
 | `wiki-failure.e2e.mjs` | Failure path: blocked LLM Wiki root, core data survives, UI shows failed job, UI Retry repairs it, no duplicate versions |
 
 ## Prerequisites

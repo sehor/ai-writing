@@ -1,5 +1,11 @@
 # AI Writing Studio 审查整改计划
 
+> **历史计划，非当前完成清单（2026-09-07更新说明）**
+>
+> 下文的203项测试、格式失败、备份阻断和未勾选任务均为2026-08-31基线/当时计划，保留以解释整改来源，不再代表当前实现。当前证据以 [作者A/B/C验收矩阵](./author-acceptance-matrix.md) 和 [AUD任务跟踪](./issues/2026-09-07-review/TRACKING.md) 为准，不批量把旧复合目标标为完成。
+>
+> 后续已补齐草稿安全、审核材料、Step8回改、前后端边界、时态事实/知识维护、Copilot应用、分析能力说明、卷组织与性能基线。原场景B的专用Redo/结构化多候选选择仍非完整实现；原场景C中CLP未配置时明确未执行，不能照抄“所有任务自动完成”。真实模型效果和远端Linux CI仍未验证；999档历史面板卡顿见 [性能后续项](./performance-followups.md)。P3分页/按需加载继续是后续范围，不混同于已完成的测量任务。
+
 > 审查基线：`integration-graphify-clp`
 >
 > 基线提交：`42dd63f`（`test: certify narrative graph clp completion`）
@@ -27,7 +33,7 @@
 - AI 和外部工具只能生成提案，不能绕过校验与人工 Review 修改权威状态。
 - Canon、Memory / Style、Manuscript、Narrative Graph 的职责继续保持分离。
 
-## 2. 当前基线
+## 2. 历史基线（2026-08-31）
 
 | 检查项 | 当前状态 | 说明 |
 |---|---|---|

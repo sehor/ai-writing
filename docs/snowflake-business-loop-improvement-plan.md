@@ -1,6 +1,6 @@
 # Snowflake Method 业务闭环改进执行计划
 
-- 状态：Completed；Step 6–9 record 权威闭环已完成，兼容接口的物理删除待人工确认
+- 状态：2026-09-03阶段Completed（历史范围）；不是全部产品/真实模型效果的完成认证，兼容接口的物理删除待人工确认
 - 编写日期：2026-09-03
 - 设计审查基线：`967bb82`
 - 实施提交：`7d601b6`、`af47f26`、`c4aa732`
@@ -8,6 +8,8 @@
 - 文档关系：本计划是归档路线图 `docs/older/ai-writing-improvement-plan.md` 的 Snowflake 专项补充；当前审计整改路线见 `docs/ai-writing-remediation-plan.md`
 
 ## 0. 实施状态
+
+**2026-09-07复核：** 以下269项测试和SF编号完成结论属于当时实施记录。后续AUD-03/07/08已补原子接受、稳定来源映射和Step8回改提案；AUD-04/05/06补完整规划上下文及审核材料，AUD-17/19/20补作者操作闭环。当前逐项实现、真实浏览器证据及未验证能力见 [作者验收矩阵](./author-acceptance-matrix.md)，不要把本计划的Completed推广到完整Redo、真实模型效果或大规模性能。卷与容量见 [卷组织契约](./manuscript-volume-contract.md)、[性能基线](./performance-baseline.md)。
 
 P0–P5 与 SF-601/SF-602 已完成。2026-09-03 的闭环复核进一步完成 SF-302、SF-303、SF-304、SF-403 和 SF-601 的权威路径收口：
 
@@ -17,7 +19,7 @@ P0–P5 与 SF-601/SF-602 已完成。2026-09-03 的闭环复核进一步完成 
 - Step 8 record 在 Accept 前同时执行字段契约、信息/人物状态 delta、序号唯一性、Required Canon ID 和 StoryThread 引用检查；compiler 使用同一 accepted records。
 - Snowflake consistency reviewer 合并 schema 与 accepted Canon 矛盾检查结果，finding 带可核对 evidence，不再被 service 二次校验覆盖。
 
-SF-603 已完成运行时兼容收口：旧接口标记弃用，`snowflake_artifacts` 只作为 accepted projection 更新，Step 10 旧正文保留为 `legacy_draft`，`open_threads` 不再作为生成依据，未执行的检查不再伪装成 reviewer 成功。独立业务验收可执行 `cd backend; rtk uv run python -m scripts.verify_snowflake_record_loop`，该脚本直接查询临时 SQLite head/projection 并注入未接受的污染数据，不以单元测试结果代替业务验证。
+SF-603 已完成运行时兼容收口：旧接口标记弃用，`snowflake_artifacts` 只作为 accepted projection 更新，Step 10 旧正文保留为 `legacy_draft`，`open_threads` 不再作为生成依据，未执行的检查不再伪装成 reviewer 成功。独立业务验收可执行 `cd backend; rtk proxy uv --cache-dir ../.tmp/uv-cache run --frozen --extra dev python -m scripts.verify_snowflake_record_loop`，该脚本直接查询临时 SQLite head/projection 并注入未接受的污染数据，不以单元测试结果代替业务验证。
 
 以下项目有意保留，不能视为未完成缺陷：
 
@@ -63,7 +65,7 @@ SF-603 已完成运行时兼容收口：旧接口标记弃用，`snowflake_artif
 5. 旧数据只做追加式迁移，不删除、不原地重写作者内容。
 6. critical validation finding 默认阻止接受；若允许 override，必须记录人工理由。
 
-## 4. 当前审查结论
+## 4. 历史审查结论（设计基线967bb82）
 
 总体判断：思想与架构约 `7/10`，十步业务落地约 `5.5/10`。这些分数是用于沟通优先级的主观指标，不是自动化质量度量。
 

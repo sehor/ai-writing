@@ -104,8 +104,23 @@ try {
   assert.equal((await client.get(`${base}/manuscript/revisions`)).length, 1)
   await page.getByRole('button', { name: '撤销上次应用', exact: true }).click()
   assert.equal(await accepted.inputValue(), unsaved)
+  // Undo is a guarded single local operation; a new preview/application is explicit,
+  // not a claim that a general Redo stack exists.
+  await page.getByRole('button', { name: '预览应用', exact: true }).click()
+  await page.getByRole('button', { name: '应用到草稿', exact: true }).click()
+  const applied = await accepted.inputValue()
+  assert.equal(applied, `${unsaved.slice(0, 4)}他收回手，屏住呼吸。${unsaved.slice(9)}`)
+  assert.equal((await client.get(`${base}/manuscript/revisions`)).length, 1)
+  await accepted.press('Control+s')
+  await page.getByText('已保存 · 版本 2', { exact: true }).waitFor()
+  assert.equal((await client.get(`${base}/manuscript/scenes`))[0].content, applied)
+  assert.equal((await client.get(`${base}/manuscript/revisions`)).length, 2)
+  assert.equal((await client.get(`${base}/references/suggestions`)).find(item => item.id === second.id).status, 'pending_review')
+  await page.reload()
+  await accepted.waitFor()
+  assert.equal(await accepted.inputValue(), applied)
   assert.deepEqual(errors, [])
-  console.log('PASS: proposal and accepted selections generate advisory references; preview, replace, duplicate protection, and undo stay in local drafts without saving prose.')
+  console.log('PASS B: scoped suggestions preview/apply/undo only affect local drafts; duplicate/stale protections hold, and only explicit Save creates a persisted new revision without changing suggestion review status.')
 } catch (error) {
   reportFailure(error, [backend, vite])
   process.exitCode = 1

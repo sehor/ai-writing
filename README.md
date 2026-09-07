@@ -87,6 +87,12 @@ LLM Wiki CLP is a separate local sidecar adapter: accepted manuscript revisions 
 
 ## Current State
 
+Status reviewed on **2026-09-07**. The current evidence and remaining limits are recorded in the [author scenario acceptance matrix](docs/author-acceptance-matrix.md), with the audit ledger in [TRACKING](docs/issues/2026-09-07-review/TRACKING.md). This is a locally verified MVP workflow, not certification of real paid-model quality or a claim that remote GitHub Actions has run.
+
+The current workbench includes complete generation review material, versioned selection-based Copilot help and guarded local apply/undo, author-maintained temporal facts and reader/character knowledge, explicit analysis execution scope, and optional non-destructive volumes. Database migration 19 preserves older projects and supported backups. See the [analysis capability contract](docs/analysis-capabilities-and-acceptance.md), [knowledge management guide](docs/narrative-maintenance-ui.md), and [volume contract](docs/manuscript-volume-contract.md).
+
+[Performance measurements](docs/performance-baseline.md) cover 20/200/999 synthetic scenes. The 999-scene fixture preserves all prose/history through backup, but opening its history panel took about 5 seconds median with a 20-second maximum sample. Do not interpret completed capacity measurement as a claim of fluent large-project interaction; [specific optimizations remain follow-up work](docs/performance-followups.md).
+
 Implemented:
 
 - Project listing and creation.
@@ -105,18 +111,18 @@ Implemented:
 - Cognition module boundary for Memplace and Infra Graph context exchange.
 - Provider-backed manuscript proposal generation from Scene Contracts when configured.
 - Manuscript proposal review UI with accepted scene drafts and revision history.
-- Chapter-level manuscript organization for grouping Scene Contracts and accepted drafts.
+- Optional volume / chapter / scene organization; moving or deleting a volume never deletes chapters, scenes, or manuscript revisions.
 - Direct editing for accepted manuscript scene drafts with revision preservation.
 - Manuscript revision diff and restore UI.
 - Markdown export for accepted manuscript scenes.
 - Canon / Memory write-back proposal generation and review UI.
-- Structured References / Copilot UI for reviewable writing suggestions.
+- Selection-aware References / Copilot for accepted and pending local drafts, explicit text preview / insert / replace, and guarded single-operation undo. Suggestion review status is independent from applying text; only explicit save/accept creates an official revision.
 - Outbox-backed LLM Wiki indexing: core saves commit first, wiki ingest failures surface as retryable jobs (`GET /api/projects/{id}/outbox-jobs`, `POST .../outbox-jobs/{job_id}/retry`) instead of failed requests.
 - Unified review state machine: every reviewable object moves `pending_review -> accepted | rejected | superseded`; decided states are final and illegal changes return HTTP 409.
 - Write-back updates for existing Canon records with optimistic version checks: the UI shows current vs. proposed values, evidence from the source revision, and a conflict warning when the record changed after proposal creation.
 - Pre-persist write-back validation: proposals are checked against current data (structure, target record, expected version, duplicate names) before insertion.
 - Idempotent analysis runs: repeated unchanged analysis requests replay stored results instead of duplicating proposals; explicit re-runs supersede stale pending proposals and bump the run version.
-- Automatic post-acceptance analysis: accepting a manuscript proposal schedules the consistency report and deterministic write-back suggestions as outbox jobs, so findings and pending review items appear without a manual trigger while acceptance of them stays a human decision.
+- Automatic post-acceptance analysis records its actual processor and scope: local rules are limited checks, disabled CLP is explicitly not executed, and configured CLP only proposes candidates. Provider calls are not automatically enabled by saving; zero findings does not prove semantic consistency.
 - Deterministic consistency report with evidence-backed findings (forbidden facts, forbidden capabilities, missing required Canon, absent POV) surfaced in Revision History.
 - Draft safety on the frontend: editors autosave to a local draft cache, confirm before switching away, restore cached drafts, and flush on page close; async generations are bound to project/step request scopes.
 - Backend unit coverage for manuscript edit versioning.
@@ -127,13 +133,15 @@ Implemented:
 - Workflow interface boundary with declared pre-generation, generation, and post-generation agents.
 - Provider registry (`backend/app/integrations/provider_registry.py`): deterministic local and DeepSeek backends register behind one `WritingProvider` interface; Hermes stays an isolated external-agent port.
 - Routers as a pure HTTP layer over application services (`backend/app/services/`): request parsing, service calls, domain-error mapping, and response headers only.
-- Focused data layer (P2-03): ten repositories under `backend/app/data/repositories/` over one schema module, an explicit `SqliteUnitOfWork` owning the connection and transaction boundary, and cross-aggregate flows (`app.data.flows`) that keep acceptance / restore / apply operations atomic; the store facade keeps every public signature.
+- Focused repositories under `backend/app/data/repositories/`, an explicit `SqliteUnitOfWork`, narrow service data ports, and aggregate transactions in `app.data.transactions`. `app.data.flows` remains a compatibility export; acceptance / restore / apply stay atomic.
 - Domain-split frontend stores (P2-04): `stores/{projects,snowflake,canon,memory,manuscript,reviews,graph}.ts` plus a typed `/api` client; `workspace.ts` keeps selection, runtime status, and cross-store coordination only.
 - Real-browser E2E (P1-08): Playwright Chromium drives the live FastAPI backend over a temporary SQLite root with zero route mocking — full accept -> auto-analysis -> review -> write-back loop, backend-restart persistence, and wiki-failure recovery through the UI retry (`e2e/`, see its README).
 
 Not yet implemented:
 
 - Advanced graph visualization beyond tabular structure analysis.
+- A dedicated multi-step Copilot Redo stack and structured multi-option picker; current guarded Undo and explicit reapplication are not a general Redo implementation.
+- Large-history pagination / incremental rendering and collaborative volume editing. The measured follow-ups are not hidden behind a blanket “completed” status.
 
 ## Near-Term Build Order
 
@@ -182,7 +190,7 @@ Not yet implemented:
    - Implemented v0: zero-dependency frontend contract test for References UI wiring.
    - Implemented v0: backend route test for manuscript proposal acceptance, export, and Canon write-back.
    - Implemented v0: browser-level smoke test for the frontend review flow with mocked API routes.
-   - Real-browser E2E against a live backend and temporary SQLite root: `e2e/workspace-review.e2e.mjs` and `e2e/workspace-wiki-failure.e2e.mjs`, run through `pnpm test:e2e` locally and in CI.
+   - Seven current-workbench browser scenarios against a live backend and temporary SQLite root, including UI structured drafting, generation review, Copilot apply/save, analysis failure/retry, scene-plan updates, knowledge isolation and volumes. `pnpm test:e2e` is the local and configured CI entry; see the acceptance matrix for exact scope and fixture boundaries.
 
 ## Development
 
@@ -255,11 +263,16 @@ Browser E2E (required in CI; boots a real backend on a temporary SQLite root plu
 cd frontend
 pnpm exec playwright install chromium
 pnpm test:e2e
+pnpm test:perf
+# Optional larger measurement, not part of the normal CI gate:
+# pnpm test:perf:full
 ```
+
+On the local Windows/PowerShell setup, wrap frontend commands with `rtk pnpm` and backend commands with `rtk proxy uv --cache-dir ../.tmp/uv-cache`; use the backend directory for that relative cache path. The performance gate uses only an isolated 20-scene fixture; medium and large runs are separate measurements, not model calls.
 
 Interrupted backup imports are reconciled on startup before requests or background jobs run.
 Do not delete `.restore-*` directories while recovery is pending; damaged or legacy journals
 stop startup to preserve the original files. Recovery rules, verification and operating limits
 are recorded in the archived [remediation progress report](docs/older/remediation-progress.md).
 
-See [AGENTS.md](AGENTS.md) for Codex development rules, the [Snowflake business-loop plan](docs/snowflake-business-loop-improvement-plan.md) for the completed structured-record rollout, and [docs/ai-writing-remediation-plan.md](docs/ai-writing-remediation-plan.md) for the active audit remediation roadmap. Superseded plans and audit reports live under [`docs/older`](docs/older/).
+See [AGENTS.md](AGENTS.md) for development rules and the [author acceptance matrix](docs/author-acceptance-matrix.md) for current verified scope. The [Snowflake rollout plan](docs/snowflake-business-loop-improvement-plan.md) and [2026-08-31 remediation plan](docs/ai-writing-remediation-plan.md) retain historical conclusions and date-stamped status notices; their old counts and checklists are not the current release verdict. Other superseded reports live under [`docs/older`](docs/older/).

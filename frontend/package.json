@@ -15,7 +15,7 @@
     "test:e2e:workspace": "node ../e2e/workspace-review.e2e.mjs",
     "test:perf": "node ../e2e/longform-benchmark.mjs --size small",
     "test:perf:full": "node ../e2e/longform-benchmark.mjs --size all",
-    "test:e2e": "node ../e2e/workspace-review.e2e.mjs && node ../e2e/workspace-wiki-failure.e2e.mjs && node ../e2e/scene-record-update.e2e.mjs && node ../e2e/copilot-selection.e2e.mjs && node ../e2e/narrative-maintenance.e2e.mjs && node ../e2e/manuscript-volumes.e2e.mjs",
+    "test:e2e": "node ../e2e/structured-drafting.e2e.mjs && node ../e2e/workspace-review.e2e.mjs && node ../e2e/workspace-wiki-failure.e2e.mjs && node ../e2e/scene-record-update.e2e.mjs && node ../e2e/copilot-selection.e2e.mjs && node ../e2e/narrative-maintenance.e2e.mjs && node ../e2e/manuscript-volumes.e2e.mjs",
     "test:e2e:legacy": "node ../e2e/full-review-loop.e2e.mjs && node ../e2e/wiki-failure.e2e.mjs"
   },
   "dependencies": {
