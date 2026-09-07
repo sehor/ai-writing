@@ -8,7 +8,6 @@ const read = (relative) =>
 const workspaceStore = read('../src/stores/workspace.ts')
 const snowflakeStore = read('../src/stores/snowflake.ts')
 const canonStore = read('../src/stores/canon.ts')
-const manuscriptStore = read('../src/stores/manuscript.ts')
 const memoryStore = read('../src/stores/memory.ts')
 const draftCache = read('../src/services/draftCache.ts')
 const draftSessions = read('../src/services/draftSessions.ts')
@@ -41,8 +40,8 @@ const guardedWatchers = [
   ['watch([activeProjectId, projectReload]', workspaceStore],
   ['watch(activeStepNumber', workspaceStore],
   ['watch(activeCanonId', canonStore],
-  ['watch(activeChapterId', manuscriptStore],
-  ['watch(activeSceneId', manuscriptStore],
+  // Chapter/scene guards are exercised through their public store actions in
+  // autosave-scope.test.ts and save-baseline.test.ts.
   ['watch(activeMemoryId', memoryStore],
 ]
 
@@ -77,10 +76,7 @@ test('entering a scope restores cached drafts and saves clear the cache', () => 
   assert.match(snowflakeStore, /discardSavedScope\(artifactScopeKey\(projectId, saved\.step_number\)/)
   const clearAfterSave = [
     ['acknowledgeDraftSave(requestScope, snapshot, current)', canonStore],
-    ['acknowledgeDraftSave(requestScope, snapshot, current)', manuscriptStore],
-    ['acknowledgeDraftSave(requestScope, snapshot, current)', manuscriptStore],
     ['acknowledgeDraftSave(requestScope, snapshot, current)', memoryStore],
-    ['clearDraft(manuscriptEditScopeKey(projectId, sceneId))', manuscriptStore],
   ]
   for (const [snippet, source] of clearAfterSave) {
     assert.ok(source.includes(snippet), 'missing save cleanup: ' + snippet)

@@ -33,14 +33,7 @@ test('accepting a proposal surfaces automatic analyses without a manual run', ()
   assert.match(reviewsStore, /analysisJobs\.stop\(\)/)
 })
 
-test('manual save and restore refresh the same analysis panel (P1-01)', () => {
-  // Every committed-revision path - accept, manual scene save, revision
-  // restore - must surface the scheduled pipeline jobs and their report.
-  assert.equal(manuscriptStore.match(/await refreshCommittedRevision\(projectId\)/g)?.length,
-    3, 'accept, manual save and restore use the shared refresh action')
-  assert.equal(manuscriptStore.match(/reviewPort\?\.loadPostAcceptAnalysisJobs\(projectId\)/g)?.length,
-    1, 'the shared action owns polling startup')
-})
+// All three commit paths are exercised in manuscript-composition.test.ts.
 
 test('revision history renders analysis job status with retry for failures', () => {
   assert.match(revisionHistory, /class="post-accept-analysis"/)

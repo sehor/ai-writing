@@ -7,7 +7,6 @@ const read = (relative) =>
 
 const workspaceStore = read('../src/stores/workspace.ts')
 const formatUtils = read('../src/utils/format.ts')
-const manuscriptStore = read('../src/stores/manuscript.ts')
 const appSidebar = read('../src/components/AppSidebar.vue')
 const projectDialog = read('../src/components/ProjectDialog.vue')
 const snowflakeWorkspace = read('../src/components/SnowflakeWorkspace.vue')
@@ -27,12 +26,7 @@ test('shared label formatting humanizes enum values without unsafe parsing', () 
   assert.match(formatUtils, /value\.split\('_'\)\.join\(' '\)/)
 })
 
-test('proposal acceptance refreshes dependent collections in one batch', () => {
-  assert.match(
-    manuscriptStore,
-    /await Promise\.all\(\[\s*loadManuscriptScenes\(projectId\),\s*loadManuscriptRevisions\(projectId\),\s*reviewPort\?\.loadWritebackProposals\(projectId\),?\s*\]\)/s,
-  )
-})
+// Commit refresh behavior is covered in manuscript-composition.test.ts.
 
 test('projects live in a dialog instead of occupying the sidebar', () => {
   assert.doesNotMatch(appSidebar, /class="project-list"/)

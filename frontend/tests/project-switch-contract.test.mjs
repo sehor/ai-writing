@@ -28,9 +28,7 @@ test('the workspace store owns the active-project staleness check', () => {
 // still ignore responses that arrive after the active project changed.
 const staleGuardedFunctions = [
   ['saveCanonEntity', '../src/stores/canon.ts'],
-  ['saveChapter', '../src/stores/manuscript.ts'],
-  ['saveSceneContract', '../src/stores/manuscript.ts'],
-  ['createProposalFromScene', '../src/stores/manuscript.ts'],
+  // Manuscript mutation isolation is covered by executable session/composition tests.
   ['generateReferenceSuggestion', '../src/stores/reviews.ts'],
   // Manual saves use an editor-session guard as well as project identity.
   // Their late-response behavior is covered by manuscript-conflicts.test.ts.
