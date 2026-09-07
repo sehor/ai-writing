@@ -1,0 +1,76 @@
+{
+  "application_commit": "d7ca277",
+  "protocol_version": 2,
+  "source_artifacts": ".tmp/performance-{small,medium,large}.json",
+  "host": {
+    "os": "Windows 10 10.0.19045",
+    "cpu": "Intel Core i5-9400F 2.90GHz",
+    "logical_cpus": 6,
+    "ram_gib": 31.94,
+    "python": "3.13.14",
+    "sqlite": "3.50.4",
+    "node": "22.16.0",
+    "chromium": "148.0.7778.96"
+  },
+  "method": {
+    "units": "timings are milliseconds; each pair is [median, maximum]",
+    "n": 5,
+    "single_samples": ["boot_dev_server", "first_project_open"],
+    "p95": "nearest-rank with n=5 equals maximum, not a population SLA",
+    "backend": "one warmup before timing, no paid model/dispatcher/attachments; memory tracing is separate",
+    "http": "localhost complete response body, independent from repository timing",
+    "browser": "headless isolated Chromium, Vite development server, 1440x1000, no throttling; action through two requestAnimationFrames",
+    "project_switch": "round trip from populated project to empty project and back",
+    "resources": "Python peak RSS includes seed and memory pass; browser heap is largest sampled JS heap, not renderer RSS"
+  },
+  "small": {
+    "timestamp_utc": "2026-09-07T09:29:15.084382+00:00",
+    "fixture": {"scenes":20,"revisions":60,"chapters":2,"volumes":1,"facts":20,"knowledge_states":60,"canon":4,"chars_per_scene":2000,"current_prose_chars":40000},
+    "restored_prose_sha256": "56f792c0cde32a79b5d4b096193f0a6f639110c00282ad28bf2145ab3f08295d",
+    "backend_ms": {
+      "sqlite_history_raw":[6.596,7.078],"repository_history_dto":[6.784,7.358],"repository_scene_list":[4.352,4.45],
+      "snapshot_local_no_cognition":[51.206,51.462],"export_markdown":[21.426,22.457],"backup_export":[60.416,64.72],
+      "backup_preview_validation":[41.754,43.591],"backup_restore":[140.648,151.546]
+    },
+    "http_ms": {"scenes":[13.11,14.824],"history":[16.035,18.169],"prose":[11.862,16.5],"export":[30.365,30.66],"backup":[61.624,62.796]},
+    "history_response_bytes":373007,
+    "history_node_json_parse_ms":[1.801,2.541],
+    "browser_ms": {"boot_dev_server":[966.268,966.268],"first_project_open":[497.201,497.201],"project_switch_roundtrip":[619.797,628.508],"scene_switch":[65.606,80.827],"history_panel_open":[151.334,164.498]},
+    "history_cdp_layout_ms":[56.972,74.141],"history_cdp_task_ms":[94.633,107.657],"scene_cdp_task_ms":[9.091,18.269],
+    "database_bytes":1175552,"backup_bytes":124628,"python_backup_peak_alloc_mib":2.2,"python_process_peak_rss_mib":59.91,"max_sample_js_heap_mib":10.826
+  },
+  "medium": {
+    "timestamp_utc": "2026-09-07T09:29:32.139300+00:00",
+    "fixture": {"scenes":200,"revisions":600,"chapters":20,"volumes":1,"facts":200,"knowledge_states":600,"canon":40,"chars_per_scene":2000,"current_prose_chars":400000},
+    "restored_prose_sha256": "d41008982093162df99560510a1e179cde32082d59dea5a890b182cd4ffa58cb",
+    "backend_ms": {
+      "sqlite_history_raw":[54.823,59.048],"repository_history_dto":[55.355,55.962],"repository_scene_list":[7.931,8.443],
+      "snapshot_local_no_cognition":[83.114,95.721],"export_markdown":[46.742,49.431],"backup_export":[557.836,580.384],
+      "backup_preview_validation":[173.772,176.378],"backup_restore":[592.081,910.16]
+    },
+    "http_ms": {"scenes":[15.598,16.703],"history":[92.758,165.72],"prose":[28.619,35.894],"export":[50.391,62.984],"backup":[558.891,566.732]},
+    "history_response_bytes":3732953,
+    "history_node_json_parse_ms":[19.012,22.967],
+    "browser_ms": {"boot_dev_server":[936.681,936.681],"first_project_open":[580.682,580.682],"project_switch_roundtrip":[823.183,864.674],"scene_switch":[97.582,130.811],"history_panel_open":[867.604,1315.539]},
+    "history_cdp_layout_ms":[554.071,596.201],"history_cdp_task_ms":[829.823,1284.691],"scene_cdp_task_ms":[40.492,52.269],
+    "database_bytes":8187904,"backup_bytes":1200654,"python_backup_peak_alloc_mib":21.97,"python_process_peak_rss_mib":86.56,"max_sample_js_heap_mib":37.07
+  },
+  "large": {
+    "timestamp_utc": "2026-09-07T09:37:32.308062+00:00",
+    "fixture": {"scenes":999,"revisions":2997,"chapters":100,"volumes":5,"facts":999,"knowledge_states":2997,"canon":199,"chars_per_scene":2000,"current_prose_chars":1998000},
+    "restored_prose_sha256": "7aae583605d85c7ec408b43f4895ab0eab4a709f340559e09bfcadc3b775f9e0",
+    "backend_ms": {
+      "sqlite_history_raw":[233.382,235.691],"repository_history_dto":[260.953,409.32],"repository_scene_list":[22.431,22.661],
+      "snapshot_local_no_cognition":[232.021,234.551],"export_markdown":[161.17,169.834],"backup_export":[2795.238,2883.498],
+      "backup_preview_validation":[759.692,761.402],"backup_restore":[3063.064,3905.586]
+    },
+    "http_ms": {"scenes":[40.318,81.704],"history":[432.704,455.2],"prose":[150.187,159.424],"export":[207.791,213.49],"backup":[2918.921,3357.558]},
+    "history_response_bytes":18648685,
+    "history_node_json_parse_ms":[92.786,100.818],
+    "browser_ms": {"boot_dev_server":[945.295,945.295],"first_project_open":[3146.145,3146.145],"project_switch_roundtrip":[3669.544,4406.239],"scene_switch":[844.528,879.13],"history_panel_open":[4985.196,20003.212]},
+    "history_cdp_layout_ms":[2939.672,2992.679],"history_cdp_task_ms":[4967.531,20017.498],"scene_cdp_task_ms":[804.086,826.991],
+    "database_bytes":39178240,"backup_bytes":5963929,"python_backup_peak_alloc_mib":110.09,"python_process_peak_rss_mib":205.44,"max_sample_js_heap_mib":49.813
+  },
+  "verified_for_all_tiers": {"all_scene_and_history_rows_returned":true,"restored_current_prose_hash_matches":true,"scene_sequence_1000_http_status":422,"prose_40001_http_status":422,"rejected_writes_add_no_revision":true,"browser_pageerrors":0},
+  "unverified": ["real author data", "paid model quality", "production bundle", "cold disk", "low memory hardware", "many concurrent writers", "more than three revisions per scene", "module attachments", "every scene at 40000 characters", "multi-hour browser memory behavior"]
+}

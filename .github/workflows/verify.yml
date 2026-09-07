@@ -108,6 +108,26 @@ jobs:
           AI_WRITING_E2E_PYTHON: ${{ github.workspace }}/backend/.venv/bin/python
         run: pnpm test:e2e
 
+      - name: Measure representative small project
+        timeout-minutes: 5
+        working-directory: frontend
+        env:
+          AI_WRITING_E2E_PYTHON: ${{ github.workspace }}/backend/.venv/bin/python
+        run: pnpm test:perf
+
+      - name: Preserve small-project measurement evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: small-project-performance
+          include-hidden-files: true
+          retention-days: 7
+          path: |
+            .tmp/performance-small.json
+            .tmp/performance-small.png
+            .tmp/performance-small-progress.json
+          if-no-files-found: warn
+
   repository:
     name: Repository hygiene (git diff --check)
     runs-on: ubuntu-latest
