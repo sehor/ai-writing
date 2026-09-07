@@ -45,6 +45,10 @@ class ProviderManuscriptSnapshotBoundaryTests(unittest.TestCase):
                     goal="Open the archive.",
                     conflict="The lock changes shape.",
                     turning_point="The brass key fits.",
+                    outcome="PLAN_OUTCOME_MARKER",
+                    information_delta="PLAN_INFORMATION_MARKER",
+                    character_state_delta="PLAN_CHARACTER_MARKER",
+                    story_thread_actions="PLAN_THREAD_MARKER",
                     open_threads=LEGACY_OPEN_THREAD,
                 ),
             )
@@ -136,8 +140,38 @@ class ProviderManuscriptSnapshotBoundaryTests(unittest.TestCase):
             service = ManuscriptService(data_store=store, cognition=None)
             service.gateway_registry = registry
 
+            facts_before = store.list_story_facts(project.id)
+            canon_before = store.list_canon_entities(project.id)
             proposal = service.generate_provider_proposal(project.id, target_scene.id)
             manuscript_scenes = store.list_manuscript_scenes(project.id)
+            self.assertEqual(store.list_story_facts(project.id), facts_before)
+            self.assertEqual(store.list_canon_entities(project.id), canon_before)
+
+            empty_plan = target_scene.model_copy(
+                update={
+                    "outcome": "",
+                    "information_delta": "",
+                    "character_state_delta": "",
+                    "story_thread_actions": "",
+                }
+            )
+            from dataclasses import replace
+
+            empty_context = replace(
+                NarrativeSnapshot.for_scene(
+                    project_id=project.id,
+                    scene_id=target_scene.id,
+                    data_store=store,
+                ),
+                scene=empty_plan,
+            ).render_generation_context()
+            for label in (
+                "outcome",
+                "information delta",
+                "character state delta",
+                "story thread actions",
+            ):
+                self.assertIn(f"Planned {label}: Not specified", empty_context)
 
         self.assertEqual(len(gateway.requests), 1)
         prompt_context = gateway.requests[0].prompt.messages[1].content
@@ -146,6 +180,11 @@ class ProviderManuscriptSnapshotBoundaryTests(unittest.TestCase):
         self.assertEqual(proposal.status, "pending_review")
         self.assertIn(SAFE_FACT, prompt_context)
         self.assertIn(STRUCTURED_THREAD, prompt_context)
+        self.assertIn("Planned outcome: PLAN_OUTCOME_MARKER", prompt_context)
+        self.assertIn("Planned information delta: PLAN_INFORMATION_MARKER", prompt_context)
+        self.assertIn("Planned character state delta: PLAN_CHARACTER_MARKER", prompt_context)
+        self.assertIn("Planned story thread actions: PLAN_THREAD_MARKER", prompt_context)
+        self.assertIn("author intentions, not confirmed story facts", prompt_context)
         self.assertNotIn(LEGACY_OPEN_THREAD, prompt_context)
         self.assertNotIn(READER_ONLY_FACT, prompt_context)
         self.assertNotIn(FUTURE_FACT, prompt_context)

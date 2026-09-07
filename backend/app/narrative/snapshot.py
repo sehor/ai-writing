@@ -183,6 +183,13 @@ class NarrativeSnapshot:
             f"Turning Point: {scene.turning_point or 'TBD'}",
             f"Required Canon: {scene.required_canon or 'None listed'}",
             f"Forbidden Facts: {scene.forbidden_facts or 'None listed'}",
+            "",
+            "## Target scene plan (author intentions, not confirmed story facts)",
+            "Use these as writing targets; changes still require author review.",
+            f"Planned outcome: {scene.outcome or 'Not specified'}",
+            f"Planned information delta: {scene.information_delta or 'Not specified'}",
+            f"Planned character state delta: {scene.character_state_delta or 'Not specified'}",
+            f"Planned story thread actions: {scene.story_thread_actions or 'Not specified'}",
         ]
 
         world_ids = {item.id for item in self.world_truth}
