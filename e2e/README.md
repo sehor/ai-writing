@@ -1,6 +1,6 @@
 # e2e — P1-08 真实后端浏览器测试
 
-当前中文工作台使用 `pnpm test:e2e`：运行 `workspace-review.e2e.mjs` 和 `workspace-wiki-failure.e2e.mjs`。前者覆盖真实后端的草稿审核、持续编辑、分析、导出、冲突、恢复与设定回写；后者覆盖文件存储故障和界面重试。前者使用临时端口，后者沿用下文的 8132 / 5176，所有数据均隔离。
+当前中文工作台使用 `pnpm test:e2e`：运行 `workspace-review.e2e.mjs` 和 `workspace-wiki-failure.e2e.mjs`。前者通过真实生成服务和受控 FakeModelGateway（无外部模型调用）覆盖结构化材料审阅、刷新恢复和真实后端的草稿审核、持续编辑、分析、导出、冲突、恢复与设定回写；后者覆盖文件存储故障和界面重试。前者使用临时端口，后者沿用下文的 8132 / 5176，所有数据均隔离。
 
 `pnpm test:browser` 使用随机端口与本地模拟数据，检查浅深主题、桌面及窄屏交互，并生成 `.tmp/ui-review/` 截图。
 

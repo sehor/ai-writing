@@ -1,7 +1,11 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:net'
+import { execFileSync } from 'node:child_process'
+import { fileURLToPath } from 'node:url'
 import {
   api,
+  BACKEND_DIR,
+  BACKEND_PYTHON,
   launchBrowser,
   mkTempRoot,
   pollUntil,
@@ -46,10 +50,11 @@ try {
     conflict: '地址已沉入海底',
     turning_point: '发现信纸背后的线索',
   })
-  // Explicit local endpoint: no provider-backed generation is used.
-  const proposal = await client.post(
-    `${base}/manuscript/proposals/from-scene/${scene.id}`,
-  )
+  // Real service + controlled FakeModelGateway; no external provider or paid calls.
+  const proposal = JSON.parse(execFileSync(BACKEND_PYTHON, [
+    '-c', 'import runpy,sys; script=sys.argv.pop(1); runpy.run_path(script, run_name="__main__")',
+    fileURLToPath(new URL('./lib/generate-review-fixture.py', import.meta.url)), dataRoot, project.id, scene.id,
+  ], { cwd: BACKEND_DIR, env: { ...process.env, PYTHONIOENCODING: 'utf-8', AI_WRITING_DATA_ROOT: dataRoot }, encoding: 'utf8' }).trim().split('\n').at(-1))
   browser = await launchBrowser()
   const page = await browser.newPage({
     viewport: { width: 1440, height: 900 },
@@ -67,6 +72,14 @@ try {
   await page.locator('.workspace-content[aria-busy="false"]').waitFor()
   await page.getByRole('button', { name: '正文写作', exact: true }).click()
   await page.getByRole('button', { name: /待审核草稿/ }).click()
+  const review = page.getByRole('region', { name: '生成审核材料' })
+  await review.getByText('暂时保留信件', { exact: true }).waitFor()
+  await review.getByLabel('设计偏差 1处理状态').selectOption('reviewed')
+  await review.getByLabel('连续性问题 1处理状态').selectOption('question')
+  await page.reload()
+  await review.getByText('旧邮戳来自哪里？', { exact: true }).waitFor()
+  assert.equal(await review.getByLabel('设计偏差 1处理状态').inputValue(), 'reviewed')
+  assert.equal(await review.getByLabel('连续性问题 1处理状态').inputValue(), 'question')
   const draft = page.getByRole('textbox', { name: 'AI 草稿正文' })
   await draft.fill('潮水退去后，修复师在灯塔下找到一封信。\n\n她把信留了下来。')
   await draft.press('Control+s')

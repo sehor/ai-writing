@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import SaveState from '../ui/SaveState.vue'
+import GenerationReview from './GenerationReview.vue'
 import { vAutosize } from '../../directives/autosize'
 import { storeToRefs } from 'pinia'
 import { computed, watch, onBeforeUnmount } from 'vue'
@@ -155,6 +156,7 @@ onBeforeUnmount(() => draft.persist())
             <li v-for="item in activeProposal.checklist" :key="item">{{ item }}</li>
           </ul>
         </section>
+        <GenerationReview :key="activeProposal.id" :project-id="workspace.activeProjectId" :proposal="activeProposal" />
         <details>
           <summary>生成依据 · 展开核对</summary>
           <pre>{{ activeProposal.context }}</pre>
