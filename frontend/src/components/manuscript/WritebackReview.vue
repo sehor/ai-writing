@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import AnalysisExecution from './AnalysisExecution.vue'
+import { useAnalysisJobsStore, analysisJobLabel } from '../../stores/analysisJobs'
 import { storeToRefs } from 'pinia'
 import { statusText } from '../../utils/format'
 import { useCanonStore } from '../../stores/canon'
@@ -10,6 +12,7 @@ import { writebackConflict } from '../../domain/writeback'
 import type { CanonEntity, ManuscriptRevision, WritebackFieldChange } from '../../types'
 
 const store = useReviewsStore()
+const jobsStore = useAnalysisJobsStore()
 const {
   writebackProposals,
   hermesProcessReport,
@@ -114,6 +117,17 @@ function formatJson(value: Record<string, unknown> | undefined) {
       </div>
     </div>
 
+    <p class="status-text">候选不是已确认事实。保存后的本地规则不能证明完整语义无矛盾；Provider 仅手动调用，CLP 仅在显式配置后运行。</p>
+    <details>
+      <summary>检查范围与执行记录</summary>
+      <button type="button" class="secondary" @click="store.loadPostAcceptAnalysisJobs()">刷新执行记录</button>
+      <p v-if="jobsStore.error" role="alert">{{ jobsStore.error }}</p>
+      <p v-if="!jobsStore.jobs.length">暂无执行记录；不能据此认为检查已完成。</p>
+      <article v-for="job in jobsStore.jobs.slice(0, 8)" :key="job.id">
+        <h4>{{ analysisJobLabel(job.job_type) }}</h4><AnalysisExecution :job="job" />
+      </article>
+      <p>更多任务及失败重试见“版本历史”。外部模型效果尚未人工验收；运行时修复或降级不代表效果认证。</p>
+    </details>
     <p v-if="writebackError" class="error">{{ writebackError }}</p>
     <p v-else-if="writebackStatus" class="save-state">{{ writebackStatus }}</p>
 

@@ -3,7 +3,8 @@ import { computed } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useManuscriptStore } from '../../stores/manuscript'
 import { useReviewsStore } from '../../stores/reviews'
-import { useAnalysisJobsStore } from '../../stores/analysisJobs'
+import { useAnalysisJobsStore, analysisJobState } from '../../stores/analysisJobs'
+import AnalysisExecution from './AnalysisExecution.vue'
 import type { FindingSeverity, OutboxJobStatus } from '../../types'
 
 const store = useManuscriptStore()
@@ -136,12 +137,13 @@ const pendingAnalysisCount = computed(
       <article v-for="job in postAcceptJobs" :key="job.id" class="analysis-job-item" :data-aggregate-id="job.aggregate_id">
         <div class="panel-header compact">
           <div>
-            <span :class="['severity-chip', jobStatusClass(job.status)]">{{ job.status }}</span>
+            <span :class="['severity-chip', jobStatusClass(job.status)]">{{ analysisJobState(job) }}</span>
             <strong>{{ analysisJobLabel(job.job_type) }}</strong>
           </div>
           <small>{{ job.completed_at || job.created_at }}</small>
         </div>
         <small>{{ job.aggregate_id }} · attempt {{ job.attempt_count }}</small>
+        <AnalysisExecution :job="job" />
         <p v-if="job.last_error" class="error-text">{{ job.last_error }}</p>
         <div v-if="job.status === 'failed'" class="button-row">
           <button class="secondary" type="button" :disabled="!!retryingId" @click="retryPostAcceptAnalysisJob(job.id)">
@@ -150,7 +152,7 @@ const pendingAnalysisCount = computed(
         </div>
       </article>
       <button v-if="canLoadMore" type="button" class="secondary" @click="jobsStore.loadMore()">加载更多历史任务</button>
-      <p class="status-text">分析自动运行；生成的回写建议需要你审核后才会应用。</p>
+      <p class="status-text">保存仅自动运行本地规则和已显式配置的 CLP；不会自动调用 Provider。零问题不等于完整语义无矛盾。回写候选须人工审核。</p>
     </section>
 
     <section v-if="consistencyReport || consistencyError" class="consistency-report">

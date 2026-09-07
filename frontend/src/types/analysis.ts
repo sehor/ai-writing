@@ -10,7 +10,17 @@ export type OutboxJobType = 'llm_wiki_ingest' | 'consistency_analysis' | 'writeb
 
 export type OutboxJobStatus = 'pending' | 'processing' | 'succeeded' | 'failed'
 
+export type AnalysisExecution = {
+  mode: 'local_rules' | 'local_cognition' | 'index' | 'external_clp' | 'not_configured' | 'unavailable'
+  processor: string
+  outcome: 'completed' | 'limited' | 'not_executed' | 'failed'
+  source_ref: string
+  limitations: string
+  semantic_review: false
+}
+
 export type OutboxJob = {
+  execution?: AnalysisExecution | null
   processing_started_at: string
   id: string
   project_id: string

@@ -14,6 +14,7 @@ from app.integrations.llmwiki_clp import get_knowledge_compiler
 from app.llm_wiki.interfaces import LlmWiki
 from app.observability import log_event
 from app.outbox.handlers import OUTBOX_HANDLERS, OutboxJobContext
+from app.outbox.capabilities import execution_evidence
 from app.outbox.models import OutboxJob
 
 # A 'processing' job whose lease stamp is older than this is considered
@@ -133,6 +134,7 @@ class OutboxService:
                     job.id,
                     succeeded=False,
                     error=f"{type(exc).__name__}: {exc}",
+                    execution=execution_evidence(context, job, failed=True),
                 )
                 or claimed
             )
@@ -147,7 +149,10 @@ class OutboxService:
             error_code="",
         )
         return (
-            self.data_store.complete_outbox_job(job.project_id, job.id, succeeded=True) or claimed
+            self.data_store.complete_outbox_job(
+                job.project_id, job.id, succeeded=True, execution=execution_evidence(context, job)
+            )
+            or claimed
         )
 
 

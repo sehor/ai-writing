@@ -186,6 +186,13 @@ def _validate_response_identity(
             raise KnowledgeCompilerResponseError(
                 "CLP candidate source_ref does not match the accepted revision."
             )
+        if any(
+            not item.excerpt.strip() or item.excerpt not in request.revision_text
+            for item in candidate.evidence
+        ):
+            raise KnowledgeCompilerResponseError(
+                "CLP evidence excerpt is not present in the accepted revision."
+            )
         if any(item.source_ref != request.source_ref for item in candidate.evidence):
             raise KnowledgeCompilerResponseError(
                 "CLP candidate evidence source_ref does not match the accepted revision."

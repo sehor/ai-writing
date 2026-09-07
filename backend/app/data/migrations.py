@@ -746,6 +746,10 @@ def _add_reference_editor_context(connection: sqlite3.Connection) -> None:
     connection.execute("ALTER TABLE reference_suggestions ADD COLUMN editor_context_json TEXT")
 
 
+def _add_analysis_execution(connection: sqlite3.Connection) -> None:
+    ensure_column(connection, "outbox_jobs", "execution_json", "TEXT NOT NULL DEFAULT 'null'")
+
+
 MIGRATIONS: list[Migration] = [
     Migration(version=1, name="baseline_schema", apply=_apply_baseline_schema),
     Migration(version=2, name="scene_contracts_chapter_id", apply=_add_scene_contracts_chapter_id),
@@ -786,6 +790,7 @@ MIGRATIONS: list[Migration] = [
     Migration(version=15, name="scene_update_proposals", apply=_add_scene_update_proposals),
     Migration(version=16, name="narrative_revision_history", apply=_add_narrative_revision_history),
     Migration(version=17, name="reference_editor_context", apply=_add_reference_editor_context),
+    Migration(version=18, name="analysis_execution_evidence", apply=_add_analysis_execution),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1].version

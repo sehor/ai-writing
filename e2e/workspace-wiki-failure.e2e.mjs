@@ -110,13 +110,18 @@ async function run(page) {
   assert.match(byType.llm_wiki_ingest.last_error || '', /NotADirectoryError|FileExistsError|ENOTDIR|Error/, 'wiki failure carries an error message')
   assert.equal(byType.consistency_analysis.status, 'succeeded', 'DB-only analysis still succeeded')
 
+  assert.equal(byType.clp_extraction.execution.mode, 'not_configured')
+  assert.equal(byType.clp_extraction.execution.outcome, 'not_executed')
+  assert.equal(byType.consistency_analysis.execution.outcome, 'limited')
+  await page.getByText('CLP 未配置，未执行抽取。', { exact: true }).waitFor()
+
   // The Manuscript workspace surfaces the FAILED analysis job with a Retry button.
   const failedArticle = page
     .locator('.post-accept-analysis article')
     .filter({ hasText: 'Write-back suggestions' })
     .first()
   await failedArticle.waitFor({ state: 'visible' })
-  await failedArticle.locator('.severity-chip', { hasText: 'failed' }).waitFor({ state: 'visible' })
+  await failedArticle.locator('.severity-chip', { hasText: '失败' }).waitFor({ state: 'visible' })
   await failedArticle.getByRole('button', { name: '重试' }).waitFor({ state: 'visible' })
   assert.ok(
     await failedArticle.locator('.error-text').isVisible(),
@@ -125,7 +130,7 @@ async function run(page) {
   await page
     .locator('.post-accept-analysis article')
     .filter({ hasText: 'Consistency report' })
-    .locator('.severity-chip', { hasText: 'succeeded' })
+    .locator('.severity-chip', { hasText: '有限检查完成' })
     .waitFor({ state: 'visible' })
 
   // ------------------------------------------------------------------
@@ -137,7 +142,7 @@ async function run(page) {
   await failedArticle.getByRole('button', { name: '重试' }).click()
 
   await failedArticle
-    .locator('.severity-chip', { hasText: 'succeeded' })
+    .locator('.severity-chip', { hasText: '有限检查完成' })
     .waitFor({ state: 'visible', timeout: 60000 })
 
   const retried = await client.get('/projects/' + project.id + '/outbox-jobs')
@@ -156,10 +161,10 @@ async function run(page) {
     .locator('.post-accept-analysis article')
     .filter({ hasText: 'Wiki index' })
     .first()
-  await wikiArticle.locator('.severity-chip', { hasText: 'failed' }).waitFor({ state: 'visible' })
+  await wikiArticle.locator('.severity-chip', { hasText: '失败' }).waitFor({ state: 'visible' })
   await wikiArticle.getByRole('button', { name: '重试' }).click()
   await wikiArticle
-    .locator('.severity-chip', { hasText: 'succeeded' })
+    .locator('.severity-chip', { hasText: '已完成' })
     .waitFor({ state: 'visible', timeout: 60000 })
 
   const retriedAgain = await client.get('/projects/' + project.id + '/outbox-jobs')

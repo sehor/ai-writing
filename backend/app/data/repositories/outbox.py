@@ -12,7 +12,7 @@ import json
 import sqlite3
 
 from app.data.helpers import make_record_id, utc_now
-from app.outbox.models import OutboxJob, OutboxJobStatus
+from app.outbox.models import AnalysisExecution, OutboxJob, OutboxJobStatus
 
 
 def outbox_job_from_row(row: sqlite3.Row) -> OutboxJob:
@@ -23,6 +23,7 @@ def outbox_job_from_row(row: sqlite3.Row) -> OutboxJob:
         aggregate_type=row["aggregate_type"],
         aggregate_id=row["aggregate_id"],
         payload=json.loads(row["payload_json"]),
+        execution=json.loads(row["execution_json"]),
         status=row["status"],
         attempt_count=row["attempt_count"],
         last_error=row["last_error"],
@@ -34,7 +35,7 @@ def outbox_job_from_row(row: sqlite3.Row) -> OutboxJob:
 
 OUTBOX_JOB_COLUMNS = """
     SELECT id, project_id, job_type, aggregate_type, aggregate_id,
-           payload_json, status, attempt_count, last_error,
+           payload_json, execution_json, status, attempt_count, last_error,
            created_at, completed_at, processing_started_at
     FROM outbox_jobs
 """
@@ -163,12 +164,14 @@ class OutboxRepository:
         *,
         succeeded: bool,
         error: str | None = None,
+        execution: AnalysisExecution | None = None,
     ) -> OutboxJob | None:
         """Finalize a claimed job; only valid from 'processing'."""
         cursor = self.connection.execute(
             """
             UPDATE outbox_jobs
             SET status = ?,
+                execution_json = ?,
                 last_error = ?,
                 completed_at = ?,
                 processing_started_at = ''
@@ -176,6 +179,7 @@ class OutboxRepository:
             """,
             (
                 "succeeded" if succeeded else "failed",
+                execution.model_dump_json() if execution else "null",
                 error or "",
                 utc_now(),
                 project_id,
@@ -195,6 +199,7 @@ class OutboxRepository:
             """
             UPDATE outbox_jobs
             SET status = 'pending',
+                execution_json = 'null',
                 last_error = '',
                 completed_at = '',
                 processing_started_at = ''

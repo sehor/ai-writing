@@ -12,6 +12,19 @@ OutboxJobType = Literal[
 OutboxJobStatus = Literal["pending", "processing", "succeeded", "failed"]
 
 
+class AnalysisExecution(BaseModel):
+    """Evidence for the last completed attempt, not a promise of semantic correctness."""
+
+    mode: Literal[
+        "local_rules", "local_cognition", "index", "external_clp", "not_configured", "unavailable"
+    ]
+    processor: str
+    outcome: Literal["completed", "limited", "not_executed", "failed"]
+    source_ref: str = ""
+    limitations: str
+    semantic_review: Literal[False] = False
+
+
 class OutboxJob(BaseModel):
     id: str = Field(min_length=1)
     project_id: str = Field(min_length=1)
@@ -19,6 +32,7 @@ class OutboxJob(BaseModel):
     aggregate_type: str = Field(min_length=1)
     aggregate_id: str = Field(min_length=1)
     payload: dict = Field(default_factory=dict)
+    execution: AnalysisExecution | None = None
     status: OutboxJobStatus
     attempt_count: int = Field(default=0, ge=0)
     last_error: str = ""

@@ -107,7 +107,7 @@ from app.models import (
     WritebackProposalCreate,
     WritebackProposalStatus,
 )
-from app.outbox.models import OutboxJob, OutboxJobStatus
+from app.outbox.models import AnalysisExecution, OutboxJob, OutboxJobStatus
 
 
 class SQLiteWritingDataStore:
@@ -977,10 +977,13 @@ class SQLiteWritingDataStore:
         *,
         succeeded: bool,
         error: str | None = None,
+        execution: AnalysisExecution | None = None,
     ) -> OutboxJob | None:
         """Finalize a claimed job; only valid from 'processing'."""
-        with SqliteUnitOfWork(self.database_path) as uow:
-            return uow.outbox.complete(project_id, job_id, succeeded=succeeded, error=error)
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
+            return uow.outbox.complete(
+                project_id, job_id, succeeded=succeeded, error=error, execution=execution
+            )
 
     def reset_failed_outbox_job(self, project_id: str, job_id: str) -> OutboxJob | None:
         """Move a failed job back to pending via compare-and-set."""

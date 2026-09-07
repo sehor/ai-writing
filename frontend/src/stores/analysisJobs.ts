@@ -4,6 +4,12 @@ import { fetchApi } from '../api/client'
 import { readErrorDetail } from '../api/errors'
 import type { OutboxJob, OutboxJobType } from '../types'
 
+export function analysisJobState(job: OutboxJob): string {
+  if (job.execution?.outcome === 'not_executed') return '未执行'
+  if (job.execution?.outcome === 'limited') return '有限检查完成'
+  return { pending: '待执行', processing: '执行中', succeeded: '已完成', failed: '失败' }[job.status]
+}
+
 const labels: Record<OutboxJobType, string> = {
   llm_wiki_ingest: 'Wiki index', consistency_analysis: 'Consistency report',
   writeback_analysis: 'Write-back suggestions', clp_extraction: 'CLP extraction',
