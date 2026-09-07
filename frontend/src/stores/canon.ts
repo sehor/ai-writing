@@ -2,8 +2,9 @@ import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { fetchApi } from '../api/client'
 import { confirmLeave } from '../composables/useDirtyGuard'
-import { clearDraft } from '../services/draftCache'
 import {
+  acknowledgeDraftSave,
+  discardSavedScope,
   isScopeDirty,
   persistDraft,
   queueAutosave,
@@ -68,7 +69,11 @@ export const useCanonStore = defineStore('canon', () => {
 
   watch(canonDraft, () => queueAutosave(canonScopeKey(), () => canonDraft.value), {
     deep: true,
+    flush: 'sync',
   })
+
+  let canonSelectionEpoch = 0
+  watch(() => canonScopeKey(), () => { canonSelectionEpoch++ }, { flush: 'sync' })
 
   watch(activeCanonId, (next, prev) => {
     if (suppressNextSelectionGuard) {
@@ -77,8 +82,10 @@ export const useCanonStore = defineStore('canon', () => {
       const previousScope = canonScopeKey(ws().activeProjectId, prev)
       if (isScopeDirty(previousScope, canonDraft.value)) {
         if (!confirmLeave(previousScope, prev ? 'Canon 实体编辑' : '新建 Canon 表单')) {
+          const outgoingDraft = canonDraft.value
           suppressNextSelectionGuard = true
           activeCanonId.value = prev
+          canonDraft.value = outgoingDraft
           return
         }
         persistDraft(previousScope, canonDraft.value)
@@ -104,10 +111,11 @@ export const useCanonStore = defineStore('canon', () => {
     }, (message) => {
       canonStatus.value = message
     })
-  })
+  }, { flush: 'sync' })
 
   function startNewCanonEntity() {
     activeCanonId.value = ''
+    if (activeCanonId.value) return
     canonDraft.value = createEmptyCanonDraft()
     canonStatus.value = ''
     canonError.value = ''
@@ -129,6 +137,11 @@ export const useCanonStore = defineStore('canon', () => {
       return
     }
 
+    if (isSavingCanon.value) return
+    const recordId = activeCanonId.value
+    const requestScope = canonScopeKey(projectId, recordId)
+    const requestEpoch = canonSelectionEpoch
+    const snapshot = { ...canonDraft.value }
     isSavingCanon.value = true
     try {
       const body = JSON.stringify({
@@ -140,11 +153,11 @@ export const useCanonStore = defineStore('canon', () => {
         last_seen: canonDraft.value.last_seen.trim(),
         timeline_notes: canonDraft.value.timeline_notes.trim(),
       })
-      const url = activeCanonId.value
-        ? `/projects/${projectId}/canon/entities/${activeCanonId.value}`
+      const url = recordId
+        ? `/projects/${projectId}/canon/entities/${recordId}`
         : `/projects/${projectId}/canon/entities`
       const response = await fetchApi(url, {
-        method: activeCanonId.value ? 'PUT' : 'POST',
+        method: recordId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body,
       })
@@ -161,12 +174,21 @@ export const useCanonStore = defineStore('canon', () => {
       ].sort((left, right) =>
         `${left.entity_type}:${left.name}`.localeCompare(`${right.entity_type}:${right.name}`)
       )
-      clearDraft(canonScopeKey(projectId, activeCanonId.value))
-      suppressNextSelectionGuard = true
-      activeCanonId.value = saved.id
+      if (requestEpoch !== canonSelectionEpoch) return
+      const current = { ...canonDraft.value }
+      acknowledgeDraftSave(requestScope, snapshot, current)
+      if (activeCanonId.value !== saved.id) {
+        // Only an actual selection change may bypass its guard.
+        suppressNextSelectionGuard = true
+        activeCanonId.value = saved.id
+        canonDraft.value = current
+        discardSavedScope(requestScope, snapshot)
+        acknowledgeDraftSave(canonScopeKey(projectId, saved.id), snapshot, current)
+      }
       canonStatus.value = 'Canon entity saved.'
       await useGraphStore().loadGraphAnalysis(projectId)
     } catch {
+      if (!isActiveProject(projectId) || requestEpoch !== canonSelectionEpoch) return
       canonError.value = 'Canon save failed. Check for duplicate names or API errors.'
     } finally {
       isSavingCanon.value = false

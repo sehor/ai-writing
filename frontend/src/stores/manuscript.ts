@@ -8,6 +8,8 @@ import { useScopedRequest } from '../composables/useScopedRequest'
 import { clearDraft } from '../services/draftCache'
 import {
   formatSavedAt,
+  acknowledgeDraftSave,
+  discardSavedScope,
   isScopeDirty,
   persistDraft,
   queueAutosave,
@@ -109,7 +111,8 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   )
 
   /** Set while a save/programmatic change moves a selection itself. */
-  let suppressNextSelectionGuard = false
+  let suppressNextChapterSelectionGuard = false
+  let suppressNextSceneSelectionGuard = false
 
   const activeChapter = computed(() =>
     manuscriptChapters.value.find((chapter) => chapter.id === activeChapterId.value)
@@ -212,9 +215,11 @@ export const useManuscriptStore = defineStore('manuscript', () => {
 
   watch(chapterDraft, () => queueAutosave(chapterScopeKey(), () => chapterDraft.value), {
     deep: true,
+    flush: 'sync',
   })
   watch(sceneDraft, () => queueAutosave(sceneScopeKey(), () => sceneDraft.value), {
     deep: true,
+    flush: 'sync',
   })
   watch(
     [manuscriptEditTitle, manuscriptEditContent, manuscriptEditVersion],
@@ -230,15 +235,20 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     { flush: 'sync' }
   )
 
+  let chapterSelectionEpoch = 0
+  watch(() => chapterScopeKey(), () => { chapterSelectionEpoch++ }, { flush: 'sync' })
+
   watch(activeChapterId, (next, prev) => {
-    if (suppressNextSelectionGuard) {
-      suppressNextSelectionGuard = false
+    if (suppressNextChapterSelectionGuard) {
+      suppressNextChapterSelectionGuard = false
     } else {
       const previousScope = chapterScopeKey(ws().activeProjectId, prev)
       if (isScopeDirty(previousScope, chapterDraft.value)) {
         if (!confirmLeave(previousScope, prev ? 'Chapter 编辑' : '新建 Chapter 表单')) {
-          suppressNextSelectionGuard = true
+          const outgoingDraft = chapterDraft.value
+          suppressNextChapterSelectionGuard = true
           activeChapterId.value = prev
+          chapterDraft.value = outgoingDraft
           return
         }
         persistDraft(previousScope, chapterDraft.value)
@@ -260,17 +270,22 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     }, (message) => {
       chapterStatus.value = message
     })
-  })
+  }, { flush: 'sync' })
+
+  let sceneSelectionEpoch = 0
+  watch(() => sceneScopeKey(), () => { sceneSelectionEpoch++ }, { flush: 'sync' })
 
   watch(activeSceneId, (next, prev) => {
-    if (suppressNextSelectionGuard) {
-      suppressNextSelectionGuard = false
+    if (suppressNextSceneSelectionGuard) {
+      suppressNextSceneSelectionGuard = false
     } else {
       const previousScope = sceneScopeKey(ws().activeProjectId, prev)
       if (isScopeDirty(previousScope, sceneDraft.value)) {
         if (!confirmLeave(previousScope, prev ? 'Scene Contract 编辑' : '新建 Scene 表单')) {
-          suppressNextSelectionGuard = true
+          const outgoingDraft = sceneDraft.value
+          suppressNextSceneSelectionGuard = true
           activeSceneId.value = prev
+          sceneDraft.value = outgoingDraft
           return
         }
         persistDraft(previousScope, sceneDraft.value)
@@ -305,7 +320,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
     }, (message) => {
       sceneStatus.value = message
     })
-  })
+  }, { flush: 'sync' })
 
   // ---- Loaders ----
 
@@ -429,6 +444,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
 
   function startNewChapter() {
     activeChapterId.value = ''
+    if (activeChapterId.value) return
     chapterDraft.value = {
       ...createEmptyChapterDraft(),
       sequence: manuscriptChapters.value.length + 1,
@@ -453,6 +469,11 @@ export const useManuscriptStore = defineStore('manuscript', () => {
       return
     }
 
+    if (isSavingChapter.value) return
+    const recordId = activeChapterId.value
+    const requestScope = chapterScopeKey(projectId, recordId)
+    const requestEpoch = chapterSelectionEpoch
+    const snapshot = { ...chapterDraft.value }
     isSavingChapter.value = true
     try {
       const body = JSON.stringify({
@@ -460,11 +481,11 @@ export const useManuscriptStore = defineStore('manuscript', () => {
         title,
         summary: chapterDraft.value.summary.trim(),
       })
-      const url = activeChapterId.value
-        ? `/projects/${projectId}/manuscript/chapters/${activeChapterId.value}`
+      const url = recordId
+        ? `/projects/${projectId}/manuscript/chapters/${recordId}`
         : `/projects/${projectId}/manuscript/chapters`
       const response = await fetchApi(url, {
-        method: activeChapterId.value ? 'PUT' : 'POST',
+        method: recordId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body,
       })
@@ -479,11 +500,20 @@ export const useManuscriptStore = defineStore('manuscript', () => {
         ...manuscriptChapters.value.filter((chapter) => chapter.id !== saved.id),
         saved,
       ].sort((left, right) => left.sequence - right.sequence)
-      clearDraft(chapterScopeKey(projectId, activeChapterId.value))
-      suppressNextSelectionGuard = true
-      activeChapterId.value = saved.id
+      if (requestEpoch !== chapterSelectionEpoch) return
+      const current = { ...chapterDraft.value }
+      acknowledgeDraftSave(requestScope, snapshot, current)
+      if (activeChapterId.value !== saved.id) {
+        // Only an actual selection change may bypass its guard.
+        suppressNextChapterSelectionGuard = true
+        activeChapterId.value = saved.id
+        chapterDraft.value = current
+        discardSavedScope(requestScope, snapshot)
+        acknowledgeDraftSave(chapterScopeKey(projectId, saved.id), snapshot, current)
+      }
       chapterStatus.value = 'Chapter saved.'
     } catch {
+      if (!isActiveProject(projectId) || requestEpoch !== chapterSelectionEpoch) return
       chapterError.value = 'Chapter save failed. Check for duplicate sequence numbers.'
     } finally {
       isSavingChapter.value = false
@@ -530,6 +560,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
 
   function startNewSceneContract() {
     activeSceneId.value = ''
+    if (activeSceneId.value) return
     sceneDraft.value = {
       ...createEmptySceneDraft(),
       chapter_id: activeChapterId.value,
@@ -556,6 +587,11 @@ export const useManuscriptStore = defineStore('manuscript', () => {
       return
     }
 
+    if (isSavingScene.value) return
+    const recordId = activeSceneId.value
+    const requestScope = sceneScopeKey(projectId, recordId)
+    const requestEpoch = sceneSelectionEpoch
+    const snapshot = { ...sceneDraft.value }
     isSavingScene.value = true
     try {
       const body = JSON.stringify({
@@ -574,11 +610,11 @@ export const useManuscriptStore = defineStore('manuscript', () => {
         story_thread_actions: sceneDraft.value.story_thread_actions.trim(),
         open_threads: sceneDraft.value.open_threads.trim(),
       })
-      const url = activeSceneId.value
-        ? `/projects/${projectId}/scene-contracts/${activeSceneId.value}`
+      const url = recordId
+        ? `/projects/${projectId}/scene-contracts/${recordId}`
         : `/projects/${projectId}/scene-contracts`
       const response = await fetchApi(url, {
-        method: activeSceneId.value ? 'PUT' : 'POST',
+        method: recordId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body,
       })
@@ -593,12 +629,21 @@ export const useManuscriptStore = defineStore('manuscript', () => {
         ...sceneContracts.value.filter((scene) => scene.id !== saved.id),
         saved,
       ].sort((left, right) => left.sequence - right.sequence)
-      clearDraft(sceneScopeKey(projectId, activeSceneId.value))
-      suppressNextSelectionGuard = true
-      activeSceneId.value = saved.id
+      if (requestEpoch !== sceneSelectionEpoch) return
+      const current = { ...sceneDraft.value }
+      acknowledgeDraftSave(requestScope, snapshot, current)
+      if (activeSceneId.value !== saved.id) {
+        // Only an actual selection change may bypass its guard.
+        suppressNextSceneSelectionGuard = true
+        activeSceneId.value = saved.id
+        sceneDraft.value = current
+        discardSavedScope(requestScope, snapshot)
+        acknowledgeDraftSave(sceneScopeKey(projectId, saved.id), snapshot, current)
+      }
       sceneStatus.value = 'Scene contract saved.'
       await useGraphStore().loadGraphAnalysis(projectId)
     } catch {
+      if (!isActiveProject(projectId) || requestEpoch !== sceneSelectionEpoch) return
       sceneError.value = 'Scene save failed. Check for duplicate sequence numbers.'
     } finally {
       isSavingScene.value = false

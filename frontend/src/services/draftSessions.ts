@@ -60,6 +60,12 @@ export function discardSavedScope(scopeKey: string, value: unknown): void {
   }
 }
 
+/** A server save acknowledges only the request snapshot, never later typing. */
+export function acknowledgeDraftSave(scopeKey: string, snapshot: unknown, current: unknown): void {
+  discardSavedScope(scopeKey, snapshot)
+  if (isScopeDirty(scopeKey, current)) persistDraft(scopeKey, current)
+}
+
 export function formatSavedAt(iso: string): string {
   const date = new Date(iso)
   return Number.isNaN(date.getTime()) ? iso : date.toLocaleTimeString()
@@ -70,7 +76,11 @@ export function queueAutosave(scopeKey: string, read: () => unknown): void {
   // Freeze both the value and its editor session before a record/project switch.
   const value: unknown = JSON.parse(stableValue(read()))
   const session = useEditorSessionStore()
-  if (!scopeHasProject(scopeKey) || !isScopeDirty(scopeKey, value)) {
+  if (!scopeHasProject(scopeKey)) return
+  if (!isScopeDirty(scopeKey, value)) {
+    if (draftBaselines.has(scopeKey)) {
+      session.markClean(scopeKey)
+    }
     return
   }
   session.markDirty(scopeKey)

@@ -2,8 +2,9 @@ import { computed, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import { fetchApi } from '../api/client'
 import { confirmLeave } from '../composables/useDirtyGuard'
-import { clearDraft } from '../services/draftCache'
 import {
+  acknowledgeDraftSave,
+  discardSavedScope,
   isScopeDirty,
   persistDraft,
   queueAutosave,
@@ -67,7 +68,11 @@ export const useMemoryStore = defineStore('memory', () => {
 
   watch(memoryDraft, () => queueAutosave(memoryScopeKey(), () => memoryDraft.value), {
     deep: true,
+    flush: 'sync',
   })
+
+  let memorySelectionEpoch = 0
+  watch(() => memoryScopeKey(), () => { memorySelectionEpoch++ }, { flush: 'sync' })
 
   watch(activeMemoryId, (next, prev) => {
     if (suppressNextSelectionGuard) {
@@ -76,8 +81,10 @@ export const useMemoryStore = defineStore('memory', () => {
       const previousScope = memoryScopeKey(ws().activeProjectId, prev)
       if (isScopeDirty(previousScope, memoryDraft.value)) {
         if (!confirmLeave(previousScope, prev ? 'Memory / Style 编辑' : '新建 Memory 表单')) {
+          const outgoingDraft = memoryDraft.value
           suppressNextSelectionGuard = true
           activeMemoryId.value = prev
+          memoryDraft.value = outgoingDraft
           return
         }
         persistDraft(previousScope, memoryDraft.value)
@@ -102,10 +109,11 @@ export const useMemoryStore = defineStore('memory', () => {
     }, (message) => {
       memoryStatus.value = message
     })
-  })
+  }, { flush: 'sync' })
 
   function startNewMemoryRecord() {
     activeMemoryId.value = ''
+    if (activeMemoryId.value) return
     memoryDraft.value = createEmptyMemoryDraft()
     memoryStatus.value = ''
     memoryError.value = ''
@@ -128,6 +136,11 @@ export const useMemoryStore = defineStore('memory', () => {
       return
     }
 
+    if (isSavingMemory.value) return
+    const recordId = activeMemoryId.value
+    const requestScope = memoryScopeKey(projectId, recordId)
+    const requestEpoch = memorySelectionEpoch
+    const snapshot = { ...memoryDraft.value }
     isSavingMemory.value = true
     try {
       const body = JSON.stringify({
@@ -138,11 +151,11 @@ export const useMemoryStore = defineStore('memory', () => {
         tags: memoryDraft.value.tags.trim(),
         source_ref: memoryDraft.value.source_ref.trim(),
       })
-      const url = activeMemoryId.value
-        ? `/projects/${projectId}/memory/records/${activeMemoryId.value}`
+      const url = recordId
+        ? `/projects/${projectId}/memory/records/${recordId}`
         : `/projects/${projectId}/memory/records`
       const response = await fetchApi(url, {
-        method: activeMemoryId.value ? 'PUT' : 'POST',
+        method: recordId ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body,
       })
@@ -159,12 +172,21 @@ export const useMemoryStore = defineStore('memory', () => {
       ].sort((left, right) =>
         `${left.record_type}:${left.title}`.localeCompare(`${right.record_type}:${right.title}`)
       )
-      clearDraft(memoryScopeKey(projectId, activeMemoryId.value))
-      suppressNextSelectionGuard = true
-      activeMemoryId.value = saved.id
+      if (requestEpoch !== memorySelectionEpoch) return
+      const current = { ...memoryDraft.value }
+      acknowledgeDraftSave(requestScope, snapshot, current)
+      if (activeMemoryId.value !== saved.id) {
+        // Only an actual selection change may bypass its guard.
+        suppressNextSelectionGuard = true
+        activeMemoryId.value = saved.id
+        memoryDraft.value = current
+        discardSavedScope(requestScope, snapshot)
+        acknowledgeDraftSave(memoryScopeKey(projectId, saved.id), snapshot, current)
+      }
       memoryStatus.value = 'Memory / Style record saved.'
       await useGraphStore().loadGraphAnalysis(projectId)
     } catch {
+      if (!isActiveProject(projectId) || requestEpoch !== memorySelectionEpoch) return
       memoryError.value = 'Memory save failed. Check that the API is running.'
     } finally {
       isSavingMemory.value = false

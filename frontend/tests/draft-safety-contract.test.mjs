@@ -60,7 +60,7 @@ test('domain stores guard every editable scope before switching away', () => {
     assert.match(section, /persistDraft\(/, watcher + ' autosaves on leave')
     assert.match(
       section,
-      /suppressNextSelectionGuard = true\s*\n\s*(active\w+\.value = prev|return)/,
+      /suppressNext(?:Chapter|Scene)?SelectionGuard = true\s*\n\s*(active\w+\.value = prev|return)/,
       watcher + ' can cancel the switch',
     )
   }
@@ -76,10 +76,10 @@ test('entering a scope restores cached drafts and saves clear the cache', () => 
   // Successful saves drop the local safety net and re-baseline.
   assert.match(snowflakeStore, /discardSavedScope\(artifactScopeKey\(projectId, saved\.step_number\)/)
   const clearAfterSave = [
-    ['clearDraft(canonScopeKey(projectId, activeCanonId.value))', canonStore],
-    ['clearDraft(chapterScopeKey(projectId, activeChapterId.value))', manuscriptStore],
-    ['clearDraft(sceneScopeKey(projectId, activeSceneId.value))', manuscriptStore],
-    ['clearDraft(memoryScopeKey(projectId, activeMemoryId.value))', memoryStore],
+    ['acknowledgeDraftSave(requestScope, snapshot, current)', canonStore],
+    ['acknowledgeDraftSave(requestScope, snapshot, current)', manuscriptStore],
+    ['acknowledgeDraftSave(requestScope, snapshot, current)', manuscriptStore],
+    ['acknowledgeDraftSave(requestScope, snapshot, current)', memoryStore],
     ['clearDraft(manuscriptEditScopeKey(projectId, sceneId))', manuscriptStore],
   ]
   for (const [snippet, source] of clearAfterSave) {
