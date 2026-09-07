@@ -176,9 +176,7 @@ def build_generation_instruction(
                 {"target_records": json.dumps(state.request.target_records, ensure_ascii=False)},
             )
         else:
-            record_selection_rules = manager.render(
-                "snowflake.records.selection.new"
-            )
+            record_selection_rules = manager.render("snowflake.records.selection.new")
         output_contract_rules = manager.render(
             "snowflake.output.records",
             {"record_schemas": json.dumps(record_schemas, ensure_ascii=False)},
@@ -238,12 +236,8 @@ def select_relevant_upstream_records(state: SnowflakePromptState) -> list[Snowfl
             searchable = f"{record.record_id} {json.dumps(record.payload, ensure_ascii=False)}"
             overlap = len(query_tokens & _search_tokens(searchable))
             explicit = 1 if record.record_id.lower() in explicit_refs else 0
-            ranked.append(
-                (explicit, overlap, step_number, record.record_id, record)
-            )
-    ranked.sort(
-        key=lambda item: (-item[0], -item[1], -item[2], item[3])
-    )
+            ranked.append((explicit, overlap, step_number, record.record_id, record))
+    ranked.sort(key=lambda item: (-item[0], -item[1], -item[2], item[3]))
     return [item[-1] for item in ranked]
 
 

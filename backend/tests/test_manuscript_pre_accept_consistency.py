@@ -76,9 +76,7 @@ class ManuscriptPreAcceptConsistencyTests(unittest.TestCase):
                         "pending_review",
                     )
                     self.assertEqual(
-                        store.get_manuscript_proposal(
-                            project["id"], critical_proposal.id
-                        ).status,
+                        store.get_manuscript_proposal(project["id"], critical_proposal.id).status,
                         "pending_review",
                     )
             finally:

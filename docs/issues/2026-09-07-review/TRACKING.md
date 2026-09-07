@@ -19,7 +19,7 @@
 - [ ] AUD-07 · P1 · 建立 Step 8 record 与实际场景的稳定来源映射
 - [ ] AUD-08 · P1 · 支持 Step 8 回改后的场景更新提案与冲突审核
 - [x] AUD-09 · P2 · 将 CI 浏览器门禁切换到当前中文工作台 E2E（本地通过；远端 Actions 待验证）
-- [ ] AUD-10 · P2 · 恢复后端 Ruff format 门禁
+- [x] AUD-10 · P2 · 恢复后端 Ruff format 门禁（37 文件；297 项后端测试通过）
 - [ ] AUD-11 · P2 · 解除 workspace 与领域 stores 的双向依赖
 - [ ] AUD-12 · P2 · 按职责拆分正文 store 与雪花编辑组件
 - [ ] AUD-13 · P2 · 把 FastAPI 装配与异常映射移出后端应用服务

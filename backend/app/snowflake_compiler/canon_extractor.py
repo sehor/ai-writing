@@ -228,7 +228,10 @@ def extract_canon_record_proposals(
     }
     for record in records:
         is_legacy_world = record.payload.get("record_type") in {
-            "world", "location", "item", "faction"
+            "world",
+            "location",
+            "item",
+            "faction",
         }
         contract = WorldBibleRecord if is_legacy_world else CharacterBibleRecord
         validated = contract.model_validate(record.payload)
@@ -252,9 +255,7 @@ def extract_canon_record_proposals(
         entity_type = type_map[record_type]
         key = (entity_type, name.strip().lower())
         if key in seen_keys:
-            warnings.append(
-                f"Skipped duplicate accepted record '{name}' ({entity_type})."
-            )
+            warnings.append(f"Skipped duplicate accepted record '{name}' ({entity_type}).")
             continue
         seen_keys.add(key)
         create = CanonEntityCreate(

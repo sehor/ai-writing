@@ -32,9 +32,7 @@ template = \"Hello, ${name}!\"
 
     def test_ten_step_method_assets_are_complete_and_versioned(self) -> None:
         manager = PromptManager()
-        expected_ids = {
-            f"snowflake.step{step_number:02d}.method" for step_number in range(1, 11)
-        }
+        expected_ids = {f"snowflake.step{step_number:02d}.method" for step_number in range(1, 11)}
         configured_ids = {
             asset.asset_id for asset in manager.assets() if asset.asset_id.endswith(".method")
         }

@@ -139,9 +139,7 @@ class SnowflakeRepository:
     def list_heads(self, project_id: str) -> list[SnowflakeArtifactHead]:
         return [self.get_head(project_id, spec.number) for spec in SNOWFLAKE_STEP_SPECS]
 
-    def get_revision(
-        self, project_id: str, revision_id: str
-    ) -> SnowflakeArtifactRevision | None:
+    def get_revision(self, project_id: str, revision_id: str) -> SnowflakeArtifactRevision | None:
         row = self.connection.execute(
             """
             SELECT * FROM snowflake_artifact_revisions

@@ -44,9 +44,7 @@ class ModelService:
                     provider=profile.provider_id,
                     model=model_id,
                     configured=configured,
-                    capabilities=ModelCapabilitiesView(
-                        **asdict(profile.capabilities)
-                    ),
+                    capabilities=ModelCapabilitiesView(**asdict(profile.capabilities)),
                     fallback_profile_ids=list(profile.fallback_profile_ids),
                 )
             )

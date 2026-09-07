@@ -47,12 +47,12 @@ class ModelGatewayRegistryTests(unittest.TestCase):
     def test_unconfigured_openrouter_needs_no_real_key_for_catalog_or_fake_tests(self) -> None:
         with patch.dict(os.environ, {"OPENROUTER_API_KEY": ""}, clear=False):
             with self.assertRaises(ModelGatewayError) as raised:
-                default_model_gateway_registry.create(
-                    "openrouter", "google/gemini-3.8-flash"
-                )
+                default_model_gateway_registry.create("openrouter", "google/gemini-3.8-flash")
         self.assertEqual(raised.exception.code, "not_configured")
 
-    def test_openrouter_registry_applies_allowlisted_model_override_without_calling_network(self) -> None:
+    def test_openrouter_registry_applies_allowlisted_model_override_without_calling_network(
+        self,
+    ) -> None:
         with patch.dict(os.environ, {"OPENROUTER_API_KEY": "test-only"}, clear=False):
             gateway = default_model_gateway_registry.create(
                 "openrouter", "anthropic/claude-fable-5.1"

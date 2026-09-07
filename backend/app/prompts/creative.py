@@ -103,9 +103,7 @@ def compile_reference_prompt(
         prompt_version=definition.version,
         use_case=definition.use_case,
         messages=(
-            PromptMessage(
-                role="system", content=manager.render("creative.reference.system")
-            ),
+            PromptMessage(role="system", content=manager.render("creative.reference.system")),
             PromptMessage(
                 role="user",
                 content=manager.render("creative.reference.request", {"context": context}),
@@ -128,14 +126,10 @@ def compile_writeback_prompt(
         prompt_version=definition.version,
         use_case=definition.use_case,
         messages=(
-            PromptMessage(
-                role="system", content=manager.render("creative.writeback.system")
-            ),
+            PromptMessage(role="system", content=manager.render("creative.writeback.system")),
             PromptMessage(
                 role="user",
-                content=build_writeback_context(
-                    revision, canon_entities, memory_records, manager
-                ),
+                content=build_writeback_context(revision, canon_entities, memory_records, manager),
             ),
         ),
         response_contract=definition.response_contract,

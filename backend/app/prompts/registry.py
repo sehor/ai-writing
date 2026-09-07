@@ -47,4 +47,3 @@ class PromptRegistry:
 
 
 default_prompt_registry = PromptRegistry()
-

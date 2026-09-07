@@ -50,7 +50,10 @@ def ensure_writeback_proposals_acceptable(data_store, project_id: str, proposals
             _ensure_story_thread_target_current(data_store, project_id, proposal)
         elif proposal.target == "story_thread":
             title = str(proposal.payload.get("title", "")).strip().lower()
-            if any(thread.title.strip().lower() == title for thread in data_store.list_story_threads(project_id)):
+            if any(
+                thread.title.strip().lower() == title
+                for thread in data_store.list_story_threads(project_id)
+            ):
                 raise WritebackPreValidationError(
                     f"Create proposal '{proposal.title}' duplicates an existing StoryThread."
                 )

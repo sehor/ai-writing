@@ -153,9 +153,7 @@ class ModelRuntimeTests(unittest.TestCase):
         self.assertEqual([item.attempt_kind for item in run.attempts], ["primary", "repair"])
 
     def test_failed_repair_then_cross_provider_fallback_succeeds(self) -> None:
-        first = FakeModelGateway(
-            ["bad-primary", "bad-repair"], provider_id="first"
-        )
+        first = FakeModelGateway(["bad-primary", "bad-repair"], provider_id="first")
         second = FakeModelGateway(['{"ok": true}'], provider_id="second")
 
         execution = self.runtime(first, second).execute(

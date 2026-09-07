@@ -413,7 +413,13 @@ def build_local_draft(state: WritingWorkflowState) -> str:
         f"Base revision: {state.request.base_revision_id or 'none'}",
     ]
     if state.request.target_records:
-        sections.extend(["", "## Selected Records", json.dumps(state.request.target_records, ensure_ascii=False)])
+        sections.extend(
+            [
+                "",
+                "## Selected Records",
+                json.dumps(state.request.target_records, ensure_ascii=False),
+            ]
+        )
     if previous_context:
         sections.extend(["", "## Upstream Snowflake Context", previous_context])
     if canon_context:
@@ -452,10 +458,14 @@ def draft_for_step(step_number: int, premise: str, user_input: str) -> str:
             {
                 name: {
                     "beat_id": name,
-                    "event": single_line(source) if name == "setup" else f"Develop the {name.replace('_', ' ')}.",
+                    "event": single_line(source)
+                    if name == "setup"
+                    else f"Develop the {name.replace('_', ' ')}.",
                     "cause": "Show the causal trigger.",
                     "protagonist_action": "Show the protagonist's consequential response.",
-                    "escalation": "Raise the cost and narrow the options." if name in {"disaster_2", "disaster_3"} else "",
+                    "escalation": "Raise the cost and narrow the options."
+                    if name in {"disaster_2", "disaster_3"}
+                    else "",
                 }
                 for name in ("setup", "disaster_1", "disaster_2", "disaster_3", "ending")
             },
@@ -464,44 +474,69 @@ def draft_for_step(step_number: int, premise: str, user_input: str) -> str:
         )
     if step_number == 3:
         return json.dumps(
-            {"characters": [{
-                "name": "Protagonist", "role": "protagonist",
-                "one_sentence_summary": single_line(source),
-                "motivation": "Define the internal motivation.",
-                "goal": "Define the external story goal.",
-                "conflict": "Define the central opposition.",
-                "epiphany": "Define the final realization.",
-                "viewpoint_summary": "Expand the story from this character's viewpoint.",
-            }]},
+            {
+                "characters": [
+                    {
+                        "name": "Protagonist",
+                        "role": "protagonist",
+                        "one_sentence_summary": single_line(source),
+                        "motivation": "Define the internal motivation.",
+                        "goal": "Define the external story goal.",
+                        "conflict": "Define the central opposition.",
+                        "epiphany": "Define the final realization.",
+                        "viewpoint_summary": "Expand the story from this character's viewpoint.",
+                    }
+                ]
+            },
             ensure_ascii=False,
             indent=2,
         )
     if step_number == 4:
         return json.dumps(
-            {"paragraphs": [
-                {"beat_id": beat, "text": f"Expand the {beat.replace('_', ' ')} while preserving causal continuity."}
-                for beat in ("setup", "disaster_1", "disaster_2", "disaster_3", "ending")
-            ]},
+            {
+                "paragraphs": [
+                    {
+                        "beat_id": beat,
+                        "text": f"Expand the {beat.replace('_', ' ')} while preserving causal continuity.",
+                    }
+                    for beat in ("setup", "disaster_1", "disaster_2", "disaster_3", "ending")
+                ]
+            },
             ensure_ascii=False,
             indent=2,
         )
     if step_number == 5:
         return json.dumps(
-            {"viewpoints": [{
-                "character_name": "Protagonist", "character_ref": "protagonist",
-                "viewpoint_story": single_line(source),
-                "knows": [], "does_not_know": [], "misunderstands": [],
-            }]},
+            {
+                "viewpoints": [
+                    {
+                        "character_name": "Protagonist",
+                        "character_ref": "protagonist",
+                        "viewpoint_story": single_line(source),
+                        "knows": [],
+                        "does_not_know": [],
+                        "misunderstands": [],
+                    }
+                ]
+            },
             ensure_ascii=False,
             indent=2,
         )
     if step_number == 6:
         return json.dumps(
-            {"blocks": [{
-                "record_id": "act-1-sequence-1", "act": "Act I", "section": "Opening",
-                "sequence": 1, "synopsis": single_line(source),
-                "step4_paragraph_refs": ["setup"], "character_refs": ["protagonist"],
-            }]},
+            {
+                "blocks": [
+                    {
+                        "record_id": "act-1-sequence-1",
+                        "act": "Act I",
+                        "section": "Opening",
+                        "sequence": 1,
+                        "synopsis": single_line(source),
+                        "step4_paragraph_refs": ["setup"],
+                        "character_refs": ["protagonist"],
+                    }
+                ]
+            },
             ensure_ascii=False,
             indent=2,
         )
@@ -528,9 +563,7 @@ def draft_for_step(step_number: int, premise: str, user_input: str) -> str:
     )
 
 
-def draft_record_for_step(
-    step_number: int, premise: str, user_input: str
-) -> tuple[str, dict]:
+def draft_record_for_step(step_number: int, premise: str, user_input: str) -> tuple[str, dict]:
     source = single_line(user_input or premise)
     if step_number == 6:
         return "act-1-sequence-1", {

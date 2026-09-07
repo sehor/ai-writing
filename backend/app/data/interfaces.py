@@ -165,9 +165,7 @@ class WritingDataStore(Protocol):
     ) -> tuple[SnowflakeArtifactRevision, SnowflakeArtifactHead, list[int], str]:
         pass
 
-    def skip_snowflake_step(
-        self, project_id: str, step_number: int
-    ) -> SnowflakeArtifactHead:
+    def skip_snowflake_step(self, project_id: str, step_number: int) -> SnowflakeArtifactHead:
         pass
 
     def list_snowflake_records(

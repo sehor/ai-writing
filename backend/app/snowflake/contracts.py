@@ -216,9 +216,7 @@ class OnePageSynopsisContract(ContractModel):
             ),
             "major_disaster_anchors": [
                 {"disaster": beat, "paragraph_ids": [f"P{index}"]}
-                for index, beat in enumerate(
-                    ("disaster_1", "disaster_2", "disaster_3"), start=2
-                )
+                for index, beat in enumerate(("disaster_1", "disaster_2", "disaster_3"), start=2)
             ],
             "source_refs": [],
         }
@@ -434,9 +432,7 @@ class CharacterBibleRecord(ContractModel):
             "goal_success_test": value.get("goal") or "TBD",
             "conflicts": {"external": [conflict], "internal": [], "relational": []},
             "beliefs_and_misbeliefs": [],
-            "fears_needs_strengths_flaws": {
-                "fears": [], "needs": [], "strengths": [], "flaws": []
-            },
+            "fears_needs_strengths_flaws": {"fears": [], "needs": [], "strengths": [], "flaws": []},
             "relationships": [],
             "voice_and_behavior": {
                 "speech_tendencies": [],
@@ -518,7 +514,9 @@ class SceneListRecord(ContractModel):
     character_state_delta: list[str] = Field(default_factory=list, max_length=200)
     required_canon_refs: list[str] = Field(default_factory=list, max_length=200)
     forbidden_fact_refs: list[str] = Field(default_factory=list, max_length=200)
-    story_thread_actions: list[StoryThreadActionRecord] = Field(default_factory=list, max_length=100)
+    story_thread_actions: list[StoryThreadActionRecord] = Field(
+        default_factory=list, max_length=100
+    )
     estimated_words: int | None = Field(default=None, ge=1, le=100000)
     source_refs: list[str] = Field(default_factory=list, max_length=200)
 

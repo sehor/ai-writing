@@ -81,10 +81,7 @@ def merge_validation_reports(
 ) -> SnowflakeValidationReport:
     """Preserve reviewer findings while de-duplicating service-side contract checks."""
     findings = list(authoritative.findings)
-    seen = {
-        (item.code, item.path, item.message, item.evidence)
-        for item in findings
-    }
+    seen = {(item.code, item.path, item.message, item.evidence) for item in findings}
     for item in workflow_report.findings if workflow_report else []:
         key = (item.code, item.path, item.message, item.evidence)
         if key not in seen:
@@ -183,7 +180,9 @@ class SnowflakeService:
         return artifact
 
     def list_step_states(self, project_id: str) -> list[SnowflakeStepState]:
-        heads = {head.step_number: head for head in self.data_store.list_snowflake_heads(project_id)}
+        heads = {
+            head.step_number: head for head in self.data_store.list_snowflake_heads(project_id)
+        }
         pending = self.data_store.snowflake_pending_counts(project_id)
         result: list[SnowflakeStepState] = []
         for step in SNOWFLAKE_STEPS:
@@ -200,9 +199,7 @@ class SnowflakeService:
             if (
                 step.number in {6, 7, 8, 9}
                 and accepted is not None
-                and not self.data_store.list_accepted_snowflake_records(
-                    project_id, step.number
-                )
+                and not self.data_store.list_accepted_snowflake_records(project_id, step.number)
             ):
                 state = "stale"
                 stale_reason = (
@@ -363,9 +360,7 @@ class SnowflakeService:
         if revision is None:
             raise LookupError("Snowflake record revision not found.")
         if request.decision == "accepted":
-            validation = validate_snowflake_record_payload(
-                revision.step_number, revision.payload
-            )
+            validation = validate_snowflake_record_payload(revision.step_number, revision.payload)
             if validation.status == "failed":
                 raise SnowflakeRecordValidationError(
                     "Snowflake record revision has blocking validation findings.",
@@ -389,9 +384,7 @@ class SnowflakeService:
         if candidate.step_number != 8:
             return
         accepted = self.data_store.list_accepted_snowflake_records(project_id, 8)
-        record_set = [
-            record for record in accepted if record.record_id != candidate.record_id
-        ]
+        record_set = [record for record in accepted if record.record_id != candidate.record_id]
         record_set.append(candidate)
         report = validate_scene_record_set_context(
             record_set,
@@ -411,7 +404,9 @@ class SnowflakeService:
         revisions = self.data_store.list_manuscript_revisions(project_id)
         accepted_scene_ids = {revision.scene_id for revision in revisions}
         pending = sum(1 for proposal in proposals if proposal.status == "pending_review")
-        heads = {head.step_number: head for head in self.data_store.list_snowflake_heads(project_id)}
+        heads = {
+            head.step_number: head for head in self.data_store.list_snowflake_heads(project_id)
+        }
         plan_stale = any(
             heads.get(step) is not None and heads[step].state == "stale" for step in (8, 9)
         )
@@ -465,9 +460,7 @@ class SnowflakeService:
                 request.project_id, request.step_number, request.target_record_ids
             )
             if len(target_records) != len(request.target_record_ids):
-                raise ValueError(
-                    "One or more target Snowflake records have no accepted revision."
-                )
+                raise ValueError("One or more target Snowflake records have no accepted revision.")
             record_request = request.model_copy(
                 update={
                     "target_records": [
@@ -530,9 +523,7 @@ class SnowflakeService:
                 for record in records
             ]
             if len(target_records) != len(request.target_record_ids):
-                raise ValueError(
-                    "One or more target Snowflake records have no accepted revision."
-                )
+                raise ValueError("One or more target Snowflake records have no accepted revision.")
         generation_request = SnowflakeGenerationRequest(
             project_id=project_id,
             step_number=request.step_number,
@@ -583,8 +574,7 @@ class SnowflakeService:
         )
         accepted_by_id = {record.record_id: record for record in accepted_records}
         target_positions = {
-            record["record_id"]: int(record["position"])
-            for record in request.target_records
+            record["record_id"]: int(record["position"]) for record in request.target_records
         }
         creates = []
         for index, record in enumerate(generated_records, start=1):

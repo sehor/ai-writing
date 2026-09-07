@@ -191,9 +191,7 @@ def decide_snowflake_record_revision(
     if candidate is None:
         raise LookupError("Snowflake record revision not found.")
     if decision == "accepted":
-        validation = validate_snowflake_record_payload(
-            candidate.step_number, candidate.payload
-        )
+        validation = validate_snowflake_record_payload(candidate.step_number, candidate.payload)
         if validation.status == "failed":
             raise SnowflakeRevisionValidationError(validation)
         if candidate.step_number == 8:
@@ -594,8 +592,7 @@ def accept_scene_proposals(
     for proposal in ordered:
         if proposal.blocking_errors:
             raise SceneProposalQualityError(
-                f"Scene proposal '{proposal.id}' is blocked: "
-                + "; ".join(proposal.blocking_errors)
+                f"Scene proposal '{proposal.id}' is blocked: " + "; ".join(proposal.blocking_errors)
             )
         if proposal.sequence in seen_sequences:
             raise SceneSequenceConflictError(
@@ -701,7 +698,8 @@ def accept_writeback_proposal(
         if not thread_id:
             thread_title = str(proposal.payload.get("thread_title", "")).strip().lower()
             matches = [
-                thread for thread in narrative.list_threads(project_id)
+                thread
+                for thread in narrative.list_threads(project_id)
                 if thread.title.strip().lower() == thread_title
             ]
             if len(matches) != 1:

@@ -61,7 +61,9 @@ class SnowflakeRevisionStoreTests(unittest.TestCase):
                     "event": f"{name} event",
                     "cause": f"{name} cause",
                     "protagonist_action": f"{name} action",
-                    "escalation": "Escalates the prior disaster" if name in {"disaster_2", "disaster_3"} else "",
+                    "escalation": "Escalates the prior disaster"
+                    if name in {"disaster_2", "disaster_3"}
+                    else "",
                 }
                 for name in ("setup", "disaster_1", "disaster_2", "disaster_3", "ending")
             }
@@ -98,7 +100,9 @@ class SnowflakeRevisionStoreTests(unittest.TestCase):
         self.assertEqual(head.accepted_revision_id, revision.id)
         self.assertTrue(job_id)
         self.assertIn(10, affected)
-        self.assertEqual(self.store.get_snowflake_artifact(self.project.id, 1).content, revision.content)
+        self.assertEqual(
+            self.store.get_snowflake_artifact(self.project.id, 1).content, revision.content
+        )
         self.assertEqual(self.store.get_project(self.project.id).current_step, 2)
 
     def test_reject_preserves_accepted_head(self) -> None:
@@ -115,7 +119,9 @@ class SnowflakeRevisionStoreTests(unittest.TestCase):
         self.assertEqual(head.accepted_revision_id, first.id)
         self.assertEqual(affected, [])
         self.assertEqual(job_id, "")
-        self.assertEqual(self.store.get_snowflake_artifact(self.project.id, 1).content, first.content)
+        self.assertEqual(
+            self.store.get_snowflake_artifact(self.project.id, 1).content, first.content
+        )
 
     def test_acceptance_uses_optimistic_concurrency_and_marks_downstream_stale(self) -> None:
         step_two = self.create(2, "Initial paragraph.")
@@ -130,7 +136,9 @@ class SnowflakeRevisionStoreTests(unittest.TestCase):
         accepted, _head, affected, _job_id = self.accept(replacement, expected=step_two.id)
         self.assertEqual(accepted.status, "accepted")
         self.assertIn(4, affected)
-        states = {head.step_number: head for head in self.store.list_snowflake_heads(self.project.id)}
+        states = {
+            head.step_number: head for head in self.store.list_snowflake_heads(self.project.id)
+        }
         self.assertEqual(states[4].state, "stale")
         self.assertEqual(states[4].accepted_revision_id, step_four.id)
         self.assertEqual(states[10].state, "stale")
@@ -211,9 +219,7 @@ class SnowflakeRevisionStoreTests(unittest.TestCase):
             ),
         )
 
-        page, total = self.store.list_snowflake_records(
-            self.project.id, 6, limit=1, offset=0
-        )
+        page, total = self.store.list_snowflake_records(self.project.id, 6, limit=1, offset=0)
         self.assertEqual(total, 2)
         self.assertEqual(page[0].record_id, "act-1-sequence-1")
         self.assertEqual(page[0].id, second.id)
@@ -322,9 +328,7 @@ class SnowflakeRevisionStoreTests(unittest.TestCase):
             def run_snowflake_generation(inner_self, request):
                 generated = super().run_snowflake_generation(request)
                 return generated.model_copy(
-                    update={
-                        "content": generated.content.replace("block-101", "block-unselected")
-                    }
+                    update={"content": generated.content.replace("block-101", "block-unselected")}
                 )
 
         with self.assertRaises(SnowflakeRecordValidationError):
@@ -454,9 +458,7 @@ class SnowflakeLegacyMigrationTests(unittest.TestCase):
                 connection.execute("DROP TABLE snowflake_artifact_heads")
                 connection.execute("DROP TABLE snowflake_artifact_revisions")
             store.init()
-            revisions, total = store.list_snowflake_revisions(
-                "demo-novel", 10, limit=20, offset=0
-            )
+            revisions, total = store.list_snowflake_revisions("demo-novel", 10, limit=20, offset=0)
             self.assertEqual(total, 1)
             self.assertEqual(revisions[0].status, "legacy_draft")
             step_ten = store.list_snowflake_heads("demo-novel")[9]

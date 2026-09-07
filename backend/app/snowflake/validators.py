@@ -126,7 +126,10 @@ def validate_snowflake_payload(
 
     findings: list[SnowflakeValidationFinding] = []
     if step_number == 2:
-        if not validated.disaster_2.protagonist_choice_or_action or not validated.disaster_3.protagonist_choice_or_action:
+        if (
+            not validated.disaster_2.protagonist_choice_or_action
+            or not validated.disaster_3.protagonist_choice_or_action
+        ):
             findings.append(
                 SnowflakeValidationFinding(
                     code="disaster_protagonist_causality_missing",
@@ -142,7 +145,8 @@ def validate_snowflake_payload(
                 SnowflakeValidationFinding(
                     code="beat_coverage_missing",
                     severity="critical",
-                    message="Synopsis does not cover every Step 2 beat: " + ", ".join(sorted(missing)),
+                    message="Synopsis does not cover every Step 2 beat: "
+                    + ", ".join(sorted(missing)),
                 )
             )
     return SnowflakeValidationReport(
@@ -206,9 +210,7 @@ def validate_scene_record_set_context(
     """Validate Step 8 references and sequence invariants at the accepted-head boundary."""
     canon_ids = {entity.id for entity in canon_entities}
     known_threads = {
-        value
-        for thread in story_threads
-        for value in (thread.id, thread.title.strip().lower())
+        value for thread in story_threads for value in (thread.id, thread.title.strip().lower())
     }
     seen_positions: set[int] = set()
     findings: list[SnowflakeValidationFinding] = []
@@ -367,9 +369,7 @@ def _claim_text(value: Any, *, field_name: str = "") -> str:
     if field_name in _CONSISTENCY_EXCLUDED_FIELDS:
         return ""
     if isinstance(value, dict):
-        return "\n".join(
-            _claim_text(child, field_name=str(key)) for key, child in value.items()
-        )
+        return "\n".join(_claim_text(child, field_name=str(key)) for key, child in value.items())
     if isinstance(value, list):
         return "\n".join(_claim_text(child, field_name=field_name) for child in value)
     return str(value) if value is not None else ""

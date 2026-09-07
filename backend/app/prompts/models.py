@@ -30,4 +30,3 @@ class PromptPlan:
     messages: tuple[PromptMessage, ...]
     response_contract: ResponseContract
     metadata: Mapping[str, str] = field(default_factory=dict)
-

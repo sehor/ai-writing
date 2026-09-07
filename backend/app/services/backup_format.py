@@ -51,7 +51,8 @@ PRE_GENERATION_RUN_TABLES = tuple(
 LEGACY_V2_TABLES = tuple(
     table
     for table in PRE_GENERATION_RUN_TABLES
-    if table not in {
+    if table
+    not in {
         "snowflake_artifact_revisions",
         "snowflake_artifact_heads",
         "snowflake_record_revisions",

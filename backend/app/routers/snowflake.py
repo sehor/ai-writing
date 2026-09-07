@@ -141,7 +141,9 @@ def create_snowflake_revision(
     try:
         return service.create_revision(project_id, create)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
 
 @router.patch(
@@ -190,7 +192,9 @@ def create_snowflake_generation(
             },
         ) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
     except WorkflowNotConfiguredError as exc:
         raise HTTPException(
             status_code=status.HTTP_501_NOT_IMPLEMENTED,
@@ -262,7 +266,9 @@ def skip_snowflake_step(
     except StepNotFoundError as exc:
         raise not_found_step() from exc
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
 
 @router.get(
@@ -294,7 +300,9 @@ def list_snowflake_records(
     try:
         return service.list_records(project_id, step_number, page=page, page_size=page_size)
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
 
 @router.get(
@@ -316,7 +324,9 @@ def list_snowflake_record_revisions(
             project_id, step_number, record_id, page=page, page_size=page_size
         )
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
 
 @router.post(
@@ -432,15 +442,16 @@ def save_snowflake_artifact(
     require_project(project_id, data_store)
     response.headers["Deprecation"] = "true"
     response.headers["Link"] = (
-        f"</api/projects/{project_id}/snowflake/artifact-revisions>; "
-        'rel="successor-version"'
+        f'</api/projects/{project_id}/snowflake/artifact-revisions>; rel="successor-version"'
     )
     try:
         saved, job_id = service.save_artifact(project_id, step_number, update.content)
     except StepNotFoundError as exc:
         raise not_found_step() from exc
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
     # P1-03: the index job was enqueued in the save transaction; the
     # background dispatcher owns its execution, not this request.
     if job_id:
@@ -468,8 +479,7 @@ def generate_snowflake_artifact(
     require_project(request.project_id, data_store)
     response.headers["Deprecation"] = "true"
     response.headers["Link"] = (
-        f"</api/projects/{request.project_id}/snowflake/generations>; "
-        'rel="successor-version"'
+        f'</api/projects/{request.project_id}/snowflake/generations>; rel="successor-version"'
     )
     try:
         generated, job_id = service.generate(request, workflow)
@@ -496,7 +506,9 @@ def generate_snowflake_artifact(
             },
         ) from exc
     except ValueError as exc:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
     # P1-03: indexing happens in the background dispatcher.
     if job_id:
         wake_outbox_best_effort(

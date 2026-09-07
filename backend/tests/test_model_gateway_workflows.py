@@ -63,7 +63,9 @@ class ModelGatewayWorkflowTests(unittest.TestCase):
         with TemporaryDirectory() as temp_dir:
             store = SQLiteWritingDataStore(Path(temp_dir) / "app.db")
             store.init()
-            project = store.create_project(ProjectCreate(title="Gateway", premise="A guarded city."))
+            project = store.create_project(
+                ProjectCreate(title="Gateway", premise="A guarded city.")
+            )
             gateway = FakeModelGateway(
                 [
                     json.dumps(
@@ -93,7 +95,9 @@ class ModelGatewayWorkflowTests(unittest.TestCase):
 
         self.assertEqual(gateway.requests[0].prompt.prompt_id, "snowflake.step01")
         self.assertEqual(result.validation_report.status, "passed")
-        model_trace = next(item for item in result.workflow_trace if item.agent_name == "model_gateway")
+        model_trace = next(
+            item for item in result.workflow_trace if item.agent_name == "model_gateway"
+        )
         self.assertEqual(model_trace.provider_id, "fake")
         self.assertEqual(model_trace.prompt_version, "2.0.0")
 

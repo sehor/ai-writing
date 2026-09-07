@@ -338,9 +338,7 @@ def format_story_threads(snapshot: ProjectCognitionSnapshot) -> str:
         return "No structured StoryThread records are available."
     events_by_thread: dict[str, list[str]] = {}
     for event in snapshot.story_thread_events:
-        events_by_thread.setdefault(event.thread_id, []).append(
-            f"{event.action}@{event.scene_id}"
-        )
+        events_by_thread.setdefault(event.thread_id, []).append(f"{event.action}@{event.scene_id}")
     return "\n".join(
         (
             f"- {thread.thread_type}: {thread.title} | status={thread.status}"

@@ -135,7 +135,10 @@ def validate_writeback_payload(proposal: WritebackProposalCreate) -> None:
             if key not in {"thread_title", "scene_proposal_id"}
         }
         StoryThreadEventCreate.model_validate(event_payload)
-        if not proposal.target_record_id and not str(proposal.payload.get("thread_title", "")).strip():
+        if (
+            not proposal.target_record_id
+            and not str(proposal.payload.get("thread_title", "")).strip()
+        ):
             raise ValueError("Story thread event proposals require a thread id or title.")
         return
     raise ValueError(f"Unsupported write-back target: {proposal.target}")

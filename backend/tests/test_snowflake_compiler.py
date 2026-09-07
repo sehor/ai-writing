@@ -369,9 +369,7 @@ class CompilerRouteTests(unittest.TestCase):
             f"/api/projects/{project_id}/snowflake/steps/{step}/records?page_size=100"
         ).json()["data"]
         accepted_by_id = {
-            item["record_id"]: item["id"]
-            for item in current
-            if item["status"] == "accepted"
+            item["record_id"]: item["id"] for item in current if item["status"] == "accepted"
         }
         for record in records:
             expected = accepted_by_id.get(record["record_id"], "")
@@ -444,16 +442,18 @@ class CompilerRouteTests(unittest.TestCase):
                 f"/api/projects/{project_id}/snowflake/artifacts/7/compile-canon-proposals"
             ).json()
 
-            edited = CANON_RECORDS + [{
-                "record_id": "item-forged-seal",
-                "position": 3,
-                "payload": {
-                    "record_type": "item",
-                    "name": "Forged Seal",
-                    "summary": "A forged archive seal.",
-                    "confirmed_facts": ["The seal is a forged archive credential."],
-                },
-            }]
+            edited = CANON_RECORDS + [
+                {
+                    "record_id": "item-forged-seal",
+                    "position": 3,
+                    "payload": {
+                        "record_type": "item",
+                        "name": "Forged Seal",
+                        "summary": "A forged archive seal.",
+                        "confirmed_facts": ["The seal is a forged archive credential."],
+                    },
+                }
+            ]
             self._save_records(client, project_id, 7, edited)
             rerun = client.post(
                 f"/api/projects/{project_id}/snowflake/artifacts/7/compile-canon-proposals?force=true"
@@ -588,9 +588,9 @@ class CompilerRouteTests(unittest.TestCase):
                 for finding in decision.json()["detail"]["validation_report"]["findings"]
             }
             self.assertIn("unknown_required_canon", codes)
-            current = client.get(
-                f"/api/projects/{project_id}/snowflake/steps/8/records"
-            ).json()["data"]
+            current = client.get(f"/api/projects/{project_id}/snowflake/steps/8/records").json()[
+                "data"
+            ]
             self.assertEqual(current[0]["status"], "draft")
             artifact = client.get(f"/api/projects/{project_id}/snowflake/artifacts/8")
             self.assertEqual(artifact.status_code, 404)
@@ -602,9 +602,9 @@ class CompilerRouteTests(unittest.TestCase):
             client, _store = self._client()
             project_id = self._create_project(client)
             self._save_records(client, project_id, 8, [SCENE_RECORDS[0]])
-            accepted = client.get(
-                f"/api/projects/{project_id}/snowflake/steps/8/records"
-            ).json()["data"][0]
+            accepted = client.get(f"/api/projects/{project_id}/snowflake/steps/8/records").json()[
+                "data"
+            ][0]
             poisoned = dict(SCENE_RECORDS[0]["payload"])
             poisoned["title"] = "UNACCEPTED TITLE MUST NOT COMPILE"
             pending = client.post(
@@ -651,8 +651,14 @@ class CompilerRouteTests(unittest.TestCase):
             first_sequence = report["proposals"][0]
             self.assertEqual(first_sequence["chapter_hint"], "")
             self.assertEqual(first_sequence["chapter_id"], "")
-            self.assertEqual(first_sequence["information_delta"], SCENE_RECORDS[0]["payload"]["information_delta"])
-            self.assertEqual(first_sequence["character_state_delta"], SCENE_RECORDS[0]["payload"]["character_state_delta"])
+            self.assertEqual(
+                first_sequence["information_delta"],
+                SCENE_RECORDS[0]["payload"]["information_delta"],
+            )
+            self.assertEqual(
+                first_sequence["character_state_delta"],
+                SCENE_RECORDS[0]["payload"]["character_state_delta"],
+            )
 
             replay = client.post(
                 f"/api/projects/{project_id}/snowflake/artifacts/8/parse-scene-proposals"
@@ -721,25 +727,27 @@ class CompilerRouteTests(unittest.TestCase):
             self._cleanup(client)
 
     def test_step8_creates_reviewable_story_thread_and_event_proposals(self) -> None:
-        records = [{
-            "record_id": "scene-signal",
-            "position": 1,
-            "payload": {
-                "title": "The Signal",
-                "pov": "Mira",
-                "goal": "Reach the tower.",
-                "conflict": "The stairs collapse.",
-                "turning_point": "A coded light answers her.",
-                "outcome": "Mira is trapped above the city.",
-                "required_canon_ids": [],
-                "forbidden_facts": [],
-                "information_delta": "The watcher knows her route.",
-                "character_state_delta": "Mira stops trusting the map.",
-                "story_thread_actions": [
-                    {"action": "plant", "thread_title": "The coded watcher"}
-                ],
-            },
-        }]
+        records = [
+            {
+                "record_id": "scene-signal",
+                "position": 1,
+                "payload": {
+                    "title": "The Signal",
+                    "pov": "Mira",
+                    "goal": "Reach the tower.",
+                    "conflict": "The stairs collapse.",
+                    "turning_point": "A coded light answers her.",
+                    "outcome": "Mira is trapped above the city.",
+                    "required_canon_ids": [],
+                    "forbidden_facts": [],
+                    "information_delta": "The watcher knows her route.",
+                    "character_state_delta": "Mira stops trusting the map.",
+                    "story_thread_actions": [
+                        {"action": "plant", "thread_title": "The coded watcher"}
+                    ],
+                },
+            }
+        ]
         try:
             client, _store = self._client()
             project_id = self._create_project(client)

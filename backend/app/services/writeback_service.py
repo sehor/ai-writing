@@ -106,11 +106,7 @@ class WritebackService:
                     revision=revision,
                 )
                 reports = self.cognition.ingest_committed_content(snapshot, event)
-                return [
-                    proposal
-                    for report in reports
-                    for proposal in report.writeback_proposals
-                ]
+                return [proposal for report in reports for proposal in report.writeback_proposals]
 
         return self.analysis.run_writeback_generation(
             project_id=project_id,

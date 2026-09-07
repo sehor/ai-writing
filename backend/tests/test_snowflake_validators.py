@@ -24,11 +24,18 @@ VALID = {
         for name in ("setup", "disaster_1", "disaster_2", "disaster_3", "ending")
     },
     3: {
-        "characters": [{
-            "name": "Mira", "role": "protagonist", "one_sentence_summary": "A mapmaker.",
-            "motivation": "belonging", "goal": "save the archive", "conflict": "living maps",
-            "epiphany": "home can change", "viewpoint_summary": "Mira follows the shifting city.",
-        }]
+        "characters": [
+            {
+                "name": "Mira",
+                "role": "protagonist",
+                "one_sentence_summary": "A mapmaker.",
+                "motivation": "belonging",
+                "goal": "save the archive",
+                "conflict": "living maps",
+                "epiphany": "home can change",
+                "viewpoint_summary": "Mira follows the shifting city.",
+            }
+        ]
     },
     4: {
         "paragraphs": [
@@ -37,19 +44,29 @@ VALID = {
         ]
     },
     5: {
-        "viewpoints": [{
-            "character_name": "Mira", "character_ref": "mira",
-            "viewpoint_story": "Mira sees the city change.",
-            "knows": ["the map moves"], "does_not_know": ["who moves it"],
-            "misunderstands": ["the archive is hostile"],
-        }]
+        "viewpoints": [
+            {
+                "character_name": "Mira",
+                "character_ref": "mira",
+                "viewpoint_story": "Mira sees the city change.",
+                "knows": ["the map moves"],
+                "does_not_know": ["who moves it"],
+                "misunderstands": ["the archive is hostile"],
+            }
+        ]
     },
     6: {
-        "blocks": [{
-            "record_id": "act-1-sequence-1", "act": "Act I", "section": "Opening",
-            "sequence": 1, "synopsis": "Mira reaches the archive.",
-            "step4_paragraph_refs": ["setup"], "character_refs": ["mira"],
-        }]
+        "blocks": [
+            {
+                "record_id": "act-1-sequence-1",
+                "act": "Act I",
+                "section": "Opening",
+                "sequence": 1,
+                "synopsis": "Mira reaches the archive.",
+                "step4_paragraph_refs": ["setup"],
+                "character_refs": ["mira"],
+            }
+        ]
     },
 }
 

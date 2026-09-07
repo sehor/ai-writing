@@ -50,10 +50,18 @@ class PromptRegistryTests(unittest.TestCase):
         )
         versions = {item.prompt_id: item.version for item in definitions}
         self.assertTrue(
-            all(versions[prompt_id] == "2.0.0" for prompt_id in prompt_ids if prompt_id.startswith("snowflake."))
+            all(
+                versions[prompt_id] == "2.0.0"
+                for prompt_id in prompt_ids
+                if prompt_id.startswith("snowflake.")
+            )
         )
         self.assertTrue(
-            all(versions[prompt_id] == "1.0.0" for prompt_id in prompt_ids if not prompt_id.startswith("snowflake."))
+            all(
+                versions[prompt_id] == "1.0.0"
+                for prompt_id in prompt_ids
+                if not prompt_id.startswith("snowflake.")
+            )
         )
 
     def test_snowflake_prompts_have_stable_messages_and_response_contracts(self) -> None:
@@ -67,7 +75,9 @@ class PromptRegistryTests(unittest.TestCase):
             )
             plan = compile_snowflake_prompt(state)
             self.assertEqual(plan.prompt_version, "2.0.0")
-            self.assertEqual([message.role for message in plan.messages], ["system", "user", "user"])
+            self.assertEqual(
+                [message.role for message in plan.messages], ["system", "user", "user"]
+            )
             self.assertNotIn("deepseek", plan.messages[0].content.lower())
             self.assertIn("<project-data>", plan.messages[1].content)
             self.assertIn("<external-evidence>", plan.messages[1].content)

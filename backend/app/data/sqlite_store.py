@@ -206,9 +206,7 @@ class SQLiteWritingDataStore:
         offset: int = 0,
     ) -> tuple[list[SnowflakeArtifactRevision], int]:
         with SqliteUnitOfWork(self.database_path) as uow:
-            return uow.snowflake.list_revisions(
-                project_id, step_number, limit=limit, offset=offset
-            )
+            return uow.snowflake.list_revisions(project_id, step_number, limit=limit, offset=offset)
 
     def get_snowflake_revision(
         self, project_id: str, revision_id: str
@@ -225,9 +223,7 @@ class SQLiteWritingDataStore:
         source: str | None = None,
     ) -> SnowflakeArtifactRevision:
         with SqliteUnitOfWork(self.database_path) as uow:
-            return uow.snowflake.create_revision(
-                project_id, create, status=status, source=source
-            )
+            return uow.snowflake.create_revision(project_id, create, status=status, source=source)
 
     def patch_snowflake_revision(
         self,
@@ -276,9 +272,7 @@ class SQLiteWritingDataStore:
                 review_reason=review_reason,
             )
 
-    def skip_snowflake_step(
-        self, project_id: str, step_number: int
-    ) -> SnowflakeArtifactHead:
+    def skip_snowflake_step(self, project_id: str, step_number: int) -> SnowflakeArtifactHead:
         with SqliteUnitOfWork(self.database_path) as uow:
             head = uow.snowflake.skip_step(project_id, step_number)
             uow.projects.advance_current_step(project_id, step_number)
@@ -304,17 +298,13 @@ class SQLiteWritingDataStore:
         self, project_id: str, step_number: int
     ) -> list[SnowflakeRecordRevision]:
         with SqliteUnitOfWork(self.database_path) as uow:
-            return SnowflakeRecordRepository(uow.connection).list_accepted(
-                project_id, step_number
-            )
+            return SnowflakeRecordRepository(uow.connection).list_accepted(project_id, step_number)
 
     def get_snowflake_record_revision(
         self, project_id: str, revision_id: str
     ) -> SnowflakeRecordRevision | None:
         with SqliteUnitOfWork(self.database_path) as uow:
-            return SnowflakeRecordRepository(uow.connection).get_revision(
-                project_id, revision_id
-            )
+            return SnowflakeRecordRepository(uow.connection).get_revision(project_id, revision_id)
 
     def create_snowflake_record_revision(
         self,

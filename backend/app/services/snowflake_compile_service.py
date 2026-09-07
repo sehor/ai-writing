@@ -91,9 +91,7 @@ class SnowflakeCompileService:
     ) -> CanonExtractionReport:
         records = self.data_store.list_accepted_snowflake_records(project_id, step_number)
         if not records:
-            raise LookupError(
-                f"Snowflake step {step_number} has no accepted records to compile."
-            )
+            raise LookupError(f"Snowflake step {step_number} has no accepted records to compile.")
 
         canon_entities = self.data_store.list_canon_entities(project_id)
         source_ref = f"snowflake_records:{project_id}:{step_number}"
@@ -183,9 +181,7 @@ class SnowflakeCompileService:
     ) -> SceneParseReport:
         records = self.data_store.list_accepted_snowflake_records(project_id, step_number)
         if not records:
-            raise LookupError(
-                f"Snowflake step {step_number} has no accepted records to compile."
-            )
+            raise LookupError(f"Snowflake step {step_number} has no accepted records to compile.")
 
         source_ref = f"snowflake_records:{project_id}:{step_number}"
         fingerprint = {
@@ -219,7 +215,11 @@ class SnowflakeCompileService:
                     thread_proposals=[
                         proposal
                         for proposal_id in run.result_json.get("thread_proposal_ids", [])
-                        if (proposal := self.data_store.get_writeback_proposal(project_id, proposal_id))
+                        if (
+                            proposal := self.data_store.get_writeback_proposal(
+                                project_id, proposal_id
+                            )
+                        )
                         is not None
                     ],
                 )

@@ -208,9 +208,7 @@ def parse_scene_records(
             ),
         )
         missing_canon_ids = [
-            canon_id
-            for canon_id in payload.required_canon_refs
-            if canon_id not in canon_by_id
+            canon_id for canon_id in payload.required_canon_refs if canon_id not in canon_by_id
         ]
         if missing_canon_ids:
             scene.blocking_errors.append(
@@ -344,7 +342,14 @@ def _field_key(label: str) -> str | None:
         return "information_delta"
     if label == "character state delta":
         return "character_state_delta"
-    if label in {"thread action", "thread actions", "storythread action", "storythread actions", "story thread action", "story thread actions"}:
+    if label in {
+        "thread action",
+        "thread actions",
+        "storythread action",
+        "storythread actions",
+        "story thread action",
+        "story thread actions",
+    }:
         return "story_thread_actions"
     if label in {"open threads", "open thread"}:
         return "open_threads"
@@ -403,7 +408,12 @@ def _validate_structure(scenes: list[ParsedScene]) -> list[str]:
                 f"Scene {scene.sequence} ({scene.title}) is missing: {', '.join(missing)}."
             )
         valid_thread_actions = {
-            "plant", "reinforce", "misdirect", "escalate", "partial_payoff", "payoff"
+            "plant",
+            "reinforce",
+            "misdirect",
+            "escalate",
+            "partial_payoff",
+            "payoff",
         }
         for raw_action in scene.story_thread_actions.splitlines():
             action, separator, title = raw_action.partition(":")

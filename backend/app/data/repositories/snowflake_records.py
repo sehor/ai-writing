@@ -107,7 +107,9 @@ class SnowflakeRecordRepository:
         ).fetchone()
         return record_revision_from_row(row) if row else None
 
-    def get_head(self, project_id: str, step_number: int, record_id: str) -> SnowflakeRecordHead | None:
+    def get_head(
+        self, project_id: str, step_number: int, record_id: str
+    ) -> SnowflakeRecordHead | None:
         row = self.connection.execute(
             """
             SELECT * FROM snowflake_record_heads
@@ -176,9 +178,7 @@ class SnowflakeRecordRepository:
         by_id = {row["record_id"]: record_revision_from_row(row) for row in rows}
         return [by_id[record_id] for record_id in record_ids if record_id in by_id]
 
-    def list_accepted(
-        self, project_id: str, step_number: int
-    ) -> list[SnowflakeRecordRevision]:
+    def list_accepted(self, project_id: str, step_number: int) -> list[SnowflakeRecordRevision]:
         rows = self.connection.execute(
             """
             SELECT r.*

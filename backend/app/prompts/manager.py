@@ -82,8 +82,7 @@ class PromptManager:
 
     def assets(self) -> tuple[PromptAsset, ...]:
         return tuple(
-            self._assets[key]
-            for key in sorted(self._assets, key=lambda item: (item[0], item[1]))
+            self._assets[key] for key in sorted(self._assets, key=lambda item: (item[0], item[1]))
         )
 
     def render(

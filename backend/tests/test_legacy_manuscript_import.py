@@ -9,9 +9,7 @@ from app.main import app
 from app.models import ProjectCreate, SceneContractCreate
 
 
-def seed_legacy_revision(
-    store: SQLiteWritingDataStore, project_id: str, content: str
-) -> str:
+def seed_legacy_revision(store: SQLiteWritingDataStore, project_id: str, content: str) -> str:
     revision_id = f"legacy-step-10:{project_id}"
     with store.connect() as connection:
         connection.execute(

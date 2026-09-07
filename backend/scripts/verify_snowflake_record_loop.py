@@ -64,9 +64,7 @@ def main() -> None:
         accepted_character = service.decide_record_revision(
             project.id,
             character.id,
-            SnowflakeRecordDecisionRequest(
-                decision="accepted", expected_revision_id=""
-            ),
+            SnowflakeRecordDecisionRequest(decision="accepted", expected_revision_id=""),
         ).revision
         poisoned_payload = dict(character_payload)
         poisoned_payload["confirmed_facts"] = ["UNACCEPTED POISON FACT"]
@@ -113,9 +111,7 @@ def main() -> None:
         service.decide_record_revision(
             project.id,
             scene.id,
-            SnowflakeRecordDecisionRequest(
-                decision="accepted", expected_revision_id=""
-            ),
+            SnowflakeRecordDecisionRequest(decision="accepted", expected_revision_id=""),
         )
         scene_report = compiler.parse_scene_proposals(project.id)
         assert scene_report.proposals[0].information_delta == scene_payload["information_delta"]
@@ -139,9 +135,7 @@ def main() -> None:
             service.decide_record_revision(
                 project.id,
                 invalid.id,
-                SnowflakeRecordDecisionRequest(
-                    decision="accepted", expected_revision_id=""
-                ),
+                SnowflakeRecordDecisionRequest(decision="accepted", expected_revision_id=""),
             )
         except SnowflakeRecordValidationError as exc:
             assert exc.report.findings[0].code == "unknown_required_canon"
@@ -156,9 +150,7 @@ def main() -> None:
             ),
         )
         accepted_step8_head = next(
-            head
-            for head in store.list_snowflake_heads(project.id)
-            if head.step_number == 8
+            head for head in store.list_snowflake_heads(project.id) if head.step_number == 8
         )
         try:
             store.decide_snowflake_revision(
