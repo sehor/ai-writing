@@ -12,15 +12,20 @@ export const useCopilotContextStore = defineStore('copilotContext', () => {
   const current = ref<EditorSnapshot | null>(null)
   const request = ref<ReferenceEditorContext | null>(null)
   const captureCount = ref(0)
-  const stale = computed(() => !!request.value && !matchesCurrent(request.value))
+  const stale = computed(() => !!request.value && !matchesEditor(request.value))
 
-  function matchesCurrent(value: ReferenceEditorContext) {
+  function matchesSession(value: ReferenceEditorContext) {
     const editor = current.value
     return !!editor && value.project_id === context.activeProjectId &&
-      Object.entries(editor).every(([key, field]) => value[key as keyof ReferenceEditorContext] === field)
+      value.project_id === editor.project_id && value.scene_id === editor.scene_id &&
+      value.source_kind === editor.source_kind && value.proposal_id === editor.proposal_id &&
+      value.expected_scene_version === editor.expected_scene_version && value.session_id === editor.session_id
+  }
+  function matchesEditor(value: ReferenceEditorContext) {
+    return matchesSession(value) && value.snapshot_text === current.value?.snapshot_text
   }
   function isCurrent(value: ReferenceEditorContext) {
-    return matchesCurrent(value) && JSON.stringify(request.value) === JSON.stringify(value)
+    return matchesEditor(value) && JSON.stringify(request.value) === JSON.stringify(value)
   }
   function register(editor: EditorSnapshot) { current.value = { ...editor } }
   function release(sessionId: string) {
@@ -41,5 +46,5 @@ export const useCopilotContextStore = defineStore('copilotContext', () => {
   }
   function clear() { request.value = null }
   watch(() => context.activeProjectId, () => { current.value = null; clear() }, { flush: 'sync' })
-  return { current, request, stale, captureCount, register, release, capture, clear, isCurrent }
+  return { current, request, stale, captureCount, register, release, capture, clear, matchesSession, matchesEditor, isCurrent }
 })

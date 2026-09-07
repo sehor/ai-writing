@@ -1,11 +1,14 @@
 <script setup lang="ts">
+import { watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { statusText } from '../../utils/format'
 import { useReviewsStore } from '../../stores/reviews'
 import { useCopilotContextStore } from '../../stores/copilotContext'
+import { useReferenceApplicationStore } from '../../stores/referenceApplication'
 
 const store = useReviewsStore()
 const copilot = useCopilotContextStore()
+const application = useReferenceApplicationStore()
 const {
   referenceSuggestions,
   activeReferenceId,
@@ -24,6 +27,16 @@ const {
   updateReferenceStatus,
   referenceWarnings
 } = store
+const {
+  applicationText,
+  mode,
+  previewText,
+  error: applicationError,
+  status: applicationStatus,
+  canUndo,
+} = storeToRefs(application)
+const { selectSuggestion, previewSuggestion, applySuggestion, undo } = application
+watch(activeReferenceSuggestion, (suggestion) => selectSuggestion(suggestion ?? null), { immediate: true })
 </script>
 
 <template>
@@ -166,6 +179,70 @@ const {
         <section>
           <p class="eyebrow">建议</p>
           <pre>{{ activeReferenceSuggestion.content }}</pre>
+        </section>
+        <section v-if="activeReferenceSuggestion.editor_context" class="reference-application">
+          <div class="panel-header compact">
+            <div>
+              <p class="eyebrow">应用到当前草稿</p>
+              <p class="save-state">采纳状态只记录评审；应用到草稿是独立操作，不会保存正式版本。</p>
+            </div>
+            <button
+              v-if="canUndo"
+              class="secondary"
+              type="button"
+              data-testid="undo-reference"
+              @click="undo"
+            >
+              撤销上次应用
+            </button>
+          </div>
+          <p class="save-state">
+            目标：{{ activeReferenceSuggestion.editor_context.source_kind === 'proposal_draft' ? '待审核草稿' : '正文编辑草稿' }} ·
+            场景 {{ activeReferenceSuggestion.editor_context.scene_id }} · 基于 v{{ activeReferenceSuggestion.editor_context.expected_scene_version }}
+          </p>
+          <label>
+            <span>待应用文本</span>
+            <textarea
+              v-model="applicationText"
+              aria-label="待应用文本"
+              rows="5"
+              maxlength="40000"
+              placeholder="从上方建议中摘取或整理一段可直接进入正文的文字"
+            />
+          </label>
+          <label>
+            <span>应用方式</span>
+            <select v-model="mode" aria-label="应用方式">
+              <option value="replace">替换求助原文</option>
+              <option value="insert">在求助原文后插入</option>
+            </select>
+          </label>
+          <p v-if="applicationError" class="error-text" role="alert">{{ applicationError }}</p>
+          <p v-else-if="applicationStatus" class="save-state">{{ applicationStatus }}</p>
+          <div class="button-row">
+            <button
+              class="secondary"
+              type="button"
+              data-testid="preview-reference"
+              :disabled="!applicationText.trim()"
+              @click="previewSuggestion(activeReferenceSuggestion)"
+            >
+              预览应用
+            </button>
+            <button
+              class="primary"
+              type="button"
+              data-testid="apply-reference"
+              :disabled="!applicationText.trim()"
+              @click="applySuggestion(activeReferenceSuggestion)"
+            >
+              应用到草稿
+            </button>
+          </div>
+          <section v-if="previewText" class="consistency-preview" aria-label="应用预览">
+            <p class="eyebrow">草稿预览</p>
+            <pre>{{ previewText }}</pre>
+          </section>
         </section>
         <section>
           <p class="eyebrow">依据说明</p>
