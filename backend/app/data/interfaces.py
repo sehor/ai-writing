@@ -43,6 +43,11 @@ from app.models import (
     StoryThreadStatusUpdate,
 )
 from app.outbox.models import OutboxJob, OutboxJobStatus
+from app.domain_models.volume import (
+    ManuscriptVolume,
+    ManuscriptVolumeCreate,
+    ChapterVolumeMembership,
+)
 
 
 class WritingDataStore(
@@ -53,6 +58,20 @@ class WritingDataStore(
     ReferenceDataPort,
     Protocol,
 ):
+    def create_manuscript_volume(
+        self, project_id: str, create: ManuscriptVolumeCreate
+    ) -> ManuscriptVolume: ...
+
+    def update_manuscript_volume(
+        self, project_id: str, volume_id: str, update: ManuscriptVolumeCreate
+    ) -> ManuscriptVolume: ...
+
+    def delete_manuscript_volume(self, project_id: str, volume_id: str) -> bool: ...
+
+    def assign_chapter_volume(
+        self, project_id: str, chapter_id: str, volume_id: str
+    ) -> ChapterVolumeMembership: ...
+
     def get_scene_by_source(self, project_id: str, record_id: str) -> SceneContract | None:
         pass
 

@@ -4,6 +4,7 @@ from typing import Protocol
 
 from app.data.ports.reading import NarrativeSnapshotReader
 from app.data.ports.generation import GenerationRecorder
+from app.domain_models.volume import ManuscriptVolume
 from app.models import (
     ManuscriptChapter,
     ManuscriptProposal,
@@ -41,6 +42,8 @@ class ManuscriptDataPort(NarrativeSnapshotReader, GenerationRecorder, Protocol):
     ) -> SnowflakeArtifactRevision | None: ...
 
     def list_manuscript_chapters(self, project_id: str) -> list[ManuscriptChapter]: ...
+
+    def list_manuscript_volumes(self, project_id: str) -> list[ManuscriptVolume]: ...
 
     def restore_manuscript_revision(
         self, project_id: str, revision_id: str

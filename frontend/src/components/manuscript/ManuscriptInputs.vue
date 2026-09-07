@@ -2,6 +2,7 @@
 import { useWorkspaceStore } from '../../stores/workspace'
 import { storeToRefs } from 'pinia'
 import { useManuscriptStore } from '../../stores/manuscript'
+import VolumeManager from './VolumeManager.vue'
 
 const workspace = useWorkspaceStore()
 const store = useManuscriptStore()
@@ -40,6 +41,7 @@ const {
 </script>
 
 <template>
+  <VolumeManager />
 <label class="generation-model-picker">生成模型<select v-model="workspace.selectedModelProfile" aria-label="生成模型"><option value="">自动选择 / 本地模式</option><option v-for="profile in workspace.modelProfiles" :key="profile.id" :value="profile.id">{{ profile.label }}{{ profile.configured ? '' : '（未配置）' }}</option></select></label>
   <div class="panel-header">
     <div>

@@ -750,6 +750,31 @@ def _add_analysis_execution(connection: sqlite3.Connection) -> None:
     ensure_column(connection, "outbox_jobs", "execution_json", "TEXT NOT NULL DEFAULT 'null'")
 
 
+def _add_manuscript_volumes(connection: sqlite3.Connection) -> None:
+    _run_script(
+        connection,
+        """
+        CREATE TABLE manuscript_volumes (
+            id TEXT PRIMARY KEY,
+            project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+            sequence INTEGER NOT NULL CHECK (sequence BETWEEN 1 AND 999),
+            title TEXT NOT NULL CHECK (length(trim(title)) BETWEEN 1 AND 160),
+            UNIQUE (project_id, id)
+        );
+        CREATE UNIQUE INDEX idx_chapter_project_identity ON manuscript_chapters(project_id, id);
+        CREATE TABLE manuscript_volume_chapters (
+            project_id TEXT NOT NULL,
+            chapter_id TEXT NOT NULL,
+            volume_id TEXT NOT NULL,
+            PRIMARY KEY (project_id, chapter_id),
+            FOREIGN KEY (project_id, chapter_id) REFERENCES manuscript_chapters(project_id, id) ON DELETE CASCADE,
+            FOREIGN KEY (project_id, volume_id) REFERENCES manuscript_volumes(project_id, id) ON DELETE CASCADE
+        );
+        CREATE INDEX idx_volume_chapters_volume ON manuscript_volume_chapters(project_id, volume_id);
+    """,
+    )
+
+
 MIGRATIONS: list[Migration] = [
     Migration(version=1, name="baseline_schema", apply=_apply_baseline_schema),
     Migration(version=2, name="scene_contracts_chapter_id", apply=_add_scene_contracts_chapter_id),
@@ -791,6 +816,7 @@ MIGRATIONS: list[Migration] = [
     Migration(version=16, name="narrative_revision_history", apply=_add_narrative_revision_history),
     Migration(version=17, name="reference_editor_context", apply=_add_reference_editor_context),
     Migration(version=18, name="analysis_execution_evidence", apply=_add_analysis_execution),
+    Migration(version=19, name="manuscript_volumes", apply=_add_manuscript_volumes),
 ]
 
 LATEST_VERSION = MIGRATIONS[-1].version

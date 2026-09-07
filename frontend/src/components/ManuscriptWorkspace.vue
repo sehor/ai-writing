@@ -4,6 +4,7 @@ import { useManuscriptStore } from '../stores/manuscript'
 import { useWorkspaceStore } from '../stores/workspace'
 import { useProposalDraftStore } from '../stores/proposalDraft'
 import { useAppearanceStore } from '../stores/appearance'
+import { organizeManuscript } from '../domain/manuscriptOrganization'
 import { confirmLeave } from '../composables/useDirtyGuard'
 import { isScopeDirty, persistDraft } from '../services/draftSessions'
 import AppIcon from './ui/AppIcon.vue'
@@ -39,31 +40,7 @@ const pending = computed(() =>
     (p) => p.scene_id === store.activeSceneId && p.status === 'pending_review',
   ),
 )
-const groups = computed(() =>
-  [
-    ...store.manuscriptChapters.map((chapter) => ({
-      id: chapter.id,
-      title: chapter.title,
-      scenes: store.sceneContracts.filter(
-        (scene) => scene.chapter_id === chapter.id,
-      ),
-    })),
-    {
-      id: '',
-      title: '未分章场景',
-      scenes: store.sceneContracts.filter((scene) => !scene.chapter_id),
-    },
-  ]
-    .map((group) => ({
-      ...group,
-      scenes: group.scenes.filter((scene) =>
-        `${group.title} ${scene.title}`
-          .toLowerCase()
-          .includes(search.value.toLowerCase()),
-      ),
-    }))
-    .filter((group) => group.scenes.length || (!search.value && group.id)),
-)
+const volumeGroups = computed(() => organizeManuscript(store.manuscriptVolumes, store.manuscriptChapters, store.sceneContracts, search.value))
 const currentTitle = computed(
   () => store.activeSceneContract?.title ?? '正文写作',
 )
@@ -229,8 +206,12 @@ onBeforeUnmount(() => {
           placeholder="查找章节或场景"
       /></label>
       <div class="chapter-groups">
+        <p v-if="store.volumeError" class="error-text" role="alert">{{ store.volumeError }}<button type="button" class="quiet-button" @click="store.loadManuscriptVolumes()">重试卷目录</button></p>
+        <details v-for="volume in volumeGroups" :key="volume.id" class="volume-group" :data-volume-id="volume.id" open>
+          <summary>{{ volume.title }}</summary>
+          <p v-if="!volume.groups.length" class="empty-state">空卷 · 在章节与场景设置中归入章节</p>
         <details
-          v-for="group in groups"
+          v-for="group in volume.groups"
           :key="group.id"
           class="chapter-group"
           open
@@ -260,7 +241,8 @@ onBeforeUnmount(() => {
             >
           </button>
         </details>
-        <p v-if="!groups.length" class="empty-state">
+        </details>
+        <p v-if="!volumeGroups.length" class="empty-state">
           {{ search ? '没有找到匹配的章节或场景。' : '故事从第一个场景开始。' }}
         </p>
       </div>

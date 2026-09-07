@@ -139,6 +139,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
       // Drafts still hold the outgoing project's values at this point.
       const leaving: Array<[string, string, unknown]> = [
         [useProposalDraftStore().scopeKey, 'AI 草稿', useProposalDraftStore().snapshot()],
+        [manuscript.volumeScopeKey(), '卷编辑', manuscript.volumeDraft],
         [snowflake.artifactScopeKey(prevProjectId, activeStepNumber.value), 'Snowflake 草稿', snowflake.artifactDraft],
         [canon.canonScopeKey(prevProjectId, canon.activeCanonId), 'Canon 表单', canon.canonDraft],
         [manuscript.chapterScopeKey(prevProjectId, manuscript.activeChapterId), 'Chapter 表单', manuscript.chapterDraft],
@@ -350,6 +351,7 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         snowflake.loadManuscriptProgress(projectId),
         reviews.loadPostAcceptAnalysisJobs(projectId),
         narrative.load(projectId),
+        manuscript.loadManuscriptVolumes(projectId),
       ])
     } catch (error) {
       if (error instanceof DOMException && error.name === 'AbortError') {

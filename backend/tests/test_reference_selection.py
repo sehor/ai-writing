@@ -202,6 +202,12 @@ class ReferenceSelectionTests(unittest.TestCase):
         manifest = json.loads(files["manifest.json"])
         manifest["schema_version"] = 16
         tables = json.loads(files["data.json"])
+        for table in ("manuscript_volumes", "manuscript_volume_chapters"):
+            tables["tables"].pop(table)
+            manifest["tables"].remove(table)
+            manifest["project"]["row_counts"].pop(table)
+        for row in tables["tables"]["outbox_jobs"]:
+            row.pop("execution_json", None)
         for row in tables["tables"]["reference_suggestions"]:
             row.pop("editor_context_json")
         files["manifest.json"] = json.dumps(manifest).encode()

@@ -339,6 +339,14 @@ class NarrativeMaintenanceTests(unittest.TestCase):
             data = json.loads(archive.read("data.json"))
         tables = data["tables"]
         tables.pop("narrative_revisions")
+        for table in ("manuscript_volumes", "manuscript_volume_chapters"):
+            tables.pop(table)
+            manifest["tables"].remove(table)
+            manifest["project"]["row_counts"].pop(table)
+        for row in tables["outbox_jobs"]:
+            row.pop("execution_json", None)
+        for row in tables["reference_suggestions"]:
+            row.pop("editor_context_json", None)
         for table in ("story_facts", "knowledge_states"):
             for row in tables[table]:
                 row.pop("version")

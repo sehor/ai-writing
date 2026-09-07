@@ -7,12 +7,14 @@ import { useAcceptedScenes } from './manuscript/acceptedScenes'
 import { useManuscriptProposals } from './manuscript/proposals'
 import { useManuscriptHistory } from './manuscript/history'
 import { useManuscriptEditing } from './manuscript/editing'
+import { useManuscriptVolumes } from './manuscript/volumes'
 
 /** Compatibility facade and composition root. Each module is created once in this Pinia scope. */
 export const useManuscriptStore = defineStore('manuscript', () => {
   const context = useProjectContextStore()
   const feedback = useManuscriptFeedback()
   const structure = useManuscriptStructure()
+  const volumes = useManuscriptVolumes()
   const accepted = useAcceptedScenes(feedback)
   const proposals = useManuscriptProposals(feedback, {
     activeSceneId: structure.activeSceneId,
@@ -50,6 +52,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   function resetProjectState() {
     editing.cancelEditingManuscriptScene()
     structure.resetStructure()
+    volumes.resetVolumes()
     proposals.resetProposals()
     accepted.resetAcceptedScenes()
     history.resetHistory()
@@ -59,6 +62,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   function draftSnapshotEntries(): Array<[string, () => unknown]> {
     return [
       ...structure.structureDraftSnapshotEntries(),
+      ...volumes.volumeDraftSnapshotEntries(),
       [editing.manuscriptEditScopeKey(), editing.currentManuscriptEdits],
     ]
   }
@@ -66,6 +70,7 @@ export const useManuscriptStore = defineStore('manuscript', () => {
   return {
     ...feedback,
     ...structure,
+    ...volumes,
     ...accepted,
     ...proposals,
     ...history,

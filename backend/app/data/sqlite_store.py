@@ -108,6 +108,11 @@ from app.models import (
     WritebackProposalStatus,
 )
 from app.outbox.models import AnalysisExecution, OutboxJob, OutboxJobStatus
+from app.domain_models.volume import (
+    ManuscriptVolume,
+    ManuscriptVolumeCreate,
+    ChapterVolumeMembership,
+)
 
 
 class SQLiteWritingDataStore:
@@ -969,6 +974,32 @@ class SQLiteWritingDataStore:
         """Atomically claim a pending job (pending -> processing)."""
         with SqliteUnitOfWork(self.database_path) as uow:
             return uow.outbox.claim(project_id, job_id)
+
+    def list_manuscript_volumes(self, project_id: str) -> list[ManuscriptVolume]:
+        with SqliteUnitOfWork(self.database_path) as uow:
+            return uow.volumes.list(project_id)
+
+    def create_manuscript_volume(
+        self, project_id: str, create: ManuscriptVolumeCreate
+    ) -> ManuscriptVolume:
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
+            return uow.volumes.create(project_id, create)
+
+    def update_manuscript_volume(
+        self, project_id: str, volume_id: str, update: ManuscriptVolumeCreate
+    ) -> ManuscriptVolume:
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
+            return uow.volumes.update(project_id, volume_id, update)
+
+    def delete_manuscript_volume(self, project_id: str, volume_id: str) -> bool:
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
+            return uow.volumes.delete(project_id, volume_id)
+
+    def assign_chapter_volume(
+        self, project_id: str, chapter_id: str, volume_id: str
+    ) -> ChapterVolumeMembership:
+        with SqliteUnitOfWork(self.database_path, write=True) as uow:
+            return uow.volumes.assign(project_id, chapter_id, volume_id)
 
     def complete_outbox_job(
         self,

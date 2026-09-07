@@ -15,6 +15,7 @@ from app.data.repositories.analysis import AnalysisRepository
 from app.data.repositories.generation_runs import GenerationRunRepository
 from app.data.repositories.canon import CanonRepository
 from app.data.repositories.manuscript import ManuscriptRepository
+from app.data.repositories.volumes import VolumeRepository
 from app.data.repositories.memory import MemoryRepository
 from app.data.repositories.narrative import NarrativeRepository
 from app.data.repositories.outbox import OutboxRepository
@@ -122,6 +123,10 @@ class SqliteUnitOfWork:
     @property
     def manuscripts(self) -> ManuscriptRepository:
         return self._repository("manuscripts", ManuscriptRepository)
+
+    @property
+    def volumes(self) -> VolumeRepository:
+        return self._repository("volumes", VolumeRepository)
 
     @property
     def memory(self) -> MemoryRepository:

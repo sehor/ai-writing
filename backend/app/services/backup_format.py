@@ -25,7 +25,9 @@ TABLES_IN_ORDER = (
     "snowflake_record_revisions",
     "snowflake_record_heads",
     "canon_entities",
+    "manuscript_volumes",
     "manuscript_chapters",
+    "manuscript_volume_chapters",
     "scene_contracts",
     "memory_records",
     "manuscript_proposals",
@@ -46,8 +48,13 @@ TABLES_IN_ORDER = (
     "story_threads",
     "story_thread_events",
 )
+PRE_VOLUME_TABLES = tuple(
+    table
+    for table in TABLES_IN_ORDER
+    if table not in {"manuscript_volumes", "manuscript_volume_chapters"}
+)
 PRE_NARRATIVE_REVISION_TABLES = tuple(
-    table for table in TABLES_IN_ORDER if table != "narrative_revisions"
+    table for table in PRE_VOLUME_TABLES if table != "narrative_revisions"
 )
 PRE_GENERATION_RUN_TABLES = tuple(
     table
@@ -168,6 +175,8 @@ def validate_tables(manifest: dict, tables: Any) -> dict:
         schema_version = manifest.get("schema_version", 0)
         expected_tables = (
             TABLES_IN_ORDER
+            if schema_version >= 19
+            else PRE_VOLUME_TABLES
             if schema_version >= 16
             else PRE_NARRATIVE_REVISION_TABLES
             if schema_version >= 12

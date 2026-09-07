@@ -38,6 +38,12 @@ from app.domain_models.graph import (
     GraphRisk as GraphRisk,
     GraphRiskSeverity as GraphRiskSeverity,
 )
+from app.domain_models.volume import (
+    ManuscriptVolumeCreate as ManuscriptVolumeCreate,
+    ManuscriptVolume as ManuscriptVolume,
+    ChapterVolumeAssignment as ChapterVolumeAssignment,
+    ChapterVolumeMembership as ChapterVolumeMembership,
+)
 from app.domain_models.manuscript import (
     ChapterCompileResponse as ChapterCompileResponse,
     LegacyManuscriptImportCreate as LegacyManuscriptImportCreate,

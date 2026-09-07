@@ -15,6 +15,7 @@ from app.routers import (
     graph,
     health,
     manuscript,
+    volumes,
     memory,
     models,
     narrative,
@@ -117,6 +118,7 @@ app.include_router(models.router, prefix="/api")
 app.include_router(narrative.router, prefix="/api")
 app.include_router(graph.router, prefix="/api")
 app.include_router(manuscript.router, prefix="/api")
+app.include_router(volumes.router, prefix="/api")
 app.include_router(wiki.router, prefix="/api")
 app.include_router(writeback.router, prefix="/api")
 app.include_router(references.router, prefix="/api")

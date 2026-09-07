@@ -113,7 +113,12 @@ class ManuscriptService:
             ),
         )
         title = project.title if project else project_id
-        content = build_export_markdown(title, chapters, ordered_scene_pairs)
+        content = build_export_markdown(
+            title,
+            chapters,
+            ordered_scene_pairs,
+            self.data_store.list_manuscript_volumes(project_id),
+        )
         return ManuscriptExportResponse(
             project_id=project_id,
             title=title,
