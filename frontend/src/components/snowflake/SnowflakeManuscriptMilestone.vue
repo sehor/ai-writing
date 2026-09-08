@@ -78,6 +78,8 @@ async function importLegacySelection() {
   <div>
     <h3 id="manuscript-milestone-title">进入正文写作流程</h3>
     <p>正文统一在写作工作台中管理。根据场景契约生成草稿，审核接受后保存为正文版本。</p>
+    <p v-if="snowflake.isLoadingProgress" role="status">正在加载正文进度…</p>
+    <p v-if="snowflake.progressError" class="error" role="alert">{{ snowflake.progressError }} <button type="button" class="secondary" @click="snowflake.loadManuscriptProgress()">重试</button></p>
     <dl v-if="manuscriptProgress" class="milestone-stats">
       <div><dt>场景契约</dt><dd>{{ manuscriptProgress.total_scene_contracts }}</dd></div>
       <div><dt>待审核建议</dt><dd>{{ manuscriptProgress.pending_manuscript_proposals }}</dd></div>

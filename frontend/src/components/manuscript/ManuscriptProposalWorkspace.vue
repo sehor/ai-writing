@@ -9,7 +9,6 @@ import { useManuscriptStore } from '../../stores/manuscript'
 import { useReviewsStore } from '../../stores/reviews'
 import { useWorkspaceStore } from '../../stores/workspace'
 import { useProposalDraftStore } from '../../stores/proposalDraft'
-import { confirmLeave } from '../../composables/useDirtyGuard'
 
 const props = defineProps<{ sceneId?: string }>()
 const store = useManuscriptStore()
@@ -30,28 +29,32 @@ const { pendingWritebackCount } = storeToRefs(useReviewsStore())
 const { updateProposalStatus, checkProposalConsistency } = store
 const workspace = useWorkspaceStore()
 const draft = useProposalDraftStore()
+draft.visible = true
 const visibleProposals = computed(() => props.sceneId === undefined ? manuscriptProposals.value : manuscriptProposals.value.filter(p => p.scene_id === props.sceneId))
 const currentScene = computed(() => store.manuscriptScenes.find((scene) => scene.scene_id === activeProposal.value?.scene_id))
 const versionConflict = computed(() => draft.expectedSceneVersion !== (currentScene.value?.version ?? 0))
 watch(() => [workspace.activeProjectId, activeProposal.value?.id], () => {
   const proposal = activeProposal.value
-  if (!proposal || !workspace.activeProjectId || proposal.status !== 'pending_review') return
-  if (draft.projectId === workspace.activeProjectId && draft.proposalId !== proposal.id && draft.dirty &&
-      !confirmLeave(draft.scopeKey, 'AI 草稿')) {
+  if (!proposal || !workspace.activeProjectId) return
+  if (draft.projectId === workspace.activeProjectId && draft.proposalId !== proposal.id &&
+      !draft.canLeave(() => { activeProposalId.value = proposal.id })) {
     activeProposalId.value = draft.proposalId
     return
   }
+  draft.visible = proposal.status === 'pending_review'
+  if (!draft.visible) { draft.persist(); return }
   const version = store.manuscriptScenes.find((scene) => scene.scene_id === proposal.scene_id)?.version ?? 0
   draft.open(workspace.activeProjectId, proposal, version)
 }, { immediate: true })
 watch(() => [draft.title, draft.content, activeProposal.value?.id], () => {
   store.proposalConsistencyReport = null
 })
-onBeforeUnmount(() => draft.persist())
+onBeforeUnmount(() => { draft.persist(); draft.visible = false })
 </script>
 
 <template>
   <section class="proposal-workspace">
+    <p v-if="isUpdatingProposal" role="status">正在接受，请稍候。</p>
     <div class="panel-header">
       <div>
         <h3>草稿审核</h3>
@@ -74,6 +77,7 @@ onBeforeUnmount(() => draft.persist())
           :key="proposal.id"
           :class="{ active: proposal.id === activeProposalId }"
           type="button"
+          :disabled="isUpdatingProposal"
           @click="activeProposalId = proposal.id"
         >
           <span>{{ proposal.title }}</span>

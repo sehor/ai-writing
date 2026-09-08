@@ -38,6 +38,23 @@ beforeEach(() => {
 
 afterEach(() => vi.useRealTimers())
 
+test('reverting fact and knowledge edits removes their stale autosaves', async () => {
+  const store = useNarrativeStore()
+  vi.spyOn(globalThis, 'fetch').mockResolvedValue(json([]))
+  store.facts = [fact]
+  store.selectFact(fact.id)
+  store.factDraft.value = 'discarded'
+  vi.advanceTimersByTime(500)
+  store.factDraft.value = fact.value
+  expect(loadDraft(store.factScopeKey())).toBeNull()
+  store.knowledgeStates = [character]
+  store.selectKnowledge(character.id)
+  store.knowledgeDraft.source_ref = 'discarded'
+  vi.advanceTimersByTime(500)
+  store.knowledgeDraft.source_ref = character.source_ref
+  expect(loadDraft(store.knowledgeScopeKey())).toBeNull()
+})
+
 test('loads author-visible facts and hydrates the selected fact with knowledge/history without mixing them into preview', async () => {
   const store = useNarrativeStore()
   const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation((input) => {

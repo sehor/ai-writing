@@ -40,10 +40,11 @@ export function loadDraft<T>(scopeKey: string): CachedDraft<T> | null {
   }
 }
 
-export function clearDraft(scopeKey: string): void {
+export function clearDraft(scopeKey: string): boolean {
   try {
     window.localStorage.removeItem(storageKey(scopeKey))
+    return true
   } catch {
-    // Nothing to do; the cache is best effort.
+    return false
   }
 }

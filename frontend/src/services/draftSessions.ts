@@ -11,7 +11,7 @@ function stableValue(value: unknown): string {
   return JSON.stringify(value)
 }
 
-function cancelAutosave(scopeKey: string): void {
+export function cancelAutosave(scopeKey: string): void {
   const pending = autosaveTimers.get(scopeKey)
   if (pending !== undefined) clearTimeout(pending)
   autosaveTimers.delete(scopeKey)
@@ -33,10 +33,10 @@ function scopeHasProject(scopeKey: string): boolean {
   return Boolean(scopeKey.split(':')[1])
 }
 
-export function persistDraft(scopeKey: string, value: unknown): void {
+export function persistDraft(scopeKey: string, value: unknown): boolean {
   cancelAutosave(scopeKey)
   if (!scopeHasProject(scopeKey)) {
-    return
+    return false
   }
   const cached = saveDraft(scopeKey, value)
   if (cached) {
@@ -44,6 +44,7 @@ export function persistDraft(scopeKey: string, value: unknown): void {
   } else {
     useEditorSessionStore().markAutosaveFailed(scopeKey)
   }
+  return !!cached
 }
 
 export function restoreCachedDraft<T>(scopeKey: string): CachedDraft<T> | null {
@@ -79,7 +80,8 @@ export function queueAutosave(scopeKey: string, read: () => unknown): void {
   if (!scopeHasProject(scopeKey)) return
   if (!isScopeDirty(scopeKey, value)) {
     if (draftBaselines.has(scopeKey)) {
-      session.markClean(scopeKey)
+      if (clearDraft(scopeKey)) session.markClean(scopeKey)
+      else session.markAutosaveFailed(scopeKey)
     }
     return
   }
@@ -102,13 +104,16 @@ export function restoreEntryDraft<T>(
   scopeKey: string,
   baselineValue: unknown,
   apply: (cached: T) => void,
-  notify: (message: string) => void
+  notify: (message: string) => void,
+  initialize = false,
 ): void {
-  setBaseline(scopeKey, baselineValue)
   const cached = restoreCachedDraft<T>(scopeKey)
+  setBaseline(scopeKey, baselineValue)
   if (cached && cached.value !== null && typeof cached.value === 'object') {
     apply(cached.value)
-    useEditorSessionStore().markDirty(scopeKey, cached.savedAt)
-    notify(`已恢复本地草稿（自动保存于 ${formatSavedAt(cached.savedAt)}）`)
-  }
+    if (isScopeDirty(scopeKey, cached.value)) {
+      useEditorSessionStore().markDirty(scopeKey, cached.savedAt)
+      notify(`已恢复本地草稿（自动保存于 ${formatSavedAt(cached.savedAt)}）`)
+    }
+  } else if (initialize) apply(baselineValue as T)
 }

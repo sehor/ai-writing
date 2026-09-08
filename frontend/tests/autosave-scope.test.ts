@@ -8,6 +8,46 @@ import { useEditorSessionStore } from '../src/stores/editorSession'
 import { loadDraft } from '../src/services/draftCache'
 import { isScopeDirty, persistDraft, queueAutosave, setBaseline } from '../src/services/draftSessions'
 
+for (const delay of [0, 500]) {
+  test(`reverted edits never resurrect after ${delay}ms of autosave`, () => {
+    const canon = useCanonStore(), memory = useMemoryStore(), manuscript = useManuscriptStore()
+    canon.canonEntities = ['a', 'b'].map(id => ({ ...canon.createEmptyCanonDraft(), id, project_id: 'autosave', name: id, version: 1 }))
+    memory.memoryRecords = ['a', 'b'].map(id => ({ ...memory.createEmptyMemoryDraft(), id, project_id: 'autosave', title: id }))
+    manuscript.manuscriptChapters = ['a', 'b'].map(id => ({ id, project_id: 'autosave', sequence: 1, title: id, summary: '' }))
+    manuscript.sceneContracts = ['a', 'b'].map(id => ({ ...manuscript.createEmptySceneDraft(), id, project_id: 'autosave', title: id }))
+    canon.activeCanonId = memory.activeMemoryId = manuscript.activeChapterId = manuscript.activeSceneId = 'a'
+    canon.canonDraft.summary = memory.memoryDraft.content = manuscript.chapterDraft.summary = manuscript.sceneDraft.outcome = 'discarded'
+    vi.advanceTimersByTime(delay)
+    canon.canonDraft.summary = memory.memoryDraft.content = manuscript.chapterDraft.summary = manuscript.sceneDraft.outcome = ''
+    canon.activeCanonId = memory.activeMemoryId = manuscript.activeChapterId = manuscript.activeSceneId = 'b'
+    canon.activeCanonId = memory.activeMemoryId = manuscript.activeChapterId = manuscript.activeSceneId = 'a'
+    vi.advanceTimersByTime(500)
+    expect([canon.canonDraft.summary, memory.memoryDraft.content, manuscript.chapterDraft.summary, manuscript.sceneDraft.outcome]).toEqual(['', '', '', ''])
+    for (const domain of ['canon', 'memory', 'chapter', 'scene']) expect(loadDraft(`${domain}:autosave:a`)).toBeNull()
+  })
+}
+
+test('failed cache deletion is reported instead of claiming safe autosave', () => {
+  const key = 'canon:delete-failure:a'
+  setBaseline(key, { value: '' })
+  persistDraft(key, { value: 'old' })
+  vi.spyOn(window.localStorage, 'removeItem').mockImplementation(() => { throw new Error('denied') })
+  queueAutosave(key, () => ({ value: '' }))
+  expect(useEditorSessionStore().draftState(key)?.autosaveFailed).toBe(true)
+})
+
+test('project hydration does not treat blank form resets as author reverts', () => {
+  const canon = useCanonStore(), memory = useMemoryStore(), manuscript = useManuscriptStore()
+  for (const [key, value] of [
+    [canon.canonScopeKey(), canon.canonDraft], [memory.memoryScopeKey(), memory.memoryDraft],
+    [manuscript.chapterScopeKey(), manuscript.chapterDraft], [manuscript.sceneScopeKey(), manuscript.sceneDraft],
+  ] as const) setBaseline(key, value)
+  canon.canonDraft.summary = memory.memoryDraft.content = manuscript.chapterDraft.summary = manuscript.sceneDraft.outcome = 'keep new form'
+  vi.advanceTimersByTime(500)
+  canon.resetProjectState(); memory.resetProjectState(); manuscript.resetProjectState()
+  for (const domain of ['canon', 'memory', 'chapter', 'scene']) expect(loadDraft(`${domain}:autosave:new`)).not.toBeNull()
+})
+
 vi.mock('../src/stores/projectContext', () => ({
   useProjectContextStore: () => ({ activeProjectId: 'autosave', activeProject: { id: 'autosave' } }),
 }))

@@ -96,11 +96,12 @@ export function useManuscriptStructure() {
   ): string {
     return `scene:${projectId}:${id || 'new'}`
   }
-  watch(chapterDraft, () => queueAutosave(chapterScopeKey(), () => chapterDraft.value), {
+  let resetting = false
+  watch(chapterDraft, () => { if (!resetting) queueAutosave(chapterScopeKey(), () => chapterDraft.value) }, {
     deep: true,
     flush: 'sync',
   })
-  watch(sceneDraft, () => queueAutosave(sceneScopeKey(), () => sceneDraft.value), {
+  watch(sceneDraft, () => { if (!resetting) queueAutosave(sceneScopeKey(), () => sceneDraft.value) }, {
     deep: true,
     flush: 'sync',
   })
@@ -108,6 +109,7 @@ export function useManuscriptStructure() {
   watch(() => chapterScopeKey(), () => { chapterSelectionEpoch++ }, { flush: 'sync' })
 
   watch(activeChapterId, (next, prev) => {
+    if (resetting) return
     if (suppressNextChapterSelectionGuard) {
       suppressNextChapterSelectionGuard = false
     } else {
@@ -133,18 +135,18 @@ export function useManuscriptStructure() {
           summary: selected.summary,
         }
       : createEmptyChapterDraft()
-    chapterDraft.value = baselineDraft
     restoreEntryDraft<ManuscriptChapterDraft>(chapterScopeKey(), baselineDraft, (cached) => {
       chapterDraft.value = cached
     }, (message) => {
       chapterStatus.value = message
-    })
+    }, true)
   }, { flush: 'sync' })
 
   let sceneSelectionEpoch = 0
   watch(() => sceneScopeKey(), () => { sceneSelectionEpoch++ }, { flush: 'sync' })
 
   watch(activeSceneId, (next, prev) => {
+    if (resetting) return
     if (suppressNextSceneSelectionGuard) {
       suppressNextSceneSelectionGuard = false
     } else {
@@ -183,12 +185,11 @@ export function useManuscriptStructure() {
           source_artifact_step: selected.source_artifact_step,
         }
       : createEmptySceneDraft()
-    sceneDraft.value = baselineDraft
     restoreEntryDraft<SceneDraft>(sceneScopeKey(), baselineDraft, (cached) => {
       sceneDraft.value = cached
     }, (message) => {
       sceneStatus.value = message
-    })
+    }, true)
   }, { flush: 'sync' })
   async function loadManuscriptChapters(projectId = context.activeProjectId) {
     chapterError.value = ''
@@ -515,6 +516,7 @@ export function useManuscriptStructure() {
   }
 
   function resetStructure() {
+    resetting = true
     chapterError.value = ''
     chapterStatus.value = ''
     sceneError.value = ''
@@ -526,6 +528,7 @@ export function useManuscriptStructure() {
     activeSceneId.value = ''
     chapterDraft.value = createEmptyChapterDraft()
     sceneDraft.value = createEmptySceneDraft()
+    resetting = false
   }
 
   function structureDraftSnapshotEntries(): Array<[string, () => unknown]> {

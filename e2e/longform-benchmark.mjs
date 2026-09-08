@@ -142,9 +142,30 @@ for (const tier of tiers) {
         await page.getByRole('button', { name: '版本历史', exact: true }).click()
         await page.locator('.revision-history').waitFor()
       })
+      assert.ok(await page.locator('.revision-item').count() <= 50, 'History DOM must remain bounded')
+      assert.ok(await page.locator('.revision-history option').count() <= 104, 'Comparison menus must also remain bounded')
+      assert.equal(await page.locator('.revision-item pre').count(), 0, 'Collapsed history must not mount all prose')
+      await observe('history_first_text', async () => {
+        await page.getByRole('button', { name: '查看正文', exact: true }).first().click()
+        await page.locator('.revision-item pre').waitFor()
+      })
+      assert.equal(await page.locator('.revision-item pre').count(), 1)
       await page.getByRole('button', { name: '关闭辅助面板', exact: true }).click()
     }
     await page.screenshot({ path: join(REPO_ROOT, '.tmp', `performance-${tier}.png`) })
+    if (process.argv.includes('--trace')) {
+      await cdp.send('Tracing.start', { categories: 'devtools.timeline,v8,blink.user_timing', transferMode: 'ReturnAsStream' })
+      await page.getByRole('button', { name: '版本历史', exact: true }).click()
+      await page.getByRole('button', { name: '查看正文', exact: true }).first().click()
+      await page.screenshot({ path: join(REPO_ROOT, '.tmp', `performance-${tier}-history.png`) })
+      const completed = new Promise(resolve => cdp.once('Tracing.tracingComplete', resolve))
+      await cdp.send('Tracing.end')
+      const { stream } = await completed
+      let trace = '', chunk
+      do { chunk = await cdp.send('IO.read', { handle: stream }); trace += chunk.data } while (!chunk.eof)
+      await cdp.send('IO.close', { handle: stream })
+      await writeFile(join(REPO_ROOT, '.tmp', `performance-${tier}-trace.json`), trace)
+    }
     const apiResources = await page.evaluate(() => performance.getEntriesByType('resource').filter(entry => entry.name.includes('/api/')).map(entry => ({ duration: entry.duration, path: new URL(entry.name).pathname })))
     const browserMeasurements = Object.fromEntries(Object.entries(observations).map(([name, rows]) => [name, Object.fromEntries(Object.keys(rows[0]).map(key => [key, summary(rows.map(row => row[key]))]))]))
     assert.deepEqual(errors, [])
@@ -159,6 +180,13 @@ for (const tier of tiers) {
     }
     await mkdir(join(REPO_ROOT, '.tmp'), { recursive: true })
     await writeFile(join(REPO_ROOT, '.tmp', `performance-${tier}.json`), JSON.stringify(report, null, 2))
+    // Opt in on the documented reference host; shared CI retains the portable small smoke budget.
+    if (tier === 'large' && process.argv.includes('--check-budgets')) {
+      assert.ok(browserMeasurements.history_panel_open.elapsed_ms.median <= 1000, 'History median exceeds 1 s')
+      assert.ok(browserMeasurements.history_panel_open.elapsed_ms.max <= 2000, 'History maximum exceeds 2 s')
+      assert.ok(browserMeasurements.scene_switch.elapsed_ms.median <= 200, 'Scene switch median exceeds 200 ms')
+      assert.ok(browserMeasurements.project_switch_roundtrip.elapsed_ms.median <= 2000, 'Project roundtrip median exceeds 2 s')
+    }
     await checkpoint('completed')
     console.log(JSON.stringify(report))
     console.log(`PASS ${tier}: ${fixture.scene_count} scenes, ${fixture.revision_count} revisions; exact text/history restored, HTTP over-limit writes rejected.`)

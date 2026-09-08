@@ -45,6 +45,10 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
   const generationMode = ref<'replace' | 'record_set' | 'continue' | 'selection'>('replace')
   const previousArtifactsContextChars = ref(64000)
   const manuscriptProgress = ref<SnowflakeManuscriptProgress | null>(null)
+  const isLoadingProgress = ref(false)
+  const isUpdatingRecord = ref(false)
+  const progressError = ref('')
+  let progressEpoch = 0
   const records = ref<SnowflakeRecordRevision[]>([])
   const recordPage = ref(1)
   const recordTotalPages = ref(0)
@@ -155,15 +159,21 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     activeRevisionId.value = ''
   }
 
-  async function loadManuscriptProgress(projectId = context.activeProjectId) {
+  async function loadManuscriptProgress(projectId = context.activeProjectId, signal?: AbortSignal) {
+    const epoch = ++progressEpoch
     if (!projectId) {
       manuscriptProgress.value = null
       return
     }
-    const response = await fetchApi(`/projects/${projectId}/snowflake/manuscript-progress`)
-    if (!response.ok) throw new Error('Could not load Manuscript progress')
-    const loaded: SnowflakeManuscriptProgress = await response.json()
-    if (isActiveProject(projectId)) manuscriptProgress.value = loaded
+    isLoadingProgress.value = true; progressError.value = ''
+    try {
+      const response = await fetchApi(`/projects/${projectId}/snowflake/manuscript-progress`, { signal })
+      if (!response.ok) throw new Error('正文进度加载失败，请重试。')
+      const loaded: SnowflakeManuscriptProgress = await response.json()
+      if (!signal?.aborted && epoch === progressEpoch && isActiveProject(projectId)) manuscriptProgress.value = loaded
+    } catch {
+      if (!signal?.aborted && epoch === progressEpoch && isActiveProject(projectId)) progressError.value = '正文进度加载失败，请重试。'
+    } finally { if (epoch === progressEpoch) isLoadingProgress.value = false }
   }
 
   async function loadRecords(stepNumber = context.activeStepNumber, page = 1) {
@@ -221,8 +231,11 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
   }
 
   async function decideRecordRevision(revision: SnowflakeRecordRevision, decision: 'accepted' | 'rejected') {
+    if (isUpdatingRecord.value) return
     const projectId = context.activeProjectId
     if (!projectId) return
+    isUpdatingRecord.value = true
+    try {
     const response = await fetchApi(
       `/projects/${projectId}/snowflake/record-revisions/${revision.id}/decisions`,
       {
@@ -237,6 +250,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     if (!response.ok) throw new Error((await readErrorDetail(response)).message || 'Could not review record revision')
     await loadRecords(revision.step_number, recordPage.value)
     await loadStepStates(projectId)
+    } finally { isUpdatingRecord.value = false }
   }
 
   async function importLegacyDraftSelection(
@@ -529,6 +543,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
   }
 
   async function compileStepArtifact() {
+    if (isUpdatingRecord.value) return
     artifactError.value = ''
     artifactStatus.value = ''
     sceneProposalError.value = ''
@@ -716,6 +731,7 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
 
   /** Drop project-scoped state before the workspace loads another project. */
   function resetProjectState() {
+    progressEpoch++; isLoadingProgress.value = false; progressError.value = ''
     artifactError.value = ''
     artifactStatus.value = ''
     workflowTrace.value = []
@@ -755,6 +771,9 @@ export const useSnowflakeStore = defineStore('snowflake', () => {
     generationMode,
     previousArtifactsContextChars,
     manuscriptProgress,
+    isLoadingProgress,
+    isUpdatingRecord,
+    progressError,
     records,
     recordPage,
     recordTotalPages,

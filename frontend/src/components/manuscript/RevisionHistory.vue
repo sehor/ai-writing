@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useManuscriptStore } from '../../stores/manuscript'
 import { useReviewsStore } from '../../stores/reviews'
@@ -60,6 +60,23 @@ const jobStatusClass = (status: OutboxJobStatus) => `job-status-${status}`
 const pendingAnalysisCount = computed(
   () => postAcceptJobs.value.filter((job) => job.status === 'pending' || job.status === 'processing').length
 )
+const page = ref(1)
+const pageSize = 50
+const currentSceneOnly = ref(false)
+const expandedRevision = ref('')
+const filteredRevisions = computed(() => currentSceneOnly.value
+  ? manuscriptRevisions.value.filter(item => item.scene_id === store.activeSceneId)
+  : manuscriptRevisions.value)
+const pageCount = computed(() => Math.max(1, Math.ceil(filteredRevisions.value.length / pageSize)))
+const visibleRevisions = computed(() => filteredRevisions.value.slice((page.value - 1) * pageSize, page.value * pageSize))
+// Keep off-page selections reachable without mounting thousands of <option>s.
+const comparisonChoices = computed(() => [...new Map([
+  ...visibleRevisions.value,
+  ...manuscriptRevisions.value.filter(item => item.id === diffLeftRevisionId.value || item.id === diffRightRevisionId.value),
+].map(item => [item.id, item])).values()])
+watch([currentSceneOnly, () => store.activeSceneId], () => { page.value = 1; expandedRevision.value = '' })
+watch(pageCount, count => { page.value = Math.min(page.value, count) })
+watch(page, () => { expandedRevision.value = '' })
 </script>
 
 <template>
@@ -76,7 +93,7 @@ const pendingAnalysisCount = computed(
         <span>基准版本</span>
         <select v-model="diffLeftRevisionId">
           <option
-            v-for="revision in manuscriptRevisions"
+            v-for="revision in comparisonChoices"
             :key="`left-${revision.id}`"
             :value="revision.id"
           >
@@ -88,7 +105,7 @@ const pendingAnalysisCount = computed(
         <span>对比版本</span>
         <select v-model="diffRightRevisionId">
           <option
-            v-for="revision in manuscriptRevisions"
+            v-for="revision in comparisonChoices"
             :key="`right-${revision.id}`"
             :value="revision.id"
           >
@@ -214,8 +231,15 @@ const pendingAnalysisCount = computed(
       </article>
     </section>
 
+    <div class="button-row history-pagination">
+      <label><input v-model="currentSceneOnly" type="checkbox" />只看当前场景</label>
+      <span role="status">共 {{ filteredRevisions.length }} 个版本 · 第 {{ page }} / {{ pageCount }} 页</span>
+      <button type="button" class="secondary" :disabled="page <= 1" @click="page--">上一页</button>
+      <button type="button" class="secondary" :disabled="page >= pageCount" @click="page++">下一页</button>
+    </div>
+    <p class="compile-hint">比较选项列出本页与已选版本；翻页可选择其他版本进行比较。</p>
     <div class="revision-list">
-      <article v-for="revision in manuscriptRevisions" :key="revision.id" class="revision-item">
+      <article v-for="revision in visibleRevisions" :key="revision.id" class="revision-item">
         <div class="panel-header compact">
           <div>
             <p class="eyebrow">Version {{ revision.version }}</p>
@@ -261,9 +285,17 @@ const pendingAnalysisCount = computed(
             </div>
           </div>
         </div>
-        <pre>{{ revision.content }}</pre>
+        <button type="button" class="secondary" :aria-expanded="expandedRevision === revision.id"
+          @click="expandedRevision = expandedRevision === revision.id ? '' : revision.id">{{ expandedRevision === revision.id ? '收起正文' : '查看正文' }}</button>
+        <pre v-if="expandedRevision === revision.id">{{ revision.content }}</pre>
       </article>
-      <p v-if="manuscriptRevisions.length === 0" class="empty-state">保存正文后，版本会出现在这里。</p>
+      <p v-if="filteredRevisions.length === 0" class="empty-state">{{ currentSceneOnly ? '当前场景还没有已保存版本。' : '保存正文后，版本会出现在这里。' }}</p>
     </div>
   </section>
 </template>
+
+<style scoped>
+.history-pagination { align-items: center; }
+.history-pagination label { display: inline-flex; align-items: center; gap: .4rem; }
+.history-pagination input { width: auto; margin: 0; }
+</style>

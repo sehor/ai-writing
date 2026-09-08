@@ -3,10 +3,12 @@ import { nextTick, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useProjectsStore } from '../stores/projects'
 import { useWorkspaceStore } from '../stores/workspace'
+import { useProposalDraftStore } from '../stores/proposalDraft'
 
 const dialog = ref<HTMLDialogElement | null>(null)
 const projectsStore = useProjectsStore()
 const workspace = useWorkspaceStore()
+const draft = useProposalDraftStore()
 const {
   projects,
   newProject,
@@ -27,12 +29,14 @@ function closeDialog() {
 }
 
 async function openProject(projectId: string) {
+  if (projectId !== activeProjectId.value && !draft.canLeave(() => { void openProject(projectId) })) return
   activeProjectId.value = projectId
   await nextTick()
   if (activeProjectId.value === projectId) closeDialog()
 }
 
 async function submitProject() {
+  if (!draft.canLeave(() => { void submitProject() })) return
   const created = await projectsStore.createProject()
   await nextTick()
   if (created && activeProjectId.value === created.id) closeDialog()
@@ -40,7 +44,7 @@ async function submitProject() {
 </script>
 
 <template>
-  <button class="secondary project-dialog-trigger" type="button" @click="showDialog">
+  <button class="secondary project-dialog-trigger" type="button" :disabled="draft.submitting" @click="showDialog">
     {{ workspace.activeProject?.title ?? '打开项目' }}
   </button>
 

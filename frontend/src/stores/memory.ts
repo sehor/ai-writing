@@ -62,7 +62,8 @@ export const useMemoryStore = defineStore('memory', () => {
     return `memory:${projectId}:${id || 'new'}`
   }
 
-  watch(memoryDraft, () => queueAutosave(memoryScopeKey(), () => memoryDraft.value), {
+  let resetting = false
+  watch(memoryDraft, () => { if (!resetting) queueAutosave(memoryScopeKey(), () => memoryDraft.value) }, {
     deep: true,
     flush: 'sync',
   })
@@ -71,6 +72,7 @@ export const useMemoryStore = defineStore('memory', () => {
   watch(() => memoryScopeKey(), () => { memorySelectionEpoch++ }, { flush: 'sync' })
 
   watch(activeMemoryId, (next, prev) => {
+    if (resetting) return
     if (suppressNextSelectionGuard) {
       suppressNextSelectionGuard = false
     } else {
@@ -99,12 +101,11 @@ export const useMemoryStore = defineStore('memory', () => {
           source_ref: selected.source_ref,
         }
       : createEmptyMemoryDraft()
-    memoryDraft.value = baselineDraft
     restoreEntryDraft<MemoryDraft>(memoryScopeKey(), baselineDraft, (cached) => {
       memoryDraft.value = cached
     }, (message) => {
       memoryStatus.value = message
-    })
+    }, true)
   }, { flush: 'sync' })
 
   function startNewMemoryRecord() {
@@ -224,11 +225,13 @@ export const useMemoryStore = defineStore('memory', () => {
 
   /** Drop project-scoped state before the workspace loads another project. */
   function resetProjectState() {
+    resetting = true
     memoryRecords.value = []
     activeMemoryId.value = ''
     memoryDraft.value = createEmptyMemoryDraft()
     memoryError.value = ''
     memoryStatus.value = ''
+    resetting = false
   }
 
   function draftSnapshotEntries(): Array<[string, () => unknown]> {

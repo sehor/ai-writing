@@ -15,6 +15,7 @@ import CanonWorkspace from './components/CanonWorkspace.vue'
 import MemoryWorkspace from './components/MemoryWorkspace.vue'
 import GraphWorkspace from './components/GraphWorkspace.vue'
 import ManuscriptWorkspace from './components/ManuscriptWorkspace.vue'
+import ProposalLeaveDialog from './components/manuscript/ProposalLeaveDialog.vue'
 const workspace = useWorkspaceStore()
 const projects = useProjectsStore()
 const appearance = useAppearanceStore()
@@ -33,6 +34,7 @@ watch(
 )
 </script>
 <template>
+  <ProposalLeaveDialog />
   <a class="skip-link" href="#workspace-main">跳到工作区</a>
   <main class="shell" :class="{ 'focus-mode': appearance.focus }">
     <AppSidebar />

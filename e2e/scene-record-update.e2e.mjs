@@ -43,7 +43,18 @@ try {
   await page.locator('.record-list-item button').first().click()
   await page.getByLabel('结构化数据', { exact: true }).fill(JSON.stringify({ ...payload, outcome: 'REVISED OUTCOME' }))
   await page.getByRole('button', { name: '保存记录草稿', exact: true }).click()
+  await page.getByText('Record draft revision saved.', { exact: true }).waitFor()
+  let releaseDecision, sawDecision
+  const gate = new Promise(resolve => { releaseDecision = resolve })
+  const started = new Promise(resolve => { sawDecision = resolve })
+  await page.route('**/snowflake/record-revisions/*/decisions', async route => {
+    sawDecision(); await gate; await route.continue()
+  })
   await page.getByRole('button', { name: '接受', exact: true }).click()
+  await started
+  assert.equal(await page.getByRole('button', { name: '解析场景建议', exact: true }).isDisabled(), true)
+  releaseDecision()
+  await page.getByText('Record revision accepted.', { exact: true }).waitFor()
   await page.getByRole('button', { name: '解析场景建议', exact: true }).click()
   const diff = page.locator('.scene-update-review')
   await diff.getByText('更新原场景 · 核对差异', { exact: true }).click()

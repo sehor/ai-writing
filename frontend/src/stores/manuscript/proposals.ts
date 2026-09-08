@@ -108,6 +108,7 @@ export function useManuscriptProposals(feedback: ManuscriptFeedback, { activeSce
 
   /** Every committed revision refreshes the same authoring/review surfaces. */
   async function updateProposalStatus(proposalId: string, status: ManuscriptProposalStatus) {
+    if (isUpdatingProposal.value) return
     manuscriptError.value = ''
     manuscriptStatus.value = ''
     const projectId = context.activeProjectId
@@ -123,14 +124,16 @@ export function useManuscriptProposals(feedback: ManuscriptFeedback, { activeSce
       return
     }
 
+    const request = draft.capture()
     isUpdatingProposal.value = true
+    draft.submitting = true
     try {
       const response = await fetchApi(
         `/projects/${projectId}/manuscript/proposals/${proposalId}/${status === 'accepted' ? 'accept' : 'status'}`,
         {
           method: status === 'accepted' ? 'POST' : 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(status === 'accepted' ? draft.snapshot() : { status }),
+          body: JSON.stringify(status === 'accepted' ? request.value : { status }),
         }
       )
       if (!response.ok) {
@@ -145,21 +148,25 @@ export function useManuscriptProposals(feedback: ManuscriptFeedback, { activeSce
         proposal.id === updated.id ? updated : proposal
       )
       if (status === 'accepted') {
-        draft.committed()
+        draft.committed(request)
+        if (!draft.matches(request)) return
         await refreshCommittedRevision(projectId)
         if (!isActiveProject(projectId)) {
           return
         }
       }
+      if (!draft.matches(request)) return
       activeProposalId.value = updated.id
       manuscriptStatus.value =
         status === 'accepted'
           ? '草稿已接受，后台分析已安排。'
           : '草稿已拒绝。'
     } catch (error) {
+      if (!isActiveProject(projectId) || !draft.matches(request)) return
       manuscriptError.value = error instanceof Error ? error.message : 'Proposal update failed. Check that the API is running.'
     } finally {
       isUpdatingProposal.value = false
+      draft.submitting = false
     }
   }
 

@@ -71,6 +71,7 @@ function statusLabel(status: string): string {
         type="button"
         :disabled="
           isCompilingArtifact ||
+          snowflake.isUpdatingRecord ||
           !hasProject ||
           activeStepState?.state !== 'approved'
         "

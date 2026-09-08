@@ -484,7 +484,7 @@ export const useNarrativeStore = defineStore('narrative', () => {
     }
   }
 
-  async function load(projectId: string, sceneId = '') {
+  async function load(projectId: string, sceneId = '', includeDirector = true) {
     controller?.abort()
     const request = new AbortController()
     controller = request
@@ -495,11 +495,11 @@ export const useNarrativeStore = defineStore('narrative', () => {
       const responses = await Promise.all([
         fetchApi(`/projects/${projectId}/story-threads`, { signal: request.signal }),
         fetchApi(`/projects/${projectId}/narrative/relations`, { signal: request.signal }),
-        fetchApi(`/projects/${projectId}/narrative/director${suffix}`, { signal: request.signal }),
+        includeDirector ? fetchApi(`/projects/${projectId}/narrative/director${suffix}`, { signal: request.signal }) : Promise.resolve(null),
         fetchApi(`/projects/${projectId}/story-facts`, { signal: request.signal }),
       ])
-      if (responses.some((response) => !response.ok)) throw new Error('Narrative 状态加载失败，请刷新重试。')
-      const [loadedThreads, loadedRelations, loadedDirector, loadedFacts] = await Promise.all(responses.map((response) => response.json()))
+      if (responses.some((response) => response && !response.ok)) throw new Error('Narrative 状态加载失败，请刷新重试。')
+      const [loadedThreads, loadedRelations, loadedDirector, loadedFacts] = await Promise.all(responses.map((response) => response?.json() ?? null))
       if (request.signal.aborted || !isActiveProject(projectId)) return
       threads.value = loadedThreads
       relations.value = loadedRelations

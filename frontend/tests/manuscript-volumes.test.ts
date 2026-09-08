@@ -50,6 +50,17 @@ test('volume form autosaves and restores without changing the server record', as
   expect(store.volumeDraft.title).toBe('未保存卷名')
 })
 
+test('reverting a cached volume edit does not resurrect it on return', async () => {
+  const store = useManuscriptStore()
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => json([volume]))
+  await store.loadManuscriptVolumes(); store.selectVolume('v1')
+  store.volumeDraft.title = 'discarded'; vi.advanceTimersByTime(500)
+  store.volumeDraft.title = volume.title
+  store.selectVolume(''); store.selectVolume('v1')
+  expect(store.volumeDraft.title).toBe(volume.title)
+  expect(loadDraft(store.volumeScopeKey())).toBeNull()
+})
+
 test('saving and chapter movement never call a manuscript content endpoint', async () => {
   const store = useManuscriptStore()
   const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(json([volume]))

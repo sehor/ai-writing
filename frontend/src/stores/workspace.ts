@@ -45,7 +45,10 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const context = useProjectContextStore()
   const { activeProjectId, activeStepNumber, selectedModelProfile, projectReload } = storeToRefs(context)
   const { modelExecutionOptions, reloadActiveProject } = context
-  const activeSection = ref<ActiveSection>('snowflake')
+  const section = ref<ActiveSection>('snowflake')
+  const activeSection = computed({ get: () => section.value, set: (value: ActiveSection) => {
+    if (value !== section.value) useProposalDraftStore().navigate(() => { section.value = value })
+  } })
   const apiStatus = ref<ApiStatus>('checking')
   const workflowRuntime = ref<WorkflowRuntimeStatus | null>(null)
   const modelProfiles = ref<ModelProfile[]>([])
@@ -132,10 +135,16 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   const isLoadingProject = ref(false)
 
   watch([activeProjectId, projectReload], async ([projectId, reload], [prevProjectId, previousReload]) => {
+    if (suppressNextSelectionGuard) { suppressNextSelectionGuard = false; return }
+    const proposalDraft = useProposalDraftStore()
+    if (prevProjectId && projectId !== prevProjectId &&
+        !proposalDraft.canLeave(() => { activeProjectId.value = projectId })) {
+      suppressNextSelectionGuard = true
+      activeProjectId.value = prevProjectId
+      return
+    }
     if (reload !== previousReload) flushAllDirtyDrafts()
-    if (suppressNextSelectionGuard) {
-      suppressNextSelectionGuard = false
-    } else if (prevProjectId && reload === previousReload) {
+    if (prevProjectId && reload === previousReload) {
       // Drafts still hold the outgoing project's values at this point.
       const leaving: Array<[string, string, unknown]> = [
         [useProposalDraftStore().scopeKey, 'AI 草稿', useProposalDraftStore().snapshot()],
@@ -150,7 +159,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         [narrative.factScopeKey(prevProjectId, narrative.activeFactId), '时态事实表单', narrative.factDraft],
         [narrative.knowledgeScopeKey(prevProjectId, narrative.activeFactId, narrative.activeKnowledgeId), '知识状态表单', narrative.knowledgeDraft],
       ]
-      const dirtyScopes = leaving.filter(([key, , value]) => isScopeDirty(key, value))
+      const dirtyScopes = leaving.filter(([key, , value]) =>
+        !(key === proposalDraft.scopeKey && proposalDraft.leaveApproved) && isScopeDirty(key, value))
       if (dirtyScopes.length > 0) {
         if (!confirmLeaveMultiple(dirtyScopes.length)) {
           suppressNextSelectionGuard = true
@@ -347,10 +357,8 @@ export const useWorkspaceStore = defineStore('workspace', () => {
         reviews.referenceStatus = message
       })
       await Promise.all([
-        graph.loadGraphAnalysis(projectId, controller.signal),
-        snowflake.loadManuscriptProgress(projectId),
         reviews.loadPostAcceptAnalysisJobs(projectId),
-        narrative.load(projectId),
+        narrative.load(projectId, '', false),
         manuscript.loadManuscriptVolumes(projectId),
       ])
     } catch (error) {
@@ -361,6 +369,16 @@ export const useWorkspaceStore = defineStore('workspace', () => {
     } finally {
       if (!controller.signal.aborted) isLoadingProject.value = false
     }
+  })
+
+  // Expensive analysis belongs to the panel that displays it. Editing data and
+  // draft recovery remain part of the awaited project load above.
+  watch([activeSection, isLoadingProject], ([currentSection, loading]) => {
+    if (loading || !activeProjectId.value) return
+    const projectId = activeProjectId.value
+    if (currentSection === 'graph') void graph.loadGraphAnalysis(projectId, projectLoadController?.signal)
+    if (currentSection === 'graph' || currentSection === 'canon') void narrative.load(projectId, manuscript.activeSceneId)
+    if (currentSection === 'snowflake') void snowflake.loadManuscriptProgress(projectId, projectLoadController?.signal)
   })
 
   watch([activeSection, () => manuscript.activeChapterId, () => manuscript.activeSceneId], () => {

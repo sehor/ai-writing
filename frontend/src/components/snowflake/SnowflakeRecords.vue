@@ -121,10 +121,10 @@ watch(
         <p v-if="error" class="error">{{ error }}</p>
         <p v-else class="save-state">{{ status }}</p>
         <div class="button-row">
-          <button class="primary" type="button" :disabled="!recordId.trim()" @click="saveRecord">保存记录草稿</button>
+          <button class="primary" type="button" :disabled="!recordId.trim() || snowflake.isUpdatingRecord" @click="saveRecord">保存记录草稿</button>
           <template v-if="records.find((item) => item.record_id === recordId && ['draft', 'pending_review'].includes(item.status))">
-            <button class="primary" type="button" @click="decide(records.find((item) => item.record_id === recordId)!.id, 'accepted')">接受</button>
-            <button class="secondary danger" type="button" @click="decide(records.find((item) => item.record_id === recordId)!.id, 'rejected')">拒绝</button>
+            <button class="primary" type="button" :disabled="snowflake.isUpdatingRecord" @click="decide(records.find((item) => item.record_id === recordId)!.id, 'accepted')">接受</button>
+            <button class="secondary danger" type="button" :disabled="snowflake.isUpdatingRecord" @click="decide(records.find((item) => item.record_id === recordId)!.id, 'rejected')">拒绝</button>
           </template>
         </div>
       </div>

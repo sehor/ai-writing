@@ -41,15 +41,12 @@ const pending = computed(() =>
   ),
 )
 const volumeGroups = computed(() => organizeManuscript(store.manuscriptVolumes, store.manuscriptChapters, store.sceneContracts, search.value))
+const acceptedSceneIds = computed(() => new Set(store.manuscriptScenes.map(scene => scene.scene_id)))
+const pendingSceneIds = computed(() => new Set(store.manuscriptProposals.filter(p => p.status === 'pending_review').map(p => p.scene_id)))
 const currentTitle = computed(
   () => store.activeSceneContract?.title ?? '正文写作',
 )
 let restoringSelection = false
-function allowDraftLeave() {
-  if (draft.dirty && !confirmLeave(draft.scopeKey, 'AI 草稿')) return false
-  draft.persist()
-  return true
-}
 async function selectScene(id: string) {
   if (id === store.activeSceneId) {
     directoryOpen.value = false
@@ -80,7 +77,8 @@ watch(
       restoringSelection = true
       store.activeSceneId = previous?.[1] ?? ''
     }
-    if (changedScene && !allowDraftLeave()) {
+    const requestedScene = store.activeSceneId
+    if (changedScene && !draft.canLeave(() => { store.activeSceneId = requestedScene })) {
       rollback()
       return
     }
@@ -149,7 +147,7 @@ watch(
   },
 )
 function switchView(next: typeof view.value) {
-  if (next === view.value || (view.value === 'proposal' && !allowDraftLeave()))
+  if (next === view.value || (view.value === 'proposal' && !draft.canLeave(() => { view.value = next })))
     return
   view.value = next
 }
@@ -229,13 +227,10 @@ onBeforeUnmount(() => {
             "
             @click="selectScene(scene.id)"
           >
-            <span>{{ scene.title }}<small v-if="store.manuscriptScenes.some(m => m.scene_id === scene.id) && (scene.manuscript_plan_version ?? 0) < (scene.plan_version ?? 1)">规划已更新，正文待核对</small></span
+            <span>{{ scene.title }}<small v-if="acceptedSceneIds.has(scene.id) && (scene.manuscript_plan_version ?? 0) < (scene.plan_version ?? 1)">规划已更新，正文待核对</small></span
             ><small
               v-if="
-                store.manuscriptProposals.some(
-                  (p) =>
-                    p.scene_id === scene.id && p.status === 'pending_review',
-                )
+                pendingSceneIds.has(scene.id)
               "
               >待审</small
             >

@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
 import { createServer } from 'node:net'
-import { api, launchBrowser, mkTempRoot, pollUntil, reportFailure, rmTempRoot, startBackend, startVite, stopBackend, stopVite } from './lib/harness.mjs'
+import { mkdir } from 'node:fs/promises'
+import { join } from 'node:path'
+import { api, launchBrowser, mkTempRoot, pollUntil, reportFailure, rmTempRoot, startBackend, startVite, stopBackend, stopVite, REPO_ROOT } from './lib/harness.mjs'
 
 async function freePort() {
   const server = createServer()
@@ -67,12 +69,40 @@ try {
   const draft = page.getByRole('textbox', { name: 'AI 草稿正文', exact: true })
   const authored = '潮水退去，修复师在灯塔下找到旧信。她看见第二枚邮戳，决定暂时保管它。'
   await draft.fill(authored)
+  // Leaving explicitly cancels, discards, or persists only the local proposal draft.
+  await page.getByRole('button', { name: '雪花规划', exact: true }).click()
+  await page.getByRole('dialog', { name: '保存草稿后离开？' }).waitFor()
+  await mkdir(join(REPO_ROOT, '.tmp'), { recursive: true })
+  await page.screenshot({ path: join(REPO_ROOT, '.tmp', 'proposal-leave.png') })
+  await page.getByRole('button', { name: '取消', exact: true }).click()
+  assert.equal(await draft.inputValue(), authored)
+  await page.getByRole('button', { name: '雪花规划', exact: true }).click()
+  await page.getByRole('button', { name: '不保存并离开', exact: true }).click()
+  await page.getByRole('button', { name: '正文写作', exact: true }).click()
+  assert.equal(await draft.inputValue(), proposal.content)
+  await draft.fill(authored)
+  await page.getByRole('button', { name: '雪花规划', exact: true }).click()
+  await page.getByRole('button', { name: '保存草稿并离开', exact: true }).click()
+  await page.getByRole('button', { name: '正文写作', exact: true }).click()
+  assert.equal(await draft.inputValue(), authored)
   await draft.press('Control+s')
   assert.deepEqual(await client.get(`${base}/manuscript/scenes`), [])
   await page.reload()
   await draft.waitFor()
   assert.equal(await draft.inputValue(), authored)
+  let releaseAcceptance
+  const acceptanceGate = new Promise(resolve => { releaseAcceptance = resolve })
+  let sawAcceptance
+  const acceptanceStarted = new Promise(resolve => { sawAcceptance = resolve })
+  await page.route('**/manuscript/proposals/*/accept', async route => {
+    sawAcceptance(); await acceptanceGate; await route.continue()
+  })
   await page.getByRole('button', { name: '接受草稿并分析', exact: true }).click()
+  await acceptanceStarted
+  await page.getByRole('button', { name: '雪花规划', exact: true }).click()
+  assert.equal(await draft.inputValue(), authored)
+  assert.equal(await page.locator('.project-dialog-trigger').isDisabled(), true)
+  releaseAcceptance()
   const editor = page.getByRole('textbox', { name: '正文内容', exact: true })
   await editor.waitFor()
   assert.equal(await editor.inputValue(), authored)

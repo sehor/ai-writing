@@ -63,7 +63,8 @@ export const useCanonStore = defineStore('canon', () => {
     return `canon:${projectId}:${id || 'new'}`
   }
 
-  watch(canonDraft, () => queueAutosave(canonScopeKey(), () => canonDraft.value), {
+  let resetting = false
+  watch(canonDraft, () => { if (!resetting) queueAutosave(canonScopeKey(), () => canonDraft.value) }, {
     deep: true,
     flush: 'sync',
   })
@@ -72,6 +73,7 @@ export const useCanonStore = defineStore('canon', () => {
   watch(() => canonScopeKey(), () => { canonSelectionEpoch++ }, { flush: 'sync' })
 
   watch(activeCanonId, (next, prev) => {
+    if (resetting) return
     if (suppressNextSelectionGuard) {
       suppressNextSelectionGuard = false
     } else {
@@ -101,12 +103,11 @@ export const useCanonStore = defineStore('canon', () => {
           timeline_notes: selected.timeline_notes,
         }
       : createEmptyCanonDraft()
-    canonDraft.value = baselineDraft
     restoreEntryDraft<CanonDraft>(canonScopeKey(), baselineDraft, (cached) => {
       canonDraft.value = cached
     }, (message) => {
       canonStatus.value = message
-    })
+    }, true)
   }, { flush: 'sync' })
 
   function startNewCanonEntity() {
@@ -226,11 +227,13 @@ export const useCanonStore = defineStore('canon', () => {
 
   /** Drop project-scoped state before the workspace loads another project. */
   function resetProjectState() {
+    resetting = true
     canonEntities.value = []
     activeCanonId.value = ''
     canonDraft.value = createEmptyCanonDraft()
     canonError.value = ''
     canonStatus.value = ''
+    resetting = false
   }
 
   function draftSnapshotEntries(): Array<[string, () => unknown]> {

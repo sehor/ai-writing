@@ -33,7 +33,7 @@ export const useGraphStore = defineStore('graph', () => {
         throw new Error('Could not load graph analysis')
       }
       const analysis = await response.json()
-      if (!isActiveProject(projectId)) {
+      if (signal?.aborted || !isActiveProject(projectId)) {
         return
       }
       graphAnalysis.value = analysis
@@ -51,6 +51,7 @@ export const useGraphStore = defineStore('graph', () => {
 
   /** Drop project-scoped state before the workspace loads another project. */
   function resetProjectState() {
+    isLoadingGraph.value = false
     graphAnalysis.value = null
     graphError.value = ''
   }

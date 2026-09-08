@@ -35,3 +35,44 @@ test('delayed autosave cannot cross project scopes, and successful commit clears
   expect(draft.dirty).toBe(false)
   expect(loadDraft('proposal:b:p')).toBeNull()
 })
+
+for (const choice of ['save', 'discard', 'cancel'] as const) {
+  test(`leaving a proposal with ${choice} has explicit persistence semantics`, () => {
+    const draft = useProposalDraftStore()
+    draft.open('a', proposal, 0); draft.visible = true; draft.content = 'author'
+    vi.advanceTimersByTime(500)
+    const action = vi.fn(() => draft.open('a', { ...proposal, id: 'other' }, 0))
+    draft.navigate(action)
+    expect(action).not.toHaveBeenCalled()
+    expect(draft.leavePending).toBe(true)
+    draft.resolveLeave(choice)
+    if (choice === 'cancel') { expect(draft.content).toBe('author'); expect(action).not.toHaveBeenCalled(); return }
+    vi.advanceTimersByTime(500)
+    draft.open('a', proposal, 0)
+    expect(draft.content).toBe(choice === 'save' ? 'author' : proposal.content)
+  })
+}
+
+test('saving failure keeps the editor and dialog open', () => {
+  const draft = useProposalDraftStore()
+  draft.open('a', proposal, 0); draft.visible = true; draft.content = 'author'
+  const action = vi.fn(); draft.navigate(action)
+  const failure = vi.spyOn(localStorage, 'setItem').mockImplementation(() => { throw new Error('quota') })
+  draft.resolveLeave('save')
+  expect(action).not.toHaveBeenCalled(); expect(draft.leavePending).toBe(true)
+  expect(draft.leaveError).toContain('保存失败')
+  failure.mockRestore()
+})
+
+test('in-flight acceptance blocks navigation and cannot commit another session', () => {
+  const draft = useProposalDraftStore()
+  draft.open('a', proposal, 0); draft.content = 'A edit'
+  const request = draft.capture(); draft.submitting = true
+  const action = vi.fn(); draft.navigate(action)
+  expect(action).not.toHaveBeenCalled()
+  draft.open('a', { ...proposal, id: 'b' }, 0); draft.content = 'B edit'; draft.persist()
+  expect(draft.committed(request)).toBe(false)
+  expect(loadDraft('proposal:a:b')?.value).toMatchObject({ content: 'B edit' })
+  draft.open('a', proposal, 0)
+  expect(draft.committed(request)).toBe(false)
+})
