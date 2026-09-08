@@ -1,0 +1,393 @@
+{
+  "tier": "small",
+  "timestamp": "2026-09-08T00:42:18.110318+00:00",
+  "fixture": {
+    "project_id": "benchmark-20",
+    "project_title": "Benchmark 20",
+    "other_project_title": "Benchmark empty comparison",
+    "scene_count": 20,
+    "chars_per_scene": 2000,
+    "revision_count": 60,
+    "chapter_count": 2,
+    "volume_count": 1,
+    "fact_count": 20,
+    "knowledge_state_count": 60,
+    "canon_count": 4,
+    "accepted_prose_chars": 40000,
+    "accepted_prose_sha256_scene_order": "56f792c0cde32a79b5d4b096193f0a6f639110c00282ad28bf2145ab3f08295d",
+    "first_scene": "benchmark-20-s1-scene-0001",
+    "last_scene": "benchmark-20-s20-scene-0020"
+  },
+  "backend": {
+    "timings_ms": {
+      "sqlite_history_raw": {
+        "n": 5,
+        "median": 6.693,
+        "p95_nearest_rank": 7.216,
+        "max": 7.216
+      },
+      "repository_history_dto": {
+        "n": 5,
+        "median": 6.621,
+        "p95_nearest_rank": 8.028,
+        "max": 8.028
+      },
+      "repository_scene_list": {
+        "n": 5,
+        "median": 4.622,
+        "p95_nearest_rank": 5.835,
+        "max": 5.835
+      },
+      "snapshot_local_no_cognition": {
+        "n": 5,
+        "median": 54.049,
+        "p95_nearest_rank": 57.559,
+        "max": 57.559
+      },
+      "export_markdown": {
+        "n": 5,
+        "median": 21.774,
+        "p95_nearest_rank": 22.379,
+        "max": 22.379
+      },
+      "backup_export": {
+        "n": 5,
+        "median": 64.05,
+        "p95_nearest_rank": 64.894,
+        "max": 64.894
+      },
+      "backup_preview_validation": {
+        "n": 5,
+        "median": 42.19,
+        "p95_nearest_rank": 44.33,
+        "max": 44.33
+      },
+      "backup_restore": {
+        "n": 5,
+        "median": 153.264,
+        "p95_nearest_rank": 173.599,
+        "max": 173.599
+      }
+    },
+    "backup_bytes": 124631,
+    "database_bytes": 1175552,
+    "python_backup_peak_alloc_mib": 2.2,
+    "python_process_peak_rss_mib": 60.08,
+    "restored_revision_count": 60,
+    "restored_prose_sha256": "56f792c0cde32a79b5d4b096193f0a6f639110c00282ad28bf2145ab3f08295d",
+    "environment": {
+      "os": "Windows-10-10.0.19045-SP0",
+      "cpu": "Intel64 Family 6 Model 158 Stepping 10, GenuineIntel",
+      "logical_cpus": 6,
+      "python": "3.13.14",
+      "sqlite": "3.50.4"
+    },
+    "scope": "Warm local repository/service measurements. Python RSS includes seed+warmups; no dispatcher, model, module attachments, or disk-cold IO."
+  },
+  "protocol_version": 2,
+  "http": {
+    "scenes": {
+      "response_ms": {
+        "n": 5,
+        "median": 13.185,
+        "p95_nearest_rank": 14.52,
+        "max": 14.52
+      },
+      "bytes": 11183,
+      "node_json_parse_ms": {
+        "n": 5,
+        "median": 0.061,
+        "p95_nearest_rank": 0.077,
+        "max": 0.077
+      }
+    },
+    "history": {
+      "response_ms": {
+        "n": 5,
+        "median": 15.621,
+        "p95_nearest_rank": 17.537,
+        "max": 17.537
+      },
+      "bytes": 373007,
+      "node_json_parse_ms": {
+        "n": 5,
+        "median": 1.876,
+        "p95_nearest_rank": 2.439,
+        "max": 2.439
+      }
+    },
+    "prose": {
+      "response_ms": {
+        "n": 5,
+        "median": 12.02,
+        "p95_nearest_rank": 16.466,
+        "max": 16.466
+      },
+      "bytes": 124343,
+      "node_json_parse_ms": {
+        "n": 5,
+        "median": 0.558,
+        "p95_nearest_rank": 0.707,
+        "max": 0.707
+      }
+    },
+    "export": {
+      "response_ms": {
+        "n": 5,
+        "median": 29.464,
+        "p95_nearest_rank": 30.314,
+        "max": 30.314
+      },
+      "bytes": 120524,
+      "node_json_parse_ms": {
+        "n": 5,
+        "median": 0.561,
+        "p95_nearest_rank": 0.573,
+        "max": 0.573
+      }
+    },
+    "backup": {
+      "response_ms": {
+        "n": 5,
+        "median": 61.415,
+        "p95_nearest_rank": 62.437,
+        "max": 62.437
+      },
+      "bytes": 124631
+    }
+  },
+  "browser": {
+    "boot_dev_server": {
+      "elapsed_ms": {
+        "n": 1,
+        "median": 932.78,
+        "p95_nearest_rank": 932.78,
+        "max": 932.78
+      },
+      "script_ms": {
+        "n": 1,
+        "median": 43.949,
+        "p95_nearest_rank": 43.949,
+        "max": 43.949
+      },
+      "layout_ms": {
+        "n": 1,
+        "median": 77.111,
+        "p95_nearest_rank": 77.111,
+        "max": 77.111
+      },
+      "task_ms": {
+        "n": 1,
+        "median": 193.827,
+        "p95_nearest_rank": 193.827,
+        "max": 193.827
+      },
+      "js_heap_mib": {
+        "n": 1,
+        "median": 5.796,
+        "p95_nearest_rank": 5.796,
+        "max": 5.796
+      }
+    },
+    "first_project_open": {
+      "elapsed_ms": {
+        "n": 1,
+        "median": 362.919,
+        "p95_nearest_rank": 362.919,
+        "max": 362.919
+      },
+      "script_ms": {
+        "n": 1,
+        "median": 1.628,
+        "p95_nearest_rank": 1.628,
+        "max": 1.628
+      },
+      "layout_ms": {
+        "n": 1,
+        "median": 57.011,
+        "p95_nearest_rank": 57.011,
+        "max": 57.011
+      },
+      "task_ms": {
+        "n": 1,
+        "median": 132.396,
+        "p95_nearest_rank": 132.396,
+        "max": 132.396
+      },
+      "js_heap_mib": {
+        "n": 1,
+        "median": 6.924,
+        "p95_nearest_rank": 6.924,
+        "max": 6.924
+      }
+    },
+    "project_switch_roundtrip": {
+      "elapsed_ms": {
+        "n": 5,
+        "median": 591.825,
+        "p95_nearest_rank": 626.775,
+        "max": 626.775
+      },
+      "script_ms": {
+        "n": 5,
+        "median": 1.104,
+        "p95_nearest_rank": 1.407,
+        "max": 1.407
+      },
+      "layout_ms": {
+        "n": 5,
+        "median": 6.415,
+        "p95_nearest_rank": 12.609,
+        "max": 12.609
+      },
+      "task_ms": {
+        "n": 5,
+        "median": 79.372,
+        "p95_nearest_rank": 99.659,
+        "max": 99.659
+      },
+      "js_heap_mib": {
+        "n": 5,
+        "median": 10.75,
+        "p95_nearest_rank": 11.179,
+        "max": 11.179
+      }
+    },
+    "scene_switch": {
+      "elapsed_ms": {
+        "n": 5,
+        "median": 79.966,
+        "p95_nearest_rank": 82.922,
+        "max": 82.922
+      },
+      "script_ms": {
+        "n": 5,
+        "median": 0.591,
+        "p95_nearest_rank": 1.422,
+        "max": 1.422
+      },
+      "layout_ms": {
+        "n": 5,
+        "median": 1.516,
+        "p95_nearest_rank": 1.829,
+        "max": 1.829
+      },
+      "task_ms": {
+        "n": 5,
+        "median": 14.01,
+        "p95_nearest_rank": 16.176,
+        "max": 16.176
+      },
+      "js_heap_mib": {
+        "n": 5,
+        "median": 10.984,
+        "p95_nearest_rank": 11.438,
+        "max": 11.438
+      }
+    },
+    "history_panel_open": {
+      "elapsed_ms": {
+        "n": 5,
+        "median": 80.101,
+        "p95_nearest_rank": 98.321,
+        "max": 98.321
+      },
+      "script_ms": {
+        "n": 5,
+        "median": 0.168,
+        "p95_nearest_rank": 0.33,
+        "max": 0.33
+      },
+      "layout_ms": {
+        "n": 5,
+        "median": 6.521,
+        "p95_nearest_rank": 23.305,
+        "max": 23.305
+      },
+      "task_ms": {
+        "n": 5,
+        "median": 30.293,
+        "p95_nearest_rank": 50.261,
+        "max": 50.261
+      },
+      "js_heap_mib": {
+        "n": 5,
+        "median": 11.621,
+        "p95_nearest_rank": 11.856,
+        "max": 11.856
+      }
+    },
+    "history_first_text": {
+      "elapsed_ms": {
+        "n": 5,
+        "median": 288.292,
+        "p95_nearest_rank": 291.132,
+        "max": 291.132
+      },
+      "script_ms": {
+        "n": 5,
+        "median": 0.562,
+        "p95_nearest_rank": 0.819,
+        "max": 0.819
+      },
+      "layout_ms": {
+        "n": 5,
+        "median": 1.946,
+        "p95_nearest_rank": 2.402,
+        "max": 2.402
+      },
+      "task_ms": {
+        "n": 5,
+        "median": 41.366,
+        "p95_nearest_rank": 52.331,
+        "max": 52.331
+      },
+      "js_heap_mib": {
+        "n": 5,
+        "median": 7.53,
+        "p95_nearest_rank": 13.246,
+        "max": 13.246
+      }
+    }
+  },
+  "browser_version": "148.0.7778.96",
+  "host": {
+    "os": "win32 10.0.19045",
+    "cpu": "Intel(R) Core(TM) i5-9400F CPU @ 2.90GHz",
+    "logical_cpus": 6,
+    "ram_gib": 31.94,
+    "node": "v22.16.0"
+  },
+  "browser_api_resources": {
+    "count": 167,
+    "slowest": [
+      {
+        "duration": 115.29999995231628,
+        "path": "/api/projects/benchmark-20/manuscript/revisions"
+      },
+      {
+        "duration": 110.5,
+        "path": "/api/projects/benchmark-20/references/suggestions"
+      },
+      {
+        "duration": 109.70000004768372,
+        "path": "/api/projects/benchmark-20/manuscript/scenes"
+      },
+      {
+        "duration": 108.40000009536743,
+        "path": "/api/projects/benchmark-20/snowflake/steps"
+      },
+      {
+        "duration": 105.90000009536743,
+        "path": "/api/projects/benchmark-20/writeback/proposals"
+      }
+    ]
+  },
+  "limits_verified": {
+    "sequence_1000": 422,
+    "prose_40001": 422,
+    "scene_count_not_truncated": true,
+    "history_count_not_truncated": true
+  },
+  "caveat": "Vite dev server and isolated headless Chromium, no CPU throttling. CDP durations are main-thread costs, not elapsed-minus-network estimates. Repeated project switching is a two-project round trip. n=5 p95 is sample maximum, not a population SLA."
+}

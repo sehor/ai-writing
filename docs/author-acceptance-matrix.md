@@ -34,11 +34,13 @@
 
 卷层级（AUD-21）已实现并验证：[manuscript-volumes.e2e.mjs](../e2e/manuscript-volumes.e2e.mjs)、[test_manuscript_volumes.py](../backend/tests/test_manuscript_volumes.py) 证明归卷、稳定导出、旧备份恢复、删卷不删正文。它是组织能力，不更改故事时点。
 
-性能测量（AUD-22）已完成：[longform-benchmark.mjs](../e2e/longform-benchmark.mjs)、[test_longform_benchmark.py](../backend/tests/test_longform_benchmark.py) 和 [固定基线](./performance-baseline.md)。20/200/999档验证完整性及超限错误，**999档历史面板明显慢**；优化为 [PERF-01/02后续项](./performance-followups.md)，不把“建立基线”写成“性能优化完成”。分页、按需加载、长时间内存与更大历史/附件负载属于后续范围，不新增为本轮本地MVP功能阻断。
+性能测量（AUD-22）与 2026-09-08 的后续优化分别有证据：[原始基线](./performance-baseline.md)、[最新修复结果](./issues/2026-09-07-review/FIX-RESULT-2026-09-08.md)。20/200/999 档均验证完整性及超限错误；当前 999 档历史面板中位 214ms、场景切换 80ms、项目往返 1.46 秒，满足 [PERF-01/02](./performance-followups.md) 的同机预算。历史前端分页、按需渲染与跨页版本选择已实现；服务端分页、长时间内存与更多历史/附件仍属后续范围。
 
 实际付费模型/真实CLP效果、真实作者项目验收、生产构建性能、Linux远端Actions尚未验证。可选模型效果方案及未执行记录见 [analysis-capabilities-and-acceptance.md](./analysis-capabilities-and-acceptance.md)。高级图形化、完整Redo栈和多作者协作没有本轮完成承诺。
 
 ## 可执行门禁与证据口径
+
+**2026-09-08 更新：** P1 接受响应隔离、离开三选项和 P2 缓存撤回已补修。364 后端测试、33 Node＋125 Vitest、lint/build、完整 7 条 E2E 与 Step 8 额外连续 5 次通过；三档性能结果及新增回归见 [修复结果](./issues/2026-09-07-review/FIX-RESULT-2026-09-08.md)。以下保留前一日的验收记录。
 
 **最终本机验收记录（2026-09-07）：** backend全量364项unittest通过；全backend Ruff check/format及app/scripts compileall通过。前端33项Node检查+112项Vitest、lint、生产build及当前7条真实E2E全部通过。`pnpm test:perf` small入口通过，三档固定性能测量与其慢项见上文。无真实付费调用、无真实作者数据；没有远端Actions执行结果。
 

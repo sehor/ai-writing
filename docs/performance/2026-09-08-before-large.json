@@ -1,0 +1,361 @@
+{
+  "tier": "large",
+  "timestamp": "2026-09-08T00:13:44.065452+00:00",
+  "fixture": {
+    "project_id": "benchmark-999",
+    "project_title": "Benchmark 999",
+    "other_project_title": "Benchmark empty comparison",
+    "scene_count": 999,
+    "chars_per_scene": 2000,
+    "revision_count": 2997,
+    "chapter_count": 100,
+    "volume_count": 5,
+    "fact_count": 999,
+    "knowledge_state_count": 2997,
+    "canon_count": 199,
+    "accepted_prose_chars": 1998000,
+    "accepted_prose_sha256_scene_order": "7aae583605d85c7ec408b43f4895ab0eab4a709f340559e09bfcadc3b775f9e0",
+    "first_scene": "benchmark-999-s1-scene-0001",
+    "last_scene": "benchmark-999-s999-scene-0999"
+  },
+  "backend": {
+    "timings_ms": {
+      "sqlite_history_raw": {
+        "n": 5,
+        "median": 256.156,
+        "p95_nearest_rank": 577.347,
+        "max": 577.347
+      },
+      "repository_history_dto": {
+        "n": 5,
+        "median": 243.017,
+        "p95_nearest_rank": 254.081,
+        "max": 254.081
+      },
+      "repository_scene_list": {
+        "n": 5,
+        "median": 22.301,
+        "p95_nearest_rank": 47.881,
+        "max": 47.881
+      },
+      "snapshot_local_no_cognition": {
+        "n": 5,
+        "median": 229.65,
+        "p95_nearest_rank": 288.345,
+        "max": 288.345
+      },
+      "export_markdown": {
+        "n": 5,
+        "median": 165.367,
+        "p95_nearest_rank": 170.553,
+        "max": 170.553
+      },
+      "backup_export": {
+        "n": 5,
+        "median": 2834.795,
+        "p95_nearest_rank": 2962.281,
+        "max": 2962.281
+      },
+      "backup_preview_validation": {
+        "n": 5,
+        "median": 798.705,
+        "p95_nearest_rank": 845.03,
+        "max": 845.03
+      },
+      "backup_restore": {
+        "n": 5,
+        "median": 3538.207,
+        "p95_nearest_rank": 4932.206,
+        "max": 4932.206
+      }
+    },
+    "backup_bytes": 5963788,
+    "database_bytes": 39182336,
+    "python_backup_peak_alloc_mib": 110.09,
+    "python_process_peak_rss_mib": 205.21,
+    "restored_revision_count": 2997,
+    "restored_prose_sha256": "7aae583605d85c7ec408b43f4895ab0eab4a709f340559e09bfcadc3b775f9e0",
+    "environment": {
+      "os": "Windows-10-10.0.19045-SP0",
+      "cpu": "Intel64 Family 6 Model 158 Stepping 10, GenuineIntel",
+      "logical_cpus": 6,
+      "python": "3.13.14",
+      "sqlite": "3.50.4"
+    },
+    "scope": "Warm local repository/service measurements. Python RSS includes seed+warmups; no dispatcher, model, module attachments, or disk-cold IO."
+  },
+  "protocol_version": 2,
+  "http": {
+    "scenes": {
+      "response_ms": {
+        "n": 5,
+        "median": 52.775,
+        "p95_nearest_rank": 96.822,
+        "max": 96.822
+      },
+      "bytes": 565138,
+      "node_json_parse_ms": {
+        "n": 5,
+        "median": 2.964,
+        "p95_nearest_rank": 4.057,
+        "max": 4.057
+      }
+    },
+    "history": {
+      "response_ms": {
+        "n": 5,
+        "median": 486.186,
+        "p95_nearest_rank": 1095.93,
+        "max": 1095.93
+      },
+      "bytes": 18648685,
+      "node_json_parse_ms": {
+        "n": 5,
+        "median": 109.843,
+        "p95_nearest_rank": 399.632,
+        "max": 399.632
+      }
+    },
+    "prose": {
+      "response_ms": {
+        "n": 5,
+        "median": 553.114,
+        "p95_nearest_rank": 818.942,
+        "max": 818.942
+      },
+      "bytes": 6216562,
+      "node_json_parse_ms": {
+        "n": 5,
+        "median": 30.592,
+        "p95_nearest_rank": 35.91,
+        "max": 35.91
+      }
+    },
+    "export": {
+      "response_ms": {
+        "n": 5,
+        "median": 307.063,
+        "p95_nearest_rank": 384.715,
+        "max": 384.715
+      },
+      "bytes": 6012345,
+      "node_json_parse_ms": {
+        "n": 5,
+        "median": 29.985,
+        "p95_nearest_rank": 31.184,
+        "max": 31.184
+      }
+    },
+    "backup": {
+      "response_ms": {
+        "n": 5,
+        "median": 4914.68,
+        "p95_nearest_rank": 5669.142,
+        "max": 5669.142
+      },
+      "bytes": 5963788
+    }
+  },
+  "browser": {
+    "boot_dev_server": {
+      "elapsed_ms": {
+        "n": 1,
+        "median": 1155.505,
+        "p95_nearest_rank": 1155.505,
+        "max": 1155.505
+      },
+      "script_ms": {
+        "n": 1,
+        "median": 48.179,
+        "p95_nearest_rank": 48.179,
+        "max": 48.179
+      },
+      "layout_ms": {
+        "n": 1,
+        "median": 106.927,
+        "p95_nearest_rank": 106.927,
+        "max": 106.927
+      },
+      "task_ms": {
+        "n": 1,
+        "median": 232.576,
+        "p95_nearest_rank": 232.576,
+        "max": 232.576
+      },
+      "js_heap_mib": {
+        "n": 1,
+        "median": 5.797,
+        "p95_nearest_rank": 5.797,
+        "max": 5.797
+      }
+    },
+    "first_project_open": {
+      "elapsed_ms": {
+        "n": 1,
+        "median": 4915.836,
+        "p95_nearest_rank": 4915.836,
+        "max": 4915.836
+      },
+      "script_ms": {
+        "n": 1,
+        "median": 1.919,
+        "p95_nearest_rank": 1.919,
+        "max": 1.919
+      },
+      "layout_ms": {
+        "n": 1,
+        "median": 298.412,
+        "p95_nearest_rank": 298.412,
+        "max": 298.412
+      },
+      "task_ms": {
+        "n": 1,
+        "median": 2734.426,
+        "p95_nearest_rank": 2734.426,
+        "max": 2734.426
+      },
+      "js_heap_mib": {
+        "n": 1,
+        "median": 35.701,
+        "p95_nearest_rank": 35.701,
+        "max": 35.701
+      }
+    },
+    "project_switch_roundtrip": {
+      "elapsed_ms": {
+        "n": 5,
+        "median": 3686.528,
+        "p95_nearest_rank": 6292.94,
+        "max": 6292.94
+      },
+      "script_ms": {
+        "n": 5,
+        "median": 1.611,
+        "p95_nearest_rank": 2.508,
+        "max": 2.508
+      },
+      "layout_ms": {
+        "n": 5,
+        "median": 28.579,
+        "p95_nearest_rank": 78.621,
+        "max": 78.621
+      },
+      "task_ms": {
+        "n": 5,
+        "median": 2517.378,
+        "p95_nearest_rank": 3323.804,
+        "max": 3323.804
+      },
+      "js_heap_mib": {
+        "n": 5,
+        "median": 34.481,
+        "p95_nearest_rank": 62.306,
+        "max": 62.306
+      }
+    },
+    "scene_switch": {
+      "elapsed_ms": {
+        "n": 5,
+        "median": 844.847,
+        "p95_nearest_rank": 1342.128,
+        "max": 1342.128
+      },
+      "script_ms": {
+        "n": 5,
+        "median": 0.71,
+        "p95_nearest_rank": 1.985,
+        "max": 1.985
+      },
+      "layout_ms": {
+        "n": 5,
+        "median": 0.992,
+        "p95_nearest_rank": 1.363,
+        "max": 1.363
+      },
+      "task_ms": {
+        "n": 5,
+        "median": 798.201,
+        "p95_nearest_rank": 1045.949,
+        "max": 1045.949
+      },
+      "js_heap_mib": {
+        "n": 5,
+        "median": 38.269,
+        "p95_nearest_rank": 64.578,
+        "max": 64.578
+      }
+    },
+    "history_panel_open": {
+      "elapsed_ms": {
+        "n": 5,
+        "median": 5658.259,
+        "p95_nearest_rank": 26025.898,
+        "max": 26025.898
+      },
+      "script_ms": {
+        "n": 5,
+        "median": 0.323,
+        "p95_nearest_rank": 16.255,
+        "max": 16.255
+      },
+      "layout_ms": {
+        "n": 5,
+        "median": 2896.915,
+        "p95_nearest_rank": 3183.109,
+        "max": 3183.109
+      },
+      "task_ms": {
+        "n": 5,
+        "median": 5156.482,
+        "p95_nearest_rank": 25880.161,
+        "max": 25880.161
+      },
+      "js_heap_mib": {
+        "n": 5,
+        "median": 35.126,
+        "p95_nearest_rank": 47.5,
+        "max": 47.5
+      }
+    }
+  },
+  "browser_version": "148.0.7778.96",
+  "host": {
+    "os": "win32 10.0.19045",
+    "cpu": "Intel(R) Core(TM) i5-9400F CPU @ 2.90GHz",
+    "logical_cpus": 6,
+    "ram_gib": 31.94,
+    "node": "v22.16.0"
+  },
+  "browser_api_resources": {
+    "count": 168,
+    "slowest": [
+      {
+        "duration": 2831.8000000715256,
+        "path": "/api/projects/benchmark-999/snowflake/manuscript-progress"
+      },
+      {
+        "duration": 2688.2000000476837,
+        "path": "/api/projects/benchmark-999/manuscript/revisions"
+      },
+      {
+        "duration": 2365.2000000476837,
+        "path": "/api/projects/benchmark-999/snowflake/manuscript-progress"
+      },
+      {
+        "duration": 2255.7999999523163,
+        "path": "/api/projects/benchmark-999/narrative/director"
+      },
+      {
+        "duration": 2244.600000023842,
+        "path": "/api/projects/benchmark-999/narrative/director"
+      }
+    ]
+  },
+  "limits_verified": {
+    "sequence_1000": 422,
+    "prose_40001": 422,
+    "scene_count_not_truncated": true,
+    "history_count_not_truncated": true
+  },
+  "caveat": "Vite dev server and isolated headless Chromium, no CPU throttling. CDP durations are main-thread costs, not elapsed-minus-network estimates. Repeated project switching is a two-project round trip. n=5 p95 is sample maximum, not a population SLA."
+}

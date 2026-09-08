@@ -91,7 +91,7 @@ Status reviewed on **2026-09-07**. The current evidence and remaining limits are
 
 The current workbench includes complete generation review material, versioned selection-based Copilot help and guarded local apply/undo, author-maintained temporal facts and reader/character knowledge, explicit analysis execution scope, and optional non-destructive volumes. Database migration 19 preserves older projects and supported backups. See the [analysis capability contract](docs/analysis-capabilities-and-acceptance.md), [knowledge management guide](docs/narrative-maintenance-ui.md), and [volume contract](docs/manuscript-volume-contract.md).
 
-[Performance measurements](docs/performance-baseline.md) cover 20/200/999 synthetic scenes. The 999-scene fixture preserves all prose/history through backup, but opening its history panel took about 5 seconds median with a 20-second maximum sample. Do not interpret completed capacity measurement as a claim of fluent large-project interaction; [specific optimizations remain follow-up work](docs/performance-followups.md).
+[Performance measurements](docs/performance-baseline.md) cover 20/200/999 synthetic scenes. The [2026-09-08 fixes](docs/issues/2026-09-07-review/FIX-RESULT-2026-09-08.md) reduce the reference host's 999-scene history-panel median to 214ms, scene switching to 80ms, and project round trips to 1.46s while preserving all prose/history. History rendering is bounded and prose expands on demand; the complete history API is unchanged. These are local synthetic development-server measurements, not a production or arbitrary-capacity guarantee.
 
 Implemented:
 

@@ -196,6 +196,8 @@ DB-only `consistency_analysis` succeeds. Assertions:
 
 ## Known limitations
 
+2026-09-08 additions: `structured-drafting.e2e.mjs` verifies save/discard/cancel when leaving a proposal and blocks navigation during acceptance. `scene-record-update.e2e.mjs` holds a record decision response to verify compilation stays disabled until acceptance completes. The latter also passed five consecutive local runs. `longform-benchmark.mjs` checks bounded history rows/options and measures the extra action of expanding prose; `--trace` records a separate CDP trace after the timed loop, and `--check-budgets` enforces the documented reference-host large-tier budgets. See [fix results](../docs/issues/2026-09-07-review/FIX-RESULT-2026-09-08.md).
+
 - ~~Canon editor draft does not populate when selecting a list entry~~ — fixed:
   the selection watcher now applies the entity baseline before restoring any cached
   draft (`frontend/src/stores/canon.ts`).
